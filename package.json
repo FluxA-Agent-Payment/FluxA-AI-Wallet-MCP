@@ -1,13 +1,35 @@
 {
-  "name": "fluxa-ai-wallet-mcp",
+  "name": "@fluxa-pay/fluxa-wallet-mcp",
   "version": "0.1.0",
-  "private": true,
   "description": "MCP server for AI Wallet with x402 (EIP-3009 exact) support",
   "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "dev": "tsx src/index.ts",
     "build": "tsc -p tsconfig.json",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "mcp",
+    "ai-wallet",
+    "x402",
+    "eip-3009",
+    "payment",
+    "blockchain",
+    "fluxa",
+    "model-context-protocol"
+  ],
+  "author": "FluxA Dev <dev@fluxapay.xyz>",
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=18.0.0"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.2.0",
