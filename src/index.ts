@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { startMcpServer } from './mcp/server.js';
 import { loadConfig, ensureDataDirs } from './store/store.js';
 
