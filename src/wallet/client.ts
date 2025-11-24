@@ -179,7 +179,7 @@ export async function createPayout(
 export async function getPayoutStatus(
   payoutId: string
 ): Promise<PayoutResponse> {
-  const url = `${WALLET_APP}/api/payouts/${encodeURIComponent(payoutId)}`;
+  const url = `${WALLET_API}/api/payouts/${encodeURIComponent(payoutId)}`;
 
   const response = await fetch(url, { method: 'GET' });
   const text = await response.text();
