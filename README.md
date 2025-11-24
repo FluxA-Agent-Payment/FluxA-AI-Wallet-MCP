@@ -204,7 +204,58 @@ Generate an x402 payment authorization by calling FluxA Wallet API.
 }
 ```
 
-### 3. `get_agent_status`
+### 3. `request_payout`
+
+Create a payout via FluxA Wallet API.
+
+Notes:
+- Amount must be provided in smallest units (e.g., USDC has 6 decimals, so `10000` = 0.01 USDC)
+- Network, currency, and asset are hardcoded to Base mainnet USDC inside MCP (no need to pass them)
+- `payout_id` is required and must be provided by the caller (idempotency key)
+
+**Input:**
+```json
+{
+  "to_address": "0x4eb5b229d43c30fc629d92bf7ed415d6d7f0cabe",
+  "amount": "10000",
+  "payout_id": "payout-test-017"
+}
+```
+
+**Output (Pending Authorization):**
+```json
+{
+  "payoutId": "payout-test-017",
+  "status": "pending_authorization",
+  "txHash": null,
+  "approvalUrl": "http://localhost:3000/authorize-payout/payout-test-017",
+  "expiresAt": 1763914398
+}
+```
+
+If the payoutId already exists, status might be `succeeded` and include `txHash`.
+
+### 4. `get_payout_status`
+
+Query payout status from the Wallet App public endpoint. This is useful after authorizing a payout in the browser.
+
+**Input:**
+```json
+{
+  "payout_id": "payout-test-017"
+}
+```
+
+**Output:**
+```json
+{
+  "payoutId": "payout-test-017",
+  "status": "succeeded",
+  "txHash": "0x..."
+}
+```
+
+### 5. `get_agent_status`
 
 Query the current Agent ID configuration status.
 
@@ -312,6 +363,8 @@ MCP Server (stdio)
 └── MCP Tools
     ├── init_agent_id
     ├── request_x402_payment
+    ├── request_payout
+    ├── get_payout_status
     └── get_agent_status
 ```
 

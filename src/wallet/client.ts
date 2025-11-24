@@ -5,6 +5,7 @@
 
 const AGENT_ID_API = process.env.AGENT_ID_API || 'https://agentid.fluxapay.xyz';
 const WALLET_API = process.env.WALLET_API || 'https://walletapi.fluxapay.xyz';
+const WALLET_APP = process.env.WALLET_APP || 'https://wallet.fluxapay.xyz';
 
 // JWT expiry buffer: refresh if expiring within 5 minutes
 const JWT_EXPIRY_BUFFER_SECONDS = 300;
@@ -49,6 +50,26 @@ export class WalletApiError extends Error {
     this.status = status;
     this.details = details;
   }
+}
+
+export interface PayoutRequest {
+  agentId: string;
+  toAddress: string;
+  amount: string; // smallest unit string
+  currency: string; // e.g., 'USDC'
+  network: string; // e.g., 'base'
+  assetAddress: string; // token contract address
+  payoutId: string; // idempotency key provided by caller
+}
+
+export interface PayoutResponse {
+  payoutId: string;
+  status: string; // e.g., 'pending_authorization' | 'succeeded' | 'failed' | ...
+  txHash: string | null;
+  approvalUrl?: string;
+  expiresAt?: number;
+  // allow unknown fields as well
+  [key: string]: any;
 }
 
 /**
@@ -118,6 +139,72 @@ export async function requestX402Payment(
   }
 
   return responseText;
+}
+
+/**
+ * Create a payout via FluxA Wallet API
+ */
+export async function createPayout(
+  params: PayoutRequest,
+  jwt: string
+): Promise<PayoutResponse> {
+  const url = `${WALLET_API}/api/payouts`;
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${jwt}`,
+      'x-agent-id': params.agentId,
+    },
+    body: JSON.stringify(params),
+  });
+
+  const text = await response.text();
+
+  if (!response.ok) {
+    throw new WalletApiError(text || `Wallet API request failed (${response.status})`, response.status, text || null);
+  }
+
+  try {
+    return JSON.parse(text) as PayoutResponse;
+  } catch (e) {
+    throw new WalletApiError('Invalid payout API response (not JSON)', response.status, text);
+  }
+}
+
+/**
+ * Query payout status from Wallet App public endpoint
+ */
+export async function getPayoutStatus(
+  payoutId: string,
+  base?: string
+): Promise<PayoutResponse> {
+  const appBase = (base || WALLET_APP).replace(/\/$/, '');
+  const url = `${appBase}/payouts/${encodeURIComponent(payoutId)}`;
+
+  const response = await fetch(url, { method: 'GET' });
+  const text = await response.text();
+
+  if (!response.ok) {
+    throw new WalletApiError(text || `Wallet App status request failed (${response.status})`, response.status, text || null);
+  }
+
+  // Some dev servers may append stray characters (e.g., '%'). Try a lenient parse.
+  try {
+    return JSON.parse(text) as PayoutResponse;
+  } catch {
+    const end = Math.max(text.lastIndexOf('}'), text.lastIndexOf(']'));
+    if (end >= 0) {
+      const sliced = text.slice(0, end + 1);
+      try {
+        return JSON.parse(sliced) as PayoutResponse;
+      } catch {
+        // fallthrough
+      }
+    }
+    throw new WalletApiError('Invalid payout status response (not JSON)', response.status, text);
+  }
 }
 
 /**

@@ -9,7 +9,7 @@ async function main() {
   // Start MCP server (non-blocking)
   const mcp = await startMcpServer();
   console.error('[mcp] FluxA AI Wallet MCP server started');
-  console.error('[mcp] Tools available: init_agent_id, request_x402_payment, get_agent_status');
+  console.error('[mcp] Tools available: init_agent_id, request_x402_payment, request_payout, get_payout_status, get_agent_status');
 }
 
 main().catch((err) => {
