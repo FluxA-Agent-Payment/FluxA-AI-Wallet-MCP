@@ -177,11 +177,9 @@ export async function createPayout(
  * Query payout status from Wallet App public endpoint
  */
 export async function getPayoutStatus(
-  payoutId: string,
-  base?: string
+  payoutId: string
 ): Promise<PayoutResponse> {
-  const appBase = (base || WALLET_APP).replace(/\/$/, '');
-  const url = `${appBase}/payouts/${encodeURIComponent(payoutId)}`;
+  const url = `${WALLET_APP}/api/payouts/${encodeURIComponent(payoutId)}`;
 
   const response = await fetch(url, { method: 'GET' });
   const text = await response.text();
