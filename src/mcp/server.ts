@@ -3,6 +3,8 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { registerRequestX402PaymentTool } from './tools/requestX402Payment.js';
 import { registerInitAgentIdTool } from './tools/initAgentId.js';
 import { registerGetAgentStatusTool } from './tools/getAgentStatus.js';
+import { registerGetPayoutStatusTool } from './tools/getPayoutStatus.js';
+import { registerRequestPayoutTool } from './tools/requestPayout.js';
 
 export async function startMcpServer() {
   const server = new McpServer({
@@ -17,6 +19,8 @@ export async function startMcpServer() {
   registerInitAgentIdTool(server);
   registerRequestX402PaymentTool(server);
   registerGetAgentStatusTool(server);
+  registerRequestPayoutTool(server);
+  registerGetPayoutStatusTool(server);
 
   const transport = new StdioServerTransport();
   await server.connect(transport);
