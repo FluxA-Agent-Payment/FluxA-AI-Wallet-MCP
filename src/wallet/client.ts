@@ -454,6 +454,242 @@ export async function requestX402V3Payment(
   }
 }
 
+// ==================== Payment Link APIs ====================
+
+export interface CreatePaymentLinkRequest {
+  amount: string;         // atomic units
+  currency?: string;      // default "USDC"
+  network?: string;       // "base" | "base-sepolia"
+  description?: string;
+  resourceContent?: string;
+  expiresAt?: string;     // ISO 8601
+  maxUses?: number;
+}
+
+export interface PaymentLinkResponse {
+  id: number;
+  linkId: string;
+  amount: string;
+  currency: string;
+  network: string;
+  payTo: string;
+  assetAddress: string;
+  scheme: string;
+  description: string;
+  resourceContent: string;
+  status: string;
+  expiresAt: string | null;
+  maxUses: number | null;
+  useCount: number;
+  url: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UpdatePaymentLinkRequest {
+  description?: string;
+  resourceContent?: string;
+  status?: 'active' | 'disabled';
+  expiresAt?: string | null;
+  maxUses?: number | null;
+}
+
+export interface PaymentLinkPayment {
+  id: number;
+  payerAddress: string;
+  amount: string;
+  currency: string;
+  settlementStatus: string;
+  settlementTxHash: string | null;
+  createdAt: string;
+}
+
+/**
+ * Create a payment link
+ */
+export async function createPaymentLink(
+  params: CreatePaymentLinkRequest,
+  jwt: string
+): Promise<{ success: boolean; paymentLink: PaymentLinkResponse }> {
+  const url = `${WALLET_API}/api/payment-links`;
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${jwt}`,
+    },
+    body: JSON.stringify(params),
+  });
+
+  const text = await response.text();
+
+  if (!response.ok) {
+    throw new WalletApiError(text || `Create payment link failed (${response.status})`, response.status, text || null);
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new WalletApiError('Invalid create payment link response (not JSON)', response.status, text);
+  }
+}
+
+/**
+ * List payment links
+ */
+export async function listPaymentLinks(
+  jwt: string,
+  limit?: number
+): Promise<{ paymentLinks: PaymentLinkResponse[] }> {
+  const params = new URLSearchParams();
+  if (limit !== undefined) params.set('limit', String(limit));
+  const qs = params.toString();
+  const url = `${WALLET_API}/api/payment-links${qs ? `?${qs}` : ''}`;
+
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: {
+      'Authorization': `Bearer ${jwt}`,
+    },
+  });
+
+  const text = await response.text();
+
+  if (!response.ok) {
+    throw new WalletApiError(text || `List payment links failed (${response.status})`, response.status, text || null);
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new WalletApiError('Invalid list payment links response (not JSON)', response.status, text);
+  }
+}
+
+/**
+ * Get payment link details
+ */
+export async function getPaymentLink(
+  linkId: string,
+  jwt: string
+): Promise<{ paymentLink: PaymentLinkResponse }> {
+  const url = `${WALLET_API}/api/payment-links/${encodeURIComponent(linkId)}`;
+
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: {
+      'Authorization': `Bearer ${jwt}`,
+    },
+  });
+
+  const text = await response.text();
+
+  if (!response.ok) {
+    throw new WalletApiError(text || `Get payment link failed (${response.status})`, response.status, text || null);
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new WalletApiError('Invalid get payment link response (not JSON)', response.status, text);
+  }
+}
+
+/**
+ * Update a payment link
+ */
+export async function updatePaymentLink(
+  linkId: string,
+  params: UpdatePaymentLinkRequest,
+  jwt: string
+): Promise<{ success: boolean; paymentLink: PaymentLinkResponse }> {
+  const url = `${WALLET_API}/api/payment-links/${encodeURIComponent(linkId)}`;
+
+  const response = await fetch(url, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${jwt}`,
+    },
+    body: JSON.stringify(params),
+  });
+
+  const text = await response.text();
+
+  if (!response.ok) {
+    throw new WalletApiError(text || `Update payment link failed (${response.status})`, response.status, text || null);
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new WalletApiError('Invalid update payment link response (not JSON)', response.status, text);
+  }
+}
+
+/**
+ * Delete a payment link
+ */
+export async function deletePaymentLink(
+  linkId: string,
+  jwt: string
+): Promise<{ success: boolean; message: string }> {
+  const url = `${WALLET_API}/api/payment-links/${encodeURIComponent(linkId)}`;
+
+  const response = await fetch(url, {
+    method: 'DELETE',
+    headers: {
+      'Authorization': `Bearer ${jwt}`,
+    },
+  });
+
+  const text = await response.text();
+
+  if (!response.ok) {
+    throw new WalletApiError(text || `Delete payment link failed (${response.status})`, response.status, text || null);
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new WalletApiError('Invalid delete payment link response (not JSON)', response.status, text);
+  }
+}
+
+/**
+ * Get payments for a payment link
+ */
+export async function getPaymentLinkPayments(
+  linkId: string,
+  jwt: string,
+  limit?: number
+): Promise<{ payments: PaymentLinkPayment[] }> {
+  const params = new URLSearchParams();
+  if (limit !== undefined) params.set('limit', String(limit));
+  const qs = params.toString();
+  const url = `${WALLET_API}/api/payment-links/${encodeURIComponent(linkId)}/payments${qs ? `?${qs}` : ''}`;
+
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: {
+      'Authorization': `Bearer ${jwt}`,
+    },
+  });
+
+  const text = await response.text();
+
+  if (!response.ok) {
+    throw new WalletApiError(text || `Get payment link payments failed (${response.status})`, response.status, text || null);
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new WalletApiError('Invalid payment link payments response (not JSON)', response.status, text);
+  }
+}
+
 export interface MandateStatusResponse {
   status: string;
   mandate?: {

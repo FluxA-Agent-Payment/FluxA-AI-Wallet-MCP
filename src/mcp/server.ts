@@ -8,6 +8,11 @@ import { registerRequestPayoutTool } from './tools/requestPayout.js';
 import { registerCreateIntentMandateTool } from './tools/createIntentMandate.js';
 import { registerGetMandateStatusTool } from './tools/getMandateStatus.js';
 import { registerRequestX402V3PaymentTool } from './tools/requestX402V3Payment.js';
+import { registerCreatePaymentLinkTool } from './tools/createPaymentLink.js';
+import { registerListPaymentLinksTool } from './tools/listPaymentLinks.js';
+import { registerGetPaymentLinkTool } from './tools/getPaymentLink.js';
+import { registerUpdatePaymentLinkTool } from './tools/updatePaymentLink.js';
+import { registerDeletePaymentLinkTool } from './tools/deletePaymentLink.js';
 
 export async function startMcpServer() {
   const server = new McpServer({
@@ -28,6 +33,12 @@ export async function startMcpServer() {
   registerCreateIntentMandateTool(server);
   registerGetMandateStatusTool(server);
   registerRequestX402V3PaymentTool(server);
+  // Payment Link tools
+  registerCreatePaymentLinkTool(server);
+  registerListPaymentLinksTool(server);
+  registerGetPaymentLinkTool(server);
+  registerUpdatePaymentLinkTool(server);
+  registerDeletePaymentLinkTool(server);
 
   const transport = new StdioServerTransport();
   await server.connect(transport);
