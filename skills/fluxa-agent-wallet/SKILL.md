@@ -1,16 +1,16 @@
 ---
-name: fluxa-wallet-cli
+name: fluxa-agent-wallet
 description: >-
-  FluxA AI Wallet integration via CLI. Enables agents to make x402 payments
+  FluxA Agent Wallet integration via CLI. Enables agents to make x402 payments
   for paid APIs, send USDC payouts to any wallet, and create payment links to receive
   payments — all through a standalone Node.js CLI tool. Use when the user asks about
   crypto payments, x402, USDC transfers, payment links, or interacting with the
-  FluxA Wallet via command line.
+  FluxA Agent Wallet.
 ---
 
-# FluxA AI Wallet (CLI)
+# FluxA Agent Wallet
 
-FluxA Wallet lets AI agents perform onchain financial operations — payments, payouts, and payment links — without managing private keys. This skill uses the **FluxA CLI** (`fluxa-cli.bundle.js`), a standalone Node.js script requiring no npm installation.
+FluxA Agent Wallet lets AI agents perform onchain financial operations — payments, payouts, and payment links — without managing private keys. This skill uses the **FluxA CLI** (`fluxa-cli.bundle.js`), a standalone Node.js script requiring no npm installation.
 
 ## Setup
 

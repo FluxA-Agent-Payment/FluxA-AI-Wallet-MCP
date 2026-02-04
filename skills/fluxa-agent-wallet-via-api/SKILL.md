@@ -1,15 +1,15 @@
 ---
-name: fluxa-wallet-api
+name: fluxa-agent-wallet-via-api
 description: >-
-  FluxA AI Wallet integration via REST API. Enables agents to make x402 payments
+  FluxA Agent Wallet integration via REST API. Enables agents to make x402 payments
   for paid APIs, send USDC payouts to any wallet, and create payment links to receive
   payments. Use when the user asks about crypto payments, x402, USDC transfers,
-  payment links, or interacting with the FluxA Wallet.
+  payment links, or interacting with the FluxA Agent Wallet via direct API calls.
 ---
 
-# FluxA AI Wallet (API)
+# FluxA Agent Wallet (via API)
 
-FluxA Wallet lets AI agents perform onchain financial operations — payments, payouts, and payment links — without managing private keys. All signing is handled server-side by FluxA Wallet; agents only need an Agent JWT to authenticate API calls.
+FluxA Agent Wallet lets AI agents perform onchain financial operations — payments, payouts, and payment links — without managing private keys. All signing is handled server-side by FluxA Wallet; agents only need an Agent JWT to authenticate API calls.
 
 ## Capabilities
 
