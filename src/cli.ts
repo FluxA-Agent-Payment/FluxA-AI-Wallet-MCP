@@ -14,6 +14,9 @@ import {
   isJWTExpired,
   extractHost,
   getCurrencyFromAsset,
+  createIntentMandate,
+  getMandateStatus,
+  requestX402V3Payment,
   type X402PaymentRequest,
 } from './wallet/client.js';
 import {
@@ -48,7 +51,10 @@ COMMANDS:
   init                      Initialize/register agent ID
   payout                    Create a payout
   payout-status             Query payout status
-  x402                      Generate x402 payment header
+  x402                      Generate x402 payment header (v1)
+  mandate-create            Create an intent mandate for x402 v3
+  mandate-status            Query mandate status
+  x402-v3                   Generate x402 v3 payment with mandate
 
 OPTIONS FOR 'init':
   --email <email>           Email address for registration
@@ -67,6 +73,20 @@ OPTIONS FOR 'payout-status':
   --id <payout_id>          Payout ID to query (required)
 
 OPTIONS FOR 'x402':
+  --payload <json>          Full x402 payment payload as JSON (required)
+
+OPTIONS FOR 'mandate-create':
+  --desc <text>             Natural language description (required)
+  --amount <amount>         Budget limit in atomic units (required)
+  --seconds <duration>      Validity duration in seconds (default: 28800 = 8 hours)
+  --category <category>     Category (default: general)
+  --currency <currency>     Currency (default: USDC)
+
+OPTIONS FOR 'mandate-status':
+  --id <mandate_id>         Mandate ID to query (required)
+
+OPTIONS FOR 'x402-v3':
+  --mandate <mandate_id>    Mandate ID (required)
   --payload <json>          Full x402 payment payload as JSON (required)
 
 ENVIRONMENT VARIABLES:
@@ -90,6 +110,12 @@ EXAMPLES:
 
   # Query payout status
   node fluxa-cli.bundle.js payout-status --id pay_001
+
+  # Create intent mandate (x402 v3)
+  node fluxa-cli.bundle.js mandate-create --desc "Spend up to 0.1 USDC for API calls" --amount 100000
+
+  # Query mandate status
+  node fluxa-cli.bundle.js mandate-status --id mand_xxxxx
 `);
 }
 
@@ -417,6 +443,205 @@ async function cmdX402(options: Record<string, string>): Promise<CommandResult> 
   }
 }
 
+// Default values for mandate creation
+const DEFAULT_MANDATE_SECONDS = 8 * 3600; // 8 hours
+const DEFAULT_MANDATE_CATEGORY = 'general';
+
+async function cmdMandateCreate(options: Record<string, string>): Promise<CommandResult> {
+  const description = options.desc;
+  const limitAmount = options.amount;
+  const validForSeconds = options.seconds;
+  const category = options.category || DEFAULT_MANDATE_CATEGORY;
+  const currency = options.currency || 'USDC';
+
+  if (!description || !limitAmount) {
+    return {
+      success: false,
+      error: 'Missing required parameters: --desc, --amount',
+    };
+  }
+
+  // Validate limitAmount is numeric
+  if (!/^\d+$/.test(limitAmount)) {
+    return {
+      success: false,
+      error: 'Amount must be a positive integer (atomic units)',
+    };
+  }
+
+  // Use default seconds if not provided
+  let seconds = DEFAULT_MANDATE_SECONDS;
+  if (validForSeconds) {
+    seconds = parseInt(validForSeconds, 10);
+    if (!Number.isFinite(seconds) || seconds <= 0) {
+      return {
+        success: false,
+        error: 'Seconds must be a positive integer',
+      };
+    }
+  }
+
+  const auth = await ensureValidJWT();
+  if (!auth) {
+    return {
+      success: false,
+      error: 'FluxA Agent ID not initialized. Run "init" first.',
+    };
+  }
+
+  try {
+    const result = await createIntentMandate(
+      {
+        intent: {
+          naturalLanguage: description,
+          category: category,
+          currency: currency,
+          limitAmount: limitAmount,
+          validForSeconds: seconds,
+          hostAllowlist: [],
+        },
+      },
+      auth.jwt
+    );
+
+    await recordAudit({
+      event: 'mandate_create',
+      mandate_id: result.mandateId,
+      limit: limitAmount,
+      seconds: seconds,
+    });
+
+    return {
+      success: result.status === 'ok',
+      data: result,
+      error: result.status !== 'ok' ? result.message : undefined,
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      error: err.message || 'Mandate creation failed',
+    };
+  }
+}
+
+async function cmdMandateStatus(options: Record<string, string>): Promise<CommandResult> {
+  const mandateId = options.id;
+
+  if (!mandateId) {
+    return {
+      success: false,
+      error: 'Missing required parameter: --id',
+    };
+  }
+
+  const auth = await ensureValidJWT();
+  if (!auth) {
+    return {
+      success: false,
+      error: 'FluxA Agent ID not initialized. Run "init" first.',
+    };
+  }
+
+  try {
+    const result = await getMandateStatus(mandateId, auth.jwt);
+
+    await recordAudit({
+      event: 'mandate_status_query',
+      mandate_id: mandateId,
+      status: result.mandate?.status,
+    });
+
+    return {
+      success: result.status === 'ok',
+      data: result,
+      error: result.status !== 'ok' ? result.message : undefined,
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      error: err.message || 'Mandate status query failed',
+    };
+  }
+}
+
+async function cmdX402V3(options: Record<string, string>): Promise<CommandResult> {
+  const mandateId = options.mandate;
+  const payloadJson = options.payload;
+
+  if (!mandateId || !payloadJson) {
+    return {
+      success: false,
+      error: 'Missing required parameters: --mandate, --payload',
+    };
+  }
+
+  let payload: any;
+  try {
+    payload = JSON.parse(payloadJson);
+  } catch {
+    return {
+      success: false,
+      error: 'Invalid JSON in --payload',
+    };
+  }
+
+  const auth = await ensureValidJWT();
+  if (!auth) {
+    return {
+      success: false,
+      error: 'FluxA Agent ID not initialized. Run "init" first.',
+    };
+  }
+
+  // Build x402 v3 payment request
+  const accept = payload.accepts?.[0];
+  if (!accept) {
+    return {
+      success: false,
+      error: 'Invalid payload: missing accepts array',
+    };
+  }
+
+  try {
+    const result = await requestX402V3Payment(
+      {
+        mandateId: mandateId,
+        scheme: accept.scheme || 'exact',
+        network: accept.network || DEFAULT_NETWORK,
+        amount: accept.maxAmountRequired || '0',
+        currency: getCurrencyFromAsset(accept.asset || DEFAULT_ASSET, accept.network || DEFAULT_NETWORK),
+        assetAddress: accept.asset || DEFAULT_ASSET,
+        payTo: accept.payTo,
+        host: extractHost(accept.resource || ''),
+        resource: accept.resource || '',
+        description: accept.description || '',
+        tokenName: accept.extra?.name || 'USD Coin',
+        tokenVersion: accept.extra?.version || '2',
+        validityWindowSeconds: accept.maxTimeoutSeconds || 60,
+      },
+      auth.jwt
+    );
+
+    await recordAudit({
+      event: 'x402_v3_payment',
+      mandate_id: mandateId,
+      resource: accept.resource,
+      amount: accept.maxAmountRequired,
+    });
+
+    return {
+      success: result.status === 'ok',
+      data: result,
+      error: result.status !== 'ok' ? result.message : undefined,
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      error: err.message || 'x402 v3 payment request failed',
+    };
+  }
+}
+
 // Main entry point
 async function main() {
   const args = process.argv.slice(2);
@@ -443,6 +668,15 @@ async function main() {
       break;
     case 'x402':
       result = await cmdX402(options);
+      break;
+    case 'mandate-create':
+      result = await cmdMandateCreate(options);
+      break;
+    case 'mandate-status':
+      result = await cmdMandateStatus(options);
+      break;
+    case 'x402-v3':
+      result = await cmdX402V3(options);
       break;
     case 'help':
     case '--help':

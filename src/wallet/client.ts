@@ -308,3 +308,208 @@ export async function refreshJWT(
 
   return data.jwt;
 }
+
+// ==================== Intent Mandate APIs ====================
+
+export interface IntentMandateIntent {
+  naturalLanguage: string;
+  category?: string;
+  currency?: string;
+  limitAmount: string;
+  validForSeconds: number;
+  hostAllowlist?: string[];
+}
+
+export interface CreateIntentMandateRequest {
+  intent: IntentMandateIntent;
+}
+
+export interface CreateIntentMandateResponse {
+  status: string;
+  mandateId: string;
+  authorizationUrl: string;
+  expiresAt?: string;
+  agentStatus?: string;
+  // Error fields
+  code?: string;
+  message?: string;
+  payment_model_context?: {
+    primer: string;
+    instructions: string;
+  };
+}
+
+/**
+ * Create an intent mandate draft
+ * Returns mandateId and authorizationUrl for user to sign
+ */
+export async function createIntentMandate(
+  params: CreateIntentMandateRequest,
+  jwt?: string
+): Promise<CreateIntentMandateResponse> {
+  const url = `${WALLET_API}/api/mandates/create-intent`;
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (jwt) {
+    headers['Authorization'] = `Bearer ${jwt}`;
+  }
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(params),
+  });
+
+  const text = await response.text();
+
+  try {
+    return JSON.parse(text) as CreateIntentMandateResponse;
+  } catch {
+    throw new WalletApiError(
+      `Invalid create-intent response (not JSON): ${text}`,
+      response.status,
+      text
+    );
+  }
+}
+
+export interface X402V3PaymentRequest {
+  mandateId: string;
+  scheme: string;
+  network: string;
+  amount: string;
+  currency: string;
+  assetAddress: string;
+  payTo: string;
+  host: string;
+  resource: string;
+  description: string;
+  tokenName: string;
+  tokenVersion: string;
+  validityWindowSeconds?: number;
+}
+
+export interface X402V3PaymentResponse {
+  status: string;
+  xPaymentB64?: string;
+  xPayment?: {
+    x402Version: number;
+    scheme: string;
+    network: string;
+    payload: {
+      signature: string;
+      authorization: {
+        from: string;
+        to: string;
+        value: string;
+        validAfter: string;
+        validBefore: string;
+        nonce: string;
+      };
+    };
+  };
+  paymentRecordId?: number;
+  expiresAt?: number;
+  message?: string;
+  // Error fields
+  code?: string;
+  authorizationUrl?: string;
+  intentOnboardUrl?: string;
+  payment_model_context?: {
+    primer: string;
+    instructions: string;
+  };
+}
+
+/**
+ * Request x402 v3 payment with intent mandate
+ */
+export async function requestX402V3Payment(
+  params: X402V3PaymentRequest,
+  jwt: string
+): Promise<X402V3PaymentResponse> {
+  const url = `${WALLET_API}/api/payment/x402V3Payment`;
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${jwt}`,
+    },
+    body: JSON.stringify(params),
+  });
+
+  const text = await response.text();
+
+  try {
+    return JSON.parse(text) as X402V3PaymentResponse;
+  } catch {
+    throw new WalletApiError(
+      `Invalid x402V3Payment response (not JSON): ${text}`,
+      response.status,
+      text
+    );
+  }
+}
+
+export interface MandateStatusResponse {
+  status: string;
+  mandate?: {
+    mandateId: string;
+    status: string;
+    naturalLanguage: string;
+    category?: string;
+    currency: string;
+    limitAmount: string;
+    spentAmount: string;
+    pendingSpentAmount: string;
+    remainingAmount: string;
+    validFrom: string;
+    validUntil: string;
+    hostAllowlist?: string[];
+    maxAmountPerTx?: string;
+    mandateHash: string;
+    signedAt?: string;
+    createdAt: string;
+    updatedAt: string;
+    signUrl?: string;
+  };
+  // Error fields
+  code?: string;
+  message?: string;
+  payment_model_context?: {
+    primer: string;
+    instructions: string;
+  };
+}
+
+/**
+ * Get mandate status by mandateId
+ */
+export async function getMandateStatus(
+  mandateId: string,
+  jwt: string
+): Promise<MandateStatusResponse> {
+  const url = `${WALLET_API}/api/mandates/agent/${encodeURIComponent(mandateId)}`;
+
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: {
+      'Authorization': `Bearer ${jwt}`,
+    },
+  });
+
+  const text = await response.text();
+
+  try {
+    return JSON.parse(text) as MandateStatusResponse;
+  } catch {
+    throw new WalletApiError(
+      `Invalid mandate status response (not JSON): ${text}`,
+      response.status,
+      text
+    );
+  }
+}

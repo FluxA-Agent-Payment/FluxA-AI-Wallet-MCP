@@ -272,6 +272,133 @@ Query the current Agent ID configuration status.
 }
 ```
 
+### 6. `create_intent_mandate`
+
+Create an intent mandate for x402 v3 payments. This is the first step in the x402 v3 flow.
+
+**Input:**
+```json
+{
+  "intent": {
+    "naturalLanguage": "I plan to spend up to 0.10 USDC to get Polymarket trading recommendations valid for 30 days.",
+    "category": "trading_data",
+    "currency": "USDC",
+    "limitAmount": "100000",
+    "validForSeconds": 2592000,
+    "hostAllowlist": []
+  }
+}
+```
+
+**Output:**
+```json
+{
+  "status": "ok",
+  "mandateId": "mand_xxxxxxxxxxxxx",
+  "authorizationUrl": "https://wallet.fluxapay.xyz/onboard/intent?oid=...",
+  "expiresAt": "2024-01-01T00:10:00.000Z",
+  "agentStatus": "ready"
+}
+```
+
+**Usage by Agent:**
+1. Call this tool with the intent parameters
+2. Ask the user to open `authorizationUrl` to authorize and sign the mandate
+3. Use the `mandateId` with `request_x402_v3_payment` for payments
+
+### 7. `get_mandate_status`
+
+Query the status of an intent mandate.
+
+**Input:**
+```json
+{
+  "mandate_id": "mand_xxxxxxxxxxxxx"
+}
+```
+
+**Output:**
+```json
+{
+  "status": "ok",
+  "mandate": {
+    "mandateId": "mand_xxxxxxxxxxxxx",
+    "status": "signed",
+    "naturalLanguage": "I plan to spend up to 0.10 USDC...",
+    "currency": "USDC",
+    "limitAmount": "100000",
+    "spentAmount": "10000",
+    "remainingAmount": "90000",
+    "validFrom": "2024-01-01T00:00:00.000Z",
+    "validUntil": "2024-01-31T00:00:00.000Z"
+  }
+}
+```
+
+### 8. `request_x402_v3_payment`
+
+Sign an x402 v3 payment using an intent mandate. Requires a signed mandateId.
+
+**Input:**
+```json
+{
+  "mandate_id": "mand_xxxxxxxxxxxxx",
+  "payment_required": {
+    "x402Version": 1,
+    "accepts": [{
+      "scheme": "exact",
+      "network": "base",
+      "maxAmountRequired": "10000",
+      "resource": "https://example.com/api/data",
+      "description": "API access",
+      "mimeType": "application/json",
+      "payTo": "0x...",
+      "maxTimeoutSeconds": 300,
+      "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+      "extra": {
+        "name": "USD Coin",
+        "version": "2"
+      }
+    }]
+  },
+  "intent": {
+    "why": "Access protected API endpoint",
+    "http_method": "GET",
+    "http_url": "https://example.com/api/data",
+    "caller": "user-agent-name"
+  }
+}
+```
+
+**Output:**
+```json
+{
+  "status": "ok",
+  "xPaymentB64": "eyJ4NDAyVmVyc2lvbi...",
+  "xPayment": {
+    "x402Version": 1,
+    "scheme": "exact",
+    "network": "base",
+    "payload": { ... }
+  },
+  "paymentRecordId": 123,
+  "expiresAt": 1700000060
+}
+```
+
+**Error (Mandate Not Signed):**
+```json
+{
+  "status": "denied",
+  "code": "mandate_not_signed",
+  "message": "Mandate does not allow this payment",
+  "payment_model_context": {
+    "primer": "Please read and follow...",
+    "instructions": "The mandate is not signed yet. Ask user to sign at signUrl."
+  }
+}
+```
+
 ## Workflow
 
 ### First-Time Setup
@@ -350,6 +477,129 @@ curl -X POST https://walletapi.fluxapay.xyz/api/payment/x402V1Payment \
   }'
 ```
 
+#### x402 v3 Payment (Intent Mandate)
+
+x402 v3 requires a user-signed intent mandate. The flow is:
+1. Create an intent mandate (returns `mandateId` and `authorizationUrl`)
+2. User opens `authorizationUrl` to authorize agent and sign the mandate
+3. Use `mandateId` for subsequent payments
+
+**POST /api/mandates/create-intent**
+
+Create a new intent mandate. Can be called without JWT (returns instructions) or with JWT (creates mandate directly).
+
+```bash
+curl -X POST https://walletapi.fluxapay.xyz/api/mandates/create-intent \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $AGENT_JWT" \
+  -d '{
+    "intent": {
+      "naturalLanguage": "I plan to spend up to 0.10 USDC to get Polymarket trading recommendations valid for 30 days.",
+      "category": "trading_data",
+      "currency": "USDC",
+      "limitAmount": "100000",
+      "validForSeconds": 2592000,
+      "hostAllowlist": []
+    }
+  }'
+```
+
+**Response:**
+```json
+{
+  "status": "ok",
+  "mandateId": "mand_xxxxxxxxxxxxx",
+  "authorizationUrl": "https://wallet.fluxapay.xyz/onboard/intent?oid=...",
+  "expiresAt": "2024-01-01T00:10:00.000Z",
+  "agentStatus": "ready"
+}
+```
+
+**POST /api/payment/x402V3Payment**
+
+Execute an x402 v3 payment using an intent mandate.
+
+```bash
+curl -X POST https://walletapi.fluxapay.xyz/api/payment/x402V3Payment \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $AGENT_JWT" \
+  -d '{
+    "mandateId": "mand_xxxxxxxxxxxxx",
+    "scheme": "exact",
+    "network": "base",
+    "amount": "10000",
+    "currency": "USDC",
+    "assetAddress": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+    "payTo": "0xFf319473ba1a09272B37c34717f6993b3F385CD3",
+    "host": "fluxa-x402-api.gmlgtm.workers.dev",
+    "resource": "https://fluxa-x402-api.gmlgtm.workers.dev/polymarket_recommendations_last_1h",
+    "description": "Get Polymarket trading recommendations",
+    "tokenName": "USD Coin",
+    "tokenVersion": "2",
+    "validityWindowSeconds": 60
+  }'
+```
+
+**Response:**
+```json
+{
+  "status": "ok",
+  "xPaymentB64": "eyJ4NDAyVmVyc2lvbi...",
+  "xPayment": {
+    "x402Version": 1,
+    "scheme": "exact",
+    "network": "base",
+    "payload": {
+      "signature": "0x...",
+      "authorization": {
+        "from": "0x...",
+        "to": "0x...",
+        "value": "10000",
+        "validAfter": "1700000000",
+        "validBefore": "1700000060",
+        "nonce": "0x..."
+      }
+    }
+  },
+  "paymentRecordId": 123,
+  "expiresAt": 1700000060
+}
+```
+
+**GET /api/mandates/agent/{mandateId}**
+
+Query mandate status.
+
+```bash
+curl -H "Authorization: Bearer $AGENT_JWT" \
+  https://walletapi.fluxapay.xyz/api/mandates/agent/mand_xxxxxxxxxxxxx
+```
+
+**Response:**
+```json
+{
+  "status": "ok",
+  "mandate": {
+    "mandateId": "mand_xxxxxxxxxxxxx",
+    "status": "signed",
+    "naturalLanguage": "I plan to spend up to 0.10 USDC...",
+    "category": "trading_data",
+    "currency": "USDC",
+    "limitAmount": "100000",
+    "spentAmount": "10000",
+    "pendingSpentAmount": "0",
+    "remainingAmount": "90000",
+    "validFrom": "2024-01-01T00:00:00.000Z",
+    "validUntil": "2024-01-31T00:00:00.000Z",
+    "hostAllowlist": null,
+    "mandateHash": "0x...",
+    "signedAt": "2024-01-01T00:05:00.000Z",
+    "createdAt": "2024-01-01T00:00:00.000Z",
+    "updatedAt": "2024-01-01T00:05:00.000Z"
+  }
+}
+```
+
 ## Architecture
 
 ```
@@ -359,10 +609,15 @@ MCP Server (stdio)
 │   └── Local config storage (agent_id, token, jwt)
 ├── Wallet API Client
 │   ├── x402V1Payment calls
+│   ├── x402V3Payment calls (intent mandate)
+│   ├── Intent Mandate management
 │   └── JWT-based authentication
 └── MCP Tools
     ├── init_agent_id
-    ├── request_x402_payment
+    ├── request_x402_payment (v1)
+    ├── request_x402_v3_payment (v3 with mandate)
+    ├── create_intent_mandate
+    ├── get_mandate_status
     ├── request_payout
     ├── get_payout_status
     └── get_agent_status
