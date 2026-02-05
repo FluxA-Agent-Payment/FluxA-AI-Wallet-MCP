@@ -1,16 +1,17 @@
 ---
 name: fluxa-agent-wallet
 description: >-
-  FluxA Agent Wallet integration via CLI. Enables agents to make x402 payments
+  FluxA Agent Wallet integration via CLI and REST API. Enables agents to make x402 payments
   for paid APIs, send USDC payouts to any wallet, and create payment links to receive
-  payments — all through a standalone Node.js CLI tool. Use when the user asks about
-  crypto payments, x402, USDC transfers, payment links, or interacting with the
-  FluxA Agent Wallet.
+  payments. Use when the user asks about crypto payments, x402, USDC transfers,
+  payment links, or interacting with the FluxA Agent Wallet.
 ---
 
 # FluxA Agent Wallet
 
-FluxA Agent Wallet lets AI agents perform onchain financial operations — payments, payouts, and payment links — without managing private keys. This skill uses the **FluxA CLI** (`fluxa-cli.bundle.js`), a standalone Node.js script requiring no npm installation.
+FluxA Agent Wallet lets AI agents perform onchain financial operations — payments, payouts, and payment links — without managing private keys. This skill uses:
+- **CLI** (`scripts/fluxa-cli.bundle.js`) for payments and payouts
+- **REST API** for payment link management (create, list, update, delete)
 
 ## Setup
 
@@ -36,11 +37,11 @@ Exit code `0` = success, `1` = failure.
 
 ## Capabilities
 
-| Capability | What it does | When to use |
-|------------|-------------|-------------|
-| **x402 Payment (v3)** | Pay for APIs using the x402 protocol with intent mandates | Agent hits HTTP 402, needs to pay for API access |
-| **Payout** | Send USDC to any wallet address | Agent needs to transfer funds to a recipient |
-| **Payment Link** | Create shareable URLs to receive payments | Agent needs to charge users, create invoices, sell content |
+| Capability | What it does | When to use | Method |
+|------------|-------------|-------------|--------|
+| **x402 Payment (v3)** | Pay for APIs using the x402 protocol with intent mandates | Agent hits HTTP 402, needs to pay for API access | CLI |
+| **Payout** | Send USDC to any wallet address | Agent needs to transfer funds to a recipient | CLI |
+| **Payment Link** | Create shareable URLs to receive payments | Agent needs to charge users, create invoices, sell content | **API** |
 
 ## Prerequisites — Register Agent ID
 
@@ -108,7 +109,7 @@ This pattern applies to:
 | **Pay for an API** that returned HTTP 402 | [X402-PAYMENT.md](X402-PAYMENT.md) | CLI |
 | **Pay to a payment link** (agent-to-agent) | [PAYMENT-LINK.md](PAYMENT-LINK.md) — "Paying TO a Payment Link" section | CLI |
 | **Send USDC** to a wallet address | [PAYOUT.md](PAYOUT.md) | CLI |
-| **Create a payment link** to receive payments | [PAYMENT-LINK.md](PAYMENT-LINK.md) — "Create Payment Link" section | CLI |
+| **Create a payment link** to receive payments | [PAYMENT-LINK.md](PAYMENT-LINK.md) — "Create Payment Link" section | **API** |
 
 ### Common Flow: Paying to a Payment Link
 
