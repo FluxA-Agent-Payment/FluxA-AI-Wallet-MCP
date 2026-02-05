@@ -6,7 +6,7 @@ x402 is an HTTP-native payment protocol. When an agent requests a paid API, the 
 
 **x402 v3** uses **intent mandates**: the user pre-approves a spending plan (budget + time window), then the agent can make autonomous payments within those limits.
 
-This document covers both **CLI** and **REST API** methods.
+This document uses the **CLI** method.
 
 ## When to Use This Document
 
@@ -27,9 +27,7 @@ This document covers both **CLI** and **REST API** methods.
 
 **Important**: The x402-v3 command requires both `--mandate` and `--payload`. You must create a mandate first (Step 1) before executing payments.
 
-## Method 1: CLI
-
-### Step 1 — Create Intent Mandate
+## Step 1 — Create Intent Mandate
 
 ```bash
 node scripts/fluxa-cli.bundle.js mandate-create \
@@ -74,7 +72,7 @@ node scripts/fluxa-cli.bundle.js mandate-create \
 
 3. Wait for user to confirm they've signed (TTL: 10 minutes), then proceed to Step 2.
 
-### Step 2 — Check Mandate Status
+## Step 2 — Check Mandate Status
 
 **Important:** Use `--id`, not `--mandate`:
 
@@ -106,7 +104,7 @@ node scripts/fluxa-cli.bundle.js mandate-status --id mand_xxxxxxxxxxxxx
 
 Wait until `mandate.status` is `"signed"`.
 
-### Step 3 — Make x402 v3 Payment
+## Step 3 — Make x402 v3 Payment
 
 Pass the **complete** HTTP 402 response body as `--payload`. The payload **must** contain an `accepts` array.
 
@@ -155,7 +153,7 @@ node scripts/fluxa-cli.bundle.js x402-v3 \
 }
 ```
 
-### Step 4 — Retry with X-Payment Header
+## Step 4 — Retry with X-Payment Header
 
 Use `xPaymentB64` as the `X-Payment` header:
 
@@ -163,112 +161,6 @@ Use `xPaymentB64` as the `X-Payment` header:
 curl -H "X-Payment: eyJ4NDAyVmVyc2lvbi..." \
   https://fluxa-x402-api.gmlgtm.workers.dev/polymarket_recommendations_last_1h
 ```
-
-## Method 2: REST API
-
-For advanced use cases or when CLI is not available, use the REST API directly.
-
-### Prerequisites
-
-```bash
-JWT=$(cat ~/.fluxa-ai-wallet-mcp/.agent-config.json | jq -r '.agents["<email>"]["<agent_name>"].jwt')
-```
-
-### Step 1 — Create Intent Mandate
-
-```bash
-curl -X POST "https://walletapi.fluxapay.xyz/api/mandates/create-intent" \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $JWT" \
-  -d '{
-    "naturalLanguage": "Spend up to 0.10 USDC for Polymarket recommendations for 30 days",
-    "limitAmount": "100000",
-    "validForSeconds": 2592000,
-    "category": "trading_data"
-  }'
-```
-
-**Response:**
-
-```json
-{
-  "status": "ok",
-  "mandateId": "mand_xxxxxxxxxxxxx",
-  "authorizationUrl": "https://wallet.fluxapay.xyz/onboard/intent?oid=...",
-  "expiresAt": "2026-02-04T00:10:00.000Z"
-}
-```
-
-**Opening the authorization URL** (see [SKILL.md](SKILL.md) — "Opening Authorization URLs"):
-
-1. Ask the user using `AskUserQuestion`:
-   - Question: "I need to open the authorization URL to sign the spending mandate."
-   - Options: ["Yes, open the link", "No, show me the URL"]
-
-2. If YES: Run `open "<authorizationUrl>"` to open in their browser
-
-3. Wait for user to confirm they've signed, then proceed to Step 2.
-
-### Step 2 — Check Mandate Status
-
-```bash
-curl -X GET "https://walletapi.fluxapay.xyz/api/mandates/mand_xxxxxxxxxxxxx" \
-  -H "Authorization: Bearer $JWT"
-```
-
-### Step 3 — Make x402 v3 Payment
-
-```bash
-curl -X POST "https://walletapi.fluxapay.xyz/api/payment/x402V3Payment" \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $JWT" \
-  -d '{
-    "mandateId": "mand_xxxxxxxxxxxxx",
-    "payload402": {
-      "accepts": [{
-        "scheme": "exact",
-        "network": "base",
-        "maxAmountRequired": "10000",
-        "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
-        "payTo": "0xFf319473ba1a09272B37c34717f6993b3F385CD3",
-        "resource": "https://fluxa-x402-api.gmlgtm.workers.dev/polymarket_recommendations_last_1h",
-        "description": "Get Polymarket trading recommendations",
-        "extra": {"name": "USD Coin", "version": "2"},
-        "maxTimeoutSeconds": 60
-      }]
-    }
-  }'
-```
-
-**Response:**
-
-```json
-{
-  "status": "ok",
-  "xPaymentB64": "eyJ4NDAyVmVyc2lvbi...",
-  "xPayment": { "x402Version": 1, "scheme": "exact", "..." },
-  "paymentRecordId": 123,
-  "expiresAt": 1700000060
-}
-```
-
-### Step 4 — Retry with X-Payment Header
-
-```bash
-curl -H "X-Payment: eyJ4NDAyVmVyc2lvbi..." \
-  https://fluxa-x402-api.gmlgtm.workers.dev/polymarket_recommendations_last_1h
-```
-
-## Paying a Payment Link via x402
-
-To programmatically pay a payment link (agent-to-agent payments):
-
-1. **Create a mandate** via CLI or API (as shown above)
-2. **User signs** the mandate at `authorizationUrl`
-3. **Get x402 payment token** using the payment link's 402 payload
-4. **Submit to payment link** with `X-Payment` header
-
-See [PAYMENT-LINK.md](PAYMENT-LINK.md) for the complete flow.
 
 ## Mandate Ownership Caveat
 
