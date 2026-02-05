@@ -149,12 +149,8 @@ All amounts are in **smallest units** (atomic units). For USDC (6 decimals):
 | `x402-v3` | `--mandate`, `--payload` | Execute x402 v3 payment |
 | `payout` | `--to`, `--amount`, `--id` | Create a payout |
 | `payout-status` | `--id` | Query payout status |
-| `paymentlink-create` | `--amount` | Create a payment link |
-| `paymentlink-list` | (none) | List payment links |
-| `paymentlink-get` | `--id` | Get payment link details |
-| `paymentlink-update` | `--id` | Update a payment link |
-| `paymentlink-delete` | `--id` | Delete a payment link |
-| `paymentlink-payments` | `--id` | View payments received via a link |
+
+**Note:** Payment link operations (create, list, update, delete) require the REST API. See [PAYMENT-LINK.md](PAYMENT-LINK.md) for API examples.
 
 **Common Mistakes to Avoid:**
 
