@@ -2,7 +2,9 @@
 
 ## Overview
 
-Payout lets the agent send USDC to any wallet address on Base network. Every payout requires **user authorization** via the FluxA Wallet UI before the onchain transaction executes.
+Payout lets the agent send USDC to any wallet address on Base network.
+
+**Important**: Unlike x402 payments which can use pre-approved mandates for autonomous spending, every payout requires **individual user authorization** via the FluxA Wallet UI before the onchain transaction executes. There is no mandate-based autonomy for payouts.
 
 ## End-to-End Flow
 
@@ -49,7 +51,15 @@ node scripts/fluxa-cli.bundle.js payout \
 }
 ```
 
-Ask the user to open `approvalUrl` to authorize the transfer.
+**Opening the approval URL** (see [SKILL.md](SKILL.md) — "Opening Authorization URLs"):
+
+1. Ask the user using `AskUserQuestion`:
+   - Question: "I need to open the approval URL to authorize this payout."
+   - Options: ["Yes, open the link", "No, show me the URL"]
+
+2. If YES: Run `open "<approvalUrl>"` to open in their browser
+
+3. Wait for user to confirm they've approved, then poll status in Step 2.
 
 ### Query Payout Status
 

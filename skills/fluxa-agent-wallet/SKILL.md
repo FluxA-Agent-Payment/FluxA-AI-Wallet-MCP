@@ -69,11 +69,63 @@ node scripts/fluxa-cli.bundle.js status
 
 The CLI automatically refreshes expired JWTs.
 
+## Opening Authorization URLs (UX Pattern)
+
+Many operations require user authorization via a URL (mandate signing, payout approval, agent registration). When you need the user to open a URL:
+
+1. **Always ask the user first** using `AskUserQuestion` tool with options:
+   - "Yes, open the link"
+   - "No, show me the URL"
+
+2. **If user chooses YES**: Use the `open` command to open the URL in their default browser:
+   ```bash
+   open "<URL>"
+   ```
+
+3. **If user chooses NO**: Display the URL and ask how they'd like to proceed.
+
+**Example interaction flow:**
+
+```
+Agent: I need to open the authorization URL to sign the mandate.
+       [Yes, open the link] [No, show me the URL]
+
+User: [Yes, open the link]
+
+Agent: *runs* open "https://agentwallet.fluxapay.xyz/onboard/intent?oid=..."
+Agent: I've opened the authorization page in your browser. Please sign the mandate, then let me know when you're done.
+```
+
+This pattern applies to:
+- Mandate authorization (`authorizationUrl` from `mandate-create`)
+- Payout approval (`approvalUrl` from `payout`)
+- Agent registration (if manual registration is needed)
+
 ## Quick Decision Guide
 
-- Need to **pay for an API** that returned HTTP 402? → See [X402-PAYMENT.md](X402-PAYMENT.md)
-- Need to **send funds** to a wallet address? → See [PAYOUT.md](PAYOUT.md)
-- Need to **receive payments** via a shareable link? → See [PAYMENT-LINK.md](PAYMENT-LINK.md)
+| I want to... | Document | Method |
+|--------------|----------|--------|
+| **Pay for an API** that returned HTTP 402 | [X402-PAYMENT.md](X402-PAYMENT.md) | CLI |
+| **Pay to a payment link** (agent-to-agent) | [PAYMENT-LINK.md](PAYMENT-LINK.md) — "Paying TO a Payment Link" section | CLI |
+| **Send USDC** to a wallet address | [PAYOUT.md](PAYOUT.md) | CLI |
+| **Create a payment link** to receive payments | [PAYMENT-LINK.md](PAYMENT-LINK.md) — "Create Payment Link" section | CLI |
+
+### Common Flow: Paying to a Payment Link
+
+This is a 6-step process using CLI:
+
+```
+1. PAYLOAD=$(curl -s <payment_link_url>)                    → Get full 402 payload JSON
+2. mandate-create --desc "..." --amount <amount>            → Create mandate (BOTH flags required)
+3. User signs at authorizationUrl                           → Mandate becomes "signed"
+4. mandate-status --id <mandate_id>                         → Verify signed (use --id, NOT --mandate)
+5. x402-v3 --mandate <id> --payload "$PAYLOAD"              → Get xPaymentB64 (pass FULL 402 JSON)
+6. curl -H "X-Payment: <token>" <url>                       → Submit payment
+```
+
+**Critical:** The `--payload` for `x402-v3` must be the **complete** 402 response JSON including the `accepts` array, not just extracted fields.
+
+See [PAYMENT-LINK.md](PAYMENT-LINK.md) for the complete walkthrough with examples.
 
 ## Amount Format
 
@@ -86,23 +138,31 @@ All amounts are in **smallest units** (atomic units). For USDC (6 decimals):
 | 1.00 USDC | `1000000` |
 | 10.00 USDC | `10000000` |
 
-## All Commands
+## CLI Commands Quick Reference
 
-| Command | Description |
-|---------|-------------|
-| `status` | Check agent configuration |
-| `init` | Register agent ID |
-| `mandate-create` | Create an intent mandate |
-| `mandate-status` | Query mandate status |
-| `x402-v3` | Execute x402 v3 payment |
-| `payout` | Create a payout |
-| `payout-status` | Query payout status |
-| `paymentlink-create` | Create a payment link |
-| `paymentlink-list` | List payment links |
-| `paymentlink-get` | Get payment link details |
-| `paymentlink-update` | Update a payment link |
-| `paymentlink-delete` | Delete a payment link |
-| `paymentlink-payments` | View payments received via a link |
+| Command | Required Flags | Description |
+|---------|----------------|-------------|
+| `status` | (none) | Check agent configuration |
+| `init` | `--email`, `--name` | Register agent ID |
+| `mandate-create` | `--desc`, `--amount` | Create an intent mandate |
+| `mandate-status` | `--id` | Query mandate status (NOT `--mandate`) |
+| `x402-v3` | `--mandate`, `--payload` | Execute x402 v3 payment |
+| `payout` | `--to`, `--amount`, `--id` | Create a payout |
+| `payout-status` | `--id` | Query payout status |
+| `paymentlink-create` | `--amount` | Create a payment link |
+| `paymentlink-list` | (none) | List payment links |
+| `paymentlink-get` | `--id` | Get payment link details |
+| `paymentlink-update` | `--id` | Update a payment link |
+| `paymentlink-delete` | `--id` | Delete a payment link |
+| `paymentlink-payments` | `--id` | View payments received via a link |
+
+**Common Mistakes to Avoid:**
+
+| Wrong | Correct |
+|-------|---------|
+| `mandate-create --amount 100000` | `mandate-create --desc "..." --amount 100000` |
+| `mandate-status --mandate mand_xxx` | `mandate-status --id mand_xxx` |
+| `x402-v3 --payload '{"maxAmountRequired":"100000"}'` | `x402-v3 --payload '<full 402 response with accepts array>'` |
 
 ## Environment Variables
 
