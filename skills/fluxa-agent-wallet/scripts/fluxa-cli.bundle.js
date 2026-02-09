@@ -204,6 +204,124 @@ async function requestX402V3Payment(params, jwt) {
     );
   }
 }
+async function createPaymentLink(params, jwt) {
+  const url = `${WALLET_API}/api/payment-links`;
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${jwt}`
+    },
+    body: JSON.stringify(params)
+  });
+  const text = await response.text();
+  if (!response.ok) {
+    throw new WalletApiError(text || `Create payment link failed (${response.status})`, response.status, text || null);
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new WalletApiError("Invalid create payment link response (not JSON)", response.status, text);
+  }
+}
+async function listPaymentLinks(jwt, limit) {
+  const params = new URLSearchParams();
+  if (limit !== void 0) params.set("limit", String(limit));
+  const qs = params.toString();
+  const url = `${WALLET_API}/api/payment-links${qs ? `?${qs}` : ""}`;
+  const response = await fetch(url, {
+    method: "GET",
+    headers: {
+      "Authorization": `Bearer ${jwt}`
+    }
+  });
+  const text = await response.text();
+  if (!response.ok) {
+    throw new WalletApiError(text || `List payment links failed (${response.status})`, response.status, text || null);
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new WalletApiError("Invalid list payment links response (not JSON)", response.status, text);
+  }
+}
+async function getPaymentLink(linkId, jwt) {
+  const url = `${WALLET_API}/api/payment-links/${encodeURIComponent(linkId)}`;
+  const response = await fetch(url, {
+    method: "GET",
+    headers: {
+      "Authorization": `Bearer ${jwt}`
+    }
+  });
+  const text = await response.text();
+  if (!response.ok) {
+    throw new WalletApiError(text || `Get payment link failed (${response.status})`, response.status, text || null);
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new WalletApiError("Invalid get payment link response (not JSON)", response.status, text);
+  }
+}
+async function updatePaymentLink(linkId, params, jwt) {
+  const url = `${WALLET_API}/api/payment-links/${encodeURIComponent(linkId)}`;
+  const response = await fetch(url, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${jwt}`
+    },
+    body: JSON.stringify(params)
+  });
+  const text = await response.text();
+  if (!response.ok) {
+    throw new WalletApiError(text || `Update payment link failed (${response.status})`, response.status, text || null);
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new WalletApiError("Invalid update payment link response (not JSON)", response.status, text);
+  }
+}
+async function deletePaymentLink(linkId, jwt) {
+  const url = `${WALLET_API}/api/payment-links/${encodeURIComponent(linkId)}`;
+  const response = await fetch(url, {
+    method: "DELETE",
+    headers: {
+      "Authorization": `Bearer ${jwt}`
+    }
+  });
+  const text = await response.text();
+  if (!response.ok) {
+    throw new WalletApiError(text || `Delete payment link failed (${response.status})`, response.status, text || null);
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new WalletApiError("Invalid delete payment link response (not JSON)", response.status, text);
+  }
+}
+async function getPaymentLinkPayments(linkId, jwt, limit) {
+  const params = new URLSearchParams();
+  if (limit !== void 0) params.set("limit", String(limit));
+  const qs = params.toString();
+  const url = `${WALLET_API}/api/payment-links/${encodeURIComponent(linkId)}/payments${qs ? `?${qs}` : ""}`;
+  const response = await fetch(url, {
+    method: "GET",
+    headers: {
+      "Authorization": `Bearer ${jwt}`
+    }
+  });
+  const text = await response.text();
+  if (!response.ok) {
+    throw new WalletApiError(text || `Get payment link payments failed (${response.status})`, response.status, text || null);
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new WalletApiError("Invalid payment link payments response (not JSON)", response.status, text);
+  }
+}
 async function getMandateStatus(mandateId, jwt) {
   const url = `${WALLET_API}/api/mandates/agent/${encodeURIComponent(mandateId)}`;
   const response = await fetch(url, {
@@ -365,6 +483,12 @@ COMMANDS:
   mandate-create            Create an intent mandate for x402 v3
   mandate-status            Query mandate status
   x402-v3                   Generate x402 v3 payment with mandate
+  paymentlink-create        Create a payment link
+  paymentlink-list          List payment links
+  paymentlink-get           Get payment link details
+  paymentlink-update        Update a payment link
+  paymentlink-delete        Delete a payment link
+  paymentlink-payments      Get payment records for a payment link
 
 OPTIONS FOR 'init':
   --email <email>           Email address for registration
@@ -399,6 +523,35 @@ OPTIONS FOR 'x402-v3':
   --mandate <mandate_id>    Mandate ID (required)
   --payload <json>          Full x402 payment payload as JSON (required)
 
+OPTIONS FOR 'paymentlink-create':
+  --amount <amount>         Amount in smallest units (required)
+  --desc <text>             Description
+  --resource <content>      Resource content
+  --expires <iso8601>       Expiry date (ISO 8601)
+  --max-uses <number>       Maximum number of uses
+  --network <network>       Network (default: base)
+
+OPTIONS FOR 'paymentlink-list':
+  --limit <number>          Max number of results
+
+OPTIONS FOR 'paymentlink-get':
+  --id <link_id>            Payment link ID (required)
+
+OPTIONS FOR 'paymentlink-update':
+  --id <link_id>            Payment link ID (required)
+  --desc <text>             New description
+  --resource <content>      New resource content
+  --status <status>         Status: active or disabled
+  --expires <iso8601>       New expiry date (ISO 8601), "null" to clear
+  --max-uses <number>       New max uses, "null" to clear
+
+OPTIONS FOR 'paymentlink-delete':
+  --id <link_id>            Payment link ID (required)
+
+OPTIONS FOR 'paymentlink-payments':
+  --id <link_id>            Payment link ID (required)
+  --limit <number>          Max number of results
+
 ENVIRONMENT VARIABLES:
   AGENT_ID                  Pre-configured agent ID
   AGENT_TOKEN               Pre-configured agent token
@@ -426,6 +579,18 @@ EXAMPLES:
 
   # Query mandate status
   node fluxa-cli.bundle.js mandate-status --id mand_xxxxx
+
+  # Create a payment link
+  node fluxa-cli.bundle.js paymentlink-create --amount 1000000 --desc "Test payment"
+
+  # List payment links
+  node fluxa-cli.bundle.js paymentlink-list --limit 10
+
+  # Get payment link details
+  node fluxa-cli.bundle.js paymentlink-get --id lnk_xxxxx
+
+  # Delete a payment link
+  node fluxa-cli.bundle.js paymentlink-delete --id lnk_xxxxx
 `);
 }
 function parseArgs(args) {
@@ -871,6 +1036,125 @@ async function cmdX402V3(options) {
     };
   }
 }
+async function cmdPaymentLinkCreate(options) {
+  const amount = options.amount;
+  if (!amount) {
+    return { success: false, error: "Missing required parameter: --amount" };
+  }
+  if (!/^\d+$/.test(amount)) {
+    return { success: false, error: "Amount must be a positive integer (smallest units)" };
+  }
+  const auth = await ensureValidJWT();
+  if (!auth) {
+    return { success: false, error: 'FluxA Agent ID not initialized. Run "init" first.' };
+  }
+  try {
+    const result = await createPaymentLink(
+      {
+        amount,
+        description: options.desc,
+        resourceContent: options.resource,
+        expiresAt: options.expires,
+        maxUses: options["max-uses"] ? parseInt(options["max-uses"], 10) : void 0,
+        network: options.network
+      },
+      auth.jwt
+    );
+    await recordAudit({ event: "paymentlink_create", amount, description: options.desc });
+    return { success: true, data: result };
+  } catch (err) {
+    return { success: false, error: err.message || "Payment link creation failed" };
+  }
+}
+async function cmdPaymentLinkList(options) {
+  const auth = await ensureValidJWT();
+  if (!auth) {
+    return { success: false, error: 'FluxA Agent ID not initialized. Run "init" first.' };
+  }
+  try {
+    const limit = options.limit ? parseInt(options.limit, 10) : void 0;
+    const result = await listPaymentLinks(auth.jwt, limit);
+    await recordAudit({ event: "paymentlink_list", count: result.paymentLinks?.length });
+    return { success: true, data: result };
+  } catch (err) {
+    return { success: false, error: err.message || "List payment links failed" };
+  }
+}
+async function cmdPaymentLinkGet(options) {
+  const linkId = options.id;
+  if (!linkId) {
+    return { success: false, error: "Missing required parameter: --id" };
+  }
+  const auth = await ensureValidJWT();
+  if (!auth) {
+    return { success: false, error: 'FluxA Agent ID not initialized. Run "init" first.' };
+  }
+  try {
+    const result = await getPaymentLink(linkId, auth.jwt);
+    await recordAudit({ event: "paymentlink_get", link_id: linkId });
+    return { success: true, data: result };
+  } catch (err) {
+    return { success: false, error: err.message || "Get payment link failed" };
+  }
+}
+async function cmdPaymentLinkUpdate(options) {
+  const linkId = options.id;
+  if (!linkId) {
+    return { success: false, error: "Missing required parameter: --id" };
+  }
+  const auth = await ensureValidJWT();
+  if (!auth) {
+    return { success: false, error: 'FluxA Agent ID not initialized. Run "init" first.' };
+  }
+  const updateParams = {};
+  if (options.desc !== void 0) updateParams.description = options.desc;
+  if (options.resource !== void 0) updateParams.resourceContent = options.resource;
+  if (options.status !== void 0) updateParams.status = options.status;
+  if (options.expires !== void 0) updateParams.expiresAt = options.expires === "null" ? null : options.expires;
+  if (options["max-uses"] !== void 0) updateParams.maxUses = options["max-uses"] === "null" ? null : parseInt(options["max-uses"], 10);
+  try {
+    const result = await updatePaymentLink(linkId, updateParams, auth.jwt);
+    await recordAudit({ event: "paymentlink_update", link_id: linkId, updates: updateParams });
+    return { success: true, data: result };
+  } catch (err) {
+    return { success: false, error: err.message || "Update payment link failed" };
+  }
+}
+async function cmdPaymentLinkDelete(options) {
+  const linkId = options.id;
+  if (!linkId) {
+    return { success: false, error: "Missing required parameter: --id" };
+  }
+  const auth = await ensureValidJWT();
+  if (!auth) {
+    return { success: false, error: 'FluxA Agent ID not initialized. Run "init" first.' };
+  }
+  try {
+    const result = await deletePaymentLink(linkId, auth.jwt);
+    await recordAudit({ event: "paymentlink_delete", link_id: linkId });
+    return { success: true, data: result };
+  } catch (err) {
+    return { success: false, error: err.message || "Delete payment link failed" };
+  }
+}
+async function cmdPaymentLinkPayments(options) {
+  const linkId = options.id;
+  if (!linkId) {
+    return { success: false, error: "Missing required parameter: --id" };
+  }
+  const auth = await ensureValidJWT();
+  if (!auth) {
+    return { success: false, error: 'FluxA Agent ID not initialized. Run "init" first.' };
+  }
+  try {
+    const limit = options.limit ? parseInt(options.limit, 10) : void 0;
+    const result = await getPaymentLinkPayments(linkId, auth.jwt, limit);
+    await recordAudit({ event: "paymentlink_payments", link_id: linkId });
+    return { success: true, data: result };
+  } catch (err) {
+    return { success: false, error: err.message || "Get payment link payments failed" };
+  }
+}
 async function main() {
   const args = process.argv.slice(2);
   const { command, options } = parseArgs(args);
@@ -901,6 +1185,24 @@ async function main() {
       break;
     case "x402-v3":
       result = await cmdX402V3(options);
+      break;
+    case "paymentlink-create":
+      result = await cmdPaymentLinkCreate(options);
+      break;
+    case "paymentlink-list":
+      result = await cmdPaymentLinkList(options);
+      break;
+    case "paymentlink-get":
+      result = await cmdPaymentLinkGet(options);
+      break;
+    case "paymentlink-update":
+      result = await cmdPaymentLinkUpdate(options);
+      break;
+    case "paymentlink-delete":
+      result = await cmdPaymentLinkDelete(options);
+      break;
+    case "paymentlink-payments":
+      result = await cmdPaymentLinkPayments(options);
       break;
     case "help":
     case "--help":
