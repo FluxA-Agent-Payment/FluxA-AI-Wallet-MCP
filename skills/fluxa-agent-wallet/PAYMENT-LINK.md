@@ -1,78 +1,60 @@
-# Payment Link — REST API Reference
+# Payment Link — CLI Reference
 
 ## Overview
 
 Payment Links allow the agent to create shareable payment URLs to **receive** USDC. Useful for invoicing, selling content, collecting tips, or any scenario where the agent needs to get paid.
 
-**Important**: Payment link operations require the REST API. The CLI does not support payment link commands.
-
-## Prerequisites
-
-Retrieve the JWT from your agent config:
-
-```bash
-# Replace <email> and <agent_name> with your values
-JWT=$(cat ~/.fluxa-ai-wallet-mcp/.agent-config.json | jq -r '.agents["<email>"]["<agent_name>"].jwt')
-```
-
-Base URL: `https://walletapi.fluxapay.xyz`
-
 ## End-to-End Flow
 
 ```
-1. Agent creates a payment link via REST API
+1. Agent creates a payment link via CLI
 2. Agent shares the returned URL with payers
 3. Payers open the URL and pay (or agent pays programmatically via x402)
-4. Agent checks payments received via API
+4. Agent checks payments received via CLI
 ```
 
-## API Reference
+## Command Reference
 
 ### Create Payment Link
 
 ```bash
-curl -X POST "https://walletapi.fluxapay.xyz/api/payment-links" \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $JWT" \
-  -d '{
-    "amount": "5000000",
-    "currency": "USDC",
-    "network": "base",
-    "description": "AI Research Report",
-    "maxUses": 100,
-    "expiresAt": "2026-02-11T00:00:00.000Z"
-  }'
+node scripts/fluxa-cli.bundle.js paymentlink-create \
+  --amount "5000000" \
+  --desc "AI Research Report" \
+  --max-uses 100 \
+  --expires "2026-02-11T00:00:00.000Z"
 ```
 
-**Request Body:**
+**Options:**
 
-| Field | Required | Default | Description |
-|-------|----------|---------|-------------|
-| `amount` | Yes | — | Amount in atomic units |
-| `currency` | No | `USDC` | Currency |
-| `network` | No | `base` | Network |
-| `description` | No | — | Description |
-| `resource` | No | — | Resource content delivered after payment |
-| `expiresAt` | No | — | Expiry date (ISO 8601) |
-| `maxUses` | No | — | Maximum number of payments |
+| Option | Required | Default | Description |
+|--------|----------|---------|-------------|
+| `--amount` | Yes | — | Amount in atomic units |
+| `--desc` | No | — | Description |
+| `--resource` | No | — | Resource content delivered after payment |
+| `--expires` | No | — | Expiry date (ISO 8601) |
+| `--max-uses` | No | — | Maximum number of payments |
+| `--network` | No | `base` | Network |
 
-**Response:**
+**Output:**
 
 ```json
 {
   "success": true,
-  "paymentLink": {
-    "linkId": "lnk_a1b2c3d4e5",
-    "amount": "5000000",
-    "currency": "USDC",
-    "network": "base",
-    "description": "AI Research Report",
-    "status": "active",
-    "expiresAt": "2026-02-11T00:00:00.000Z",
-    "maxUses": 100,
-    "useCount": 0,
-    "url": "https://wallet.fluxapay.xyz/pay/lnk_a1b2c3d4e5",
-    "createdAt": "2026-02-04T12:00:00.000Z"
+  "data": {
+    "paymentLink": {
+      "linkId": "lnk_a1b2c3d4e5",
+      "amount": "5000000",
+      "currency": "USDC",
+      "network": "base",
+      "description": "AI Research Report",
+      "status": "active",
+      "expiresAt": "2026-02-11T00:00:00.000Z",
+      "maxUses": 100,
+      "useCount": 0,
+      "url": "https://wallet.fluxapay.xyz/pay/lnk_a1b2c3d4e5",
+      "createdAt": "2026-02-04T12:00:00.000Z"
+    }
   }
 }
 ```
@@ -82,79 +64,85 @@ Share the `url` value with payers.
 ### List Payment Links
 
 ```bash
-curl -X GET "https://walletapi.fluxapay.xyz/api/payment-links?limit=20" \
-  -H "Authorization: Bearer $JWT"
+node scripts/fluxa-cli.bundle.js paymentlink-list --limit 20
 ```
+
+**Options:**
+
+| Option | Required | Default | Description |
+|--------|----------|---------|-------------|
+| `--limit` | No | — | Max number of results |
 
 ### Get Payment Link Details
 
 ```bash
-curl -X GET "https://walletapi.fluxapay.xyz/api/payment-links/lnk_a1b2c3d4e5" \
-  -H "Authorization: Bearer $JWT"
+node scripts/fluxa-cli.bundle.js paymentlink-get --id lnk_a1b2c3d4e5
 ```
 
 ### Update Payment Link
 
 ```bash
 # Disable a link
-curl -X PATCH "https://walletapi.fluxapay.xyz/api/payment-links/lnk_a1b2c3d4e5" \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $JWT" \
-  -d '{"status": "disabled"}'
+node scripts/fluxa-cli.bundle.js paymentlink-update --id lnk_a1b2c3d4e5 --status disabled
 
 # Update description
-curl -X PATCH "https://walletapi.fluxapay.xyz/api/payment-links/lnk_a1b2c3d4e5" \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $JWT" \
-  -d '{"description": "SOLD OUT"}'
+node scripts/fluxa-cli.bundle.js paymentlink-update --id lnk_a1b2c3d4e5 --desc "SOLD OUT"
 
 # Remove expiry limit
-curl -X PATCH "https://walletapi.fluxapay.xyz/api/payment-links/lnk_a1b2c3d4e5" \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $JWT" \
-  -d '{"expiresAt": null}'
+node scripts/fluxa-cli.bundle.js paymentlink-update --id lnk_a1b2c3d4e5 --expires null
+
+# Remove max uses limit
+node scripts/fluxa-cli.bundle.js paymentlink-update --id lnk_a1b2c3d4e5 --max-uses null
 ```
 
-**Request Body (all fields optional):**
+**Options (all optional except `--id`):**
 
-| Field | Description |
-|-------|-------------|
-| `description` | New description |
-| `resource` | New resource content |
-| `status` | `active` or `disabled` |
-| `expiresAt` | New expiry (ISO 8601), `null` to clear |
-| `maxUses` | New max uses, `null` to clear |
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--id` | Yes | Payment link ID |
+| `--desc` | No | New description |
+| `--resource` | No | New resource content |
+| `--status` | No | `active` or `disabled` |
+| `--expires` | No | New expiry (ISO 8601), `null` to clear |
+| `--max-uses` | No | New max uses, `null` to clear |
 
 ### Delete Payment Link
 
 ```bash
-curl -X DELETE "https://walletapi.fluxapay.xyz/api/payment-links/lnk_a1b2c3d4e5" \
-  -H "Authorization: Bearer $JWT"
+node scripts/fluxa-cli.bundle.js paymentlink-delete --id lnk_a1b2c3d4e5
 ```
 
 ### View Payments Received
 
 ```bash
-curl -X GET "https://walletapi.fluxapay.xyz/api/payment-links/lnk_a1b2c3d4e5/payments?limit=10" \
-  -H "Authorization: Bearer $JWT"
+node scripts/fluxa-cli.bundle.js paymentlink-payments --id lnk_a1b2c3d4e5 --limit 10
 ```
 
-**Response:**
+**Options:**
+
+| Option | Required | Default | Description |
+|--------|----------|---------|-------------|
+| `--id` | Yes | — | Payment link ID |
+| `--limit` | No | — | Max number of results |
+
+**Output:**
 
 ```json
 {
   "success": true,
-  "payments": [
-    {
-      "id": 1,
-      "payerAddress": "0xBuyerAddr...",
-      "amount": "5000000",
-      "currency": "USDC",
-      "settlementStatus": "settled",
-      "settlementTxHash": "0xabcdef...",
-      "createdAt": "2026-02-05T10:30:00.000Z"
-    }
-  ]
+  "data": {
+    "payments": [
+      {
+        "id": 1,
+        "payerAddress": "0xBuyerAddr...",
+        "amount": "5000000",
+        "currency": "USDC",
+        "settlementStatus": "settled",
+        "settlementTxHash": "0xabcdef...",
+        "createdAt": "2026-02-05T10:30:00.000Z"
+      }
+    ]
+  }
 }
 ```
 
@@ -177,37 +165,27 @@ Payment link URL format: `https://walletapi.fluxapay.xyz/paymentlink/<link_id>`
 
 ```bash
 #!/bin/bash
-JWT=$(cat ~/.fluxa-ai-wallet-mcp/.agent-config.json | jq -r '.agents["agent@example.com"]["My AI Agent"].jwt')
-API="https://walletapi.fluxapay.xyz"
+CLI="node scripts/fluxa-cli.bundle.js"
 
 # Create a payment link
-RESULT=$(curl -s -X POST "$API/api/payment-links" \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $JWT" \
-  -d '{
-    "amount": "1000000",
-    "currency": "USDC",
-    "network": "base",
-    "description": "Test payment link"
-  }')
+RESULT=$($CLI paymentlink-create --amount "1000000" --desc "Test payment link")
 
-LINK_ID=$(echo "$RESULT" | jq -r '.paymentLink.linkId')
-URL=$(echo "$RESULT" | jq -r '.paymentLink.url')
+LINK_ID=$(echo "$RESULT" | jq -r '.data.paymentLink.linkId')
+URL=$(echo "$RESULT" | jq -r '.data.paymentLink.url')
 
 echo "Created payment link: $URL"
 
 # Check for payments
-curl -s -X GET "$API/api/payment-links/$LINK_ID/payments" \
-  -H "Authorization: Bearer $JWT" | jq
+$CLI paymentlink-payments --id "$LINK_ID" | jq
 ```
 
 ## Use Cases
 
 | Scenario | Configuration |
 |----------|--------------|
-| One-time invoice | `"maxUses": 1` |
-| Limited-time sale | `"expiresAt": "<date>"` |
+| One-time invoice | `--max-uses 1` |
+| Limited-time sale | `--expires "<date>"` |
 | Tip jar / donation | No limits |
-| Digital goods | `"resource": "Download link: ..."` |
-| Batch collection | High `maxUses`, track via `/payments` endpoint |
+| Digital goods | `--resource "Download link: ..."` |
+| Batch collection | High `--max-uses`, track via `paymentlink-payments` |
 | Agent-to-agent payment | Use x402 flow above |
