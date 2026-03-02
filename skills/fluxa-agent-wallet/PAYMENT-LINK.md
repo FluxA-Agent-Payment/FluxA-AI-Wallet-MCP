@@ -18,7 +18,7 @@ Payment Links allow the agent to create shareable payment URLs to **receive** US
 ### Create Payment Link
 
 ```bash
-fluxa-wallet paymentlink-create \
+npx fluxa-wallet paymentlink-create \
   --amount "5000000" \
   --desc "AI Research Report" \
   --max-uses 100 \
@@ -64,7 +64,7 @@ Share the `url` value with payers.
 ### List Payment Links
 
 ```bash
-fluxa-wallet paymentlink-list --limit 20
+npx fluxa-wallet paymentlink-list --limit 20
 ```
 
 **Options:**
@@ -76,23 +76,23 @@ fluxa-wallet paymentlink-list --limit 20
 ### Get Payment Link Details
 
 ```bash
-fluxa-wallet paymentlink-get --id lnk_a1b2c3d4e5
+npx fluxa-wallet paymentlink-get --id lnk_a1b2c3d4e5
 ```
 
 ### Update Payment Link
 
 ```bash
 # Disable a link
-fluxa-wallet paymentlink-update --id lnk_a1b2c3d4e5 --status disabled
+npx fluxa-wallet paymentlink-update --id lnk_a1b2c3d4e5 --status disabled
 
 # Update description
-fluxa-wallet paymentlink-update --id lnk_a1b2c3d4e5 --desc "SOLD OUT"
+npx fluxa-wallet paymentlink-update --id lnk_a1b2c3d4e5 --desc "SOLD OUT"
 
 # Remove expiry limit
-fluxa-wallet paymentlink-update --id lnk_a1b2c3d4e5 --expires null
+npx fluxa-wallet paymentlink-update --id lnk_a1b2c3d4e5 --expires null
 
 # Remove max uses limit
-fluxa-wallet paymentlink-update --id lnk_a1b2c3d4e5 --max-uses null
+npx fluxa-wallet paymentlink-update --id lnk_a1b2c3d4e5 --max-uses null
 ```
 
 **Options (all optional except `--id`):**
@@ -109,13 +109,13 @@ fluxa-wallet paymentlink-update --id lnk_a1b2c3d4e5 --max-uses null
 ### Delete Payment Link
 
 ```bash
-fluxa-wallet paymentlink-delete --id lnk_a1b2c3d4e5
+npx fluxa-wallet paymentlink-delete --id lnk_a1b2c3d4e5
 ```
 
 ### View Payments Received
 
 ```bash
-fluxa-wallet paymentlink-payments --id lnk_a1b2c3d4e5 --limit 10
+npx fluxa-wallet paymentlink-payments --id lnk_a1b2c3d4e5 --limit 10
 ```
 
 **Options:**
@@ -165,7 +165,7 @@ Payment link URL format: `https://walletapi.fluxapay.xyz/paymentlink/<link_id>`
 
 ```bash
 #!/bin/bash
-CLI="fluxa-wallet"
+CLI="npx fluxa-wallet"
 
 # Create a payment link
 RESULT=$($CLI paymentlink-create --amount "1000000" --desc "Test payment link")

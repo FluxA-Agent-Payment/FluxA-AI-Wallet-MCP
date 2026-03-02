@@ -9,20 +9,14 @@ description: >-
 
 # FluxA Agent Wallet
 
-FluxA Agent Wallet lets AI agents perform onchain financial operations — payments, payouts, and payment links — without managing private keys. All operations use the **CLI** (`fluxa-wallet`).
+FluxA Agent Wallet lets AI agents perform onchain financial operations — payments, payouts, and payment links — without managing private keys. All operations use the **CLI** (`npx fluxa-wallet`).
 
 ## Setup
 
-Install the CLI globally:
+Run commands via `npx` (no installation required):
 
 ```bash
-npm install -g @fluxa-pay/fluxa-wallet
-```
-
-Then run commands directly:
-
-```bash
-fluxa-wallet <command> [options]
+npx fluxa-wallet <command> [options]
 ```
 
 All commands output JSON to stdout:
@@ -52,7 +46,7 @@ Exit code `0` = success, `1` = failure.
 Before any operation, the agent must have an Agent ID. Register once:
 
 ```bash
-fluxa-wallet init \
+npx fluxa-wallet init \
   --name "My AI Agent" \
   --client "Agent v1.0"
 ```
@@ -68,7 +62,7 @@ export AGENT_JWT="eyJhbGciOiJ..."
 Verify status:
 
 ```bash
-fluxa-wallet status
+npx fluxa-wallet status
 ```
 
 The CLI automatically refreshes expired JWTs.

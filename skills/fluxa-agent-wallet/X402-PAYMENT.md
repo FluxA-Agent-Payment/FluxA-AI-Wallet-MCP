@@ -30,7 +30,7 @@ This document uses the **CLI** method.
 ## Step 1 — Create Intent Mandate
 
 ```bash
-fluxa-wallet mandate-create \
+npx fluxa-wallet mandate-create \
   --desc "Spend up to 0.10 USDC for Polymarket recommendations for 30 days" \
   --amount 100000 \
   --seconds 2592000 \
@@ -77,7 +77,7 @@ fluxa-wallet mandate-create \
 **Important:** Use `--id`, not `--mandate`:
 
 ```bash
-fluxa-wallet mandate-status --id mand_xxxxxxxxxxxxx
+npx fluxa-wallet mandate-status --id mand_xxxxxxxxxxxxx
 ```
 
 **Output:**
@@ -114,7 +114,7 @@ Pass the **complete** HTTP 402 response body as `--payload`. The payload **must*
 # Store the 402 response in a variable first
 PAYLOAD_402='{"accepts":[{"scheme":"exact","network":"base","maxAmountRequired":"10000","asset":"0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913","payTo":"0xFf319473ba1a09272B37c34717f6993b3F385CD3","resource":"https://fluxa-x402-api.gmlgtm.workers.dev/polymarket_recommendations_last_1h","description":"Get Polymarket trading recommendations","extra":{"name":"USD Coin","version":"2"},"maxTimeoutSeconds":60}]}'
 
-fluxa-wallet x402-v3 \
+npx fluxa-wallet x402-v3 \
   --mandate mand_xxxxxxxxxxxxx \
   --payload "$PAYLOAD_402"
 ```
@@ -172,7 +172,7 @@ If using both methods, ensure you're using the same agent identity.
 
 ```bash
 #!/bin/bash
-CLI="fluxa-wallet"
+CLI="npx fluxa-wallet"
 API_URL="https://fluxa-x402-api.gmlgtm.workers.dev/polymarket_recommendations_last_1h"
 MANDATE_ID="mand_xxxxxxxxxxxxx"
 
