@@ -50,7 +50,7 @@ function printUsage() {
 FluxA Wallet CLI - Standalone command-line tool for FluxA Wallet operations
 
 USAGE:
-  node fluxa-cli.bundle.js <command> [options]
+  fluxa-wallet <command> [options]
 
 COMMANDS:
   status                    Check agent configuration status
@@ -69,10 +69,9 @@ COMMANDS:
   paymentlink-payments      Get payment records for a payment link
 
 OPTIONS FOR 'init':
-  --email <email>           Email address for registration
   --name <name>             Agent name
   --client <info>           Client info description
-  (Or set AGENT_EMAIL, AGENT_NAME, CLIENT_INFO environment variables)
+  (Or set AGENT_NAME, CLIENT_INFO environment variables)
 
 OPTIONS FOR 'payout':
   --to <address>            Recipient address (required)
@@ -134,41 +133,40 @@ ENVIRONMENT VARIABLES:
   AGENT_ID                  Pre-configured agent ID
   AGENT_TOKEN               Pre-configured agent token
   AGENT_JWT                 Pre-configured agent JWT
-  AGENT_EMAIL               Email for auto-registration
   AGENT_NAME                Agent name for auto-registration
   CLIENT_INFO               Client info for auto-registration
   FLUXA_DATA_DIR            Custom data directory path
 
 EXAMPLES:
   # Check status
-  node fluxa-cli.bundle.js status
+  fluxa-wallet status
 
   # Initialize with parameters
-  node fluxa-cli.bundle.js init --email user@example.com --name "My Agent" --client "CLI v1.0"
+  fluxa-wallet init --name "My Agent" --client "CLI v1.0"
 
   # Create payout
-  node fluxa-cli.bundle.js payout --to 0x1234...abcd --amount 1000000 --id pay_001
+  fluxa-wallet payout --to 0x1234...abcd --amount 1000000 --id pay_001
 
   # Query payout status
-  node fluxa-cli.bundle.js payout-status --id pay_001
+  fluxa-wallet payout-status --id pay_001
 
   # Create intent mandate (x402 v3)
-  node fluxa-cli.bundle.js mandate-create --desc "Spend up to 0.1 USDC for API calls" --amount 100000
+  fluxa-wallet mandate-create --desc "Spend up to 0.1 USDC for API calls" --amount 100000
 
   # Query mandate status
-  node fluxa-cli.bundle.js mandate-status --id mand_xxxxx
+  fluxa-wallet mandate-status --id mand_xxxxx
 
   # Create a payment link
-  node fluxa-cli.bundle.js paymentlink-create --amount 1000000 --desc "Test payment"
+  fluxa-wallet paymentlink-create --amount 1000000 --desc "Test payment"
 
   # List payment links
-  node fluxa-cli.bundle.js paymentlink-list --limit 10
+  fluxa-wallet paymentlink-list --limit 10
 
   # Get payment link details
-  node fluxa-cli.bundle.js paymentlink-get --id lnk_xxxxx
+  fluxa-wallet paymentlink-get --id lnk_xxxxx
 
   # Delete a payment link
-  node fluxa-cli.bundle.js paymentlink-delete --id lnk_xxxxx
+  fluxa-wallet paymentlink-delete --id lnk_xxxxx
 `);
 }
 
@@ -240,7 +238,6 @@ async function cmdStatus(): Promise<CommandResult> {
         has_token: !!agentConfig.token,
         has_jwt: !!agentConfig.jwt,
         jwt_expired: isJWTExpired(agentConfig.jwt),
-        email: agentConfig.email,
         agent_name: agentConfig.agent_name,
       },
     };
@@ -251,7 +248,6 @@ async function cmdStatus(): Promise<CommandResult> {
     data: {
       configured: false,
       has_registration_info: !!regInfo,
-      registration_email: regInfo?.email,
     },
   };
 }
@@ -270,26 +266,24 @@ async function cmdInit(options: Record<string, string>): Promise<CommandResult> 
   }
 
   // Get registration info from options or env
-  const email = options.email || process.env.AGENT_EMAIL;
   const agentName = options.name || process.env.AGENT_NAME;
   const clientInfo = options.client || process.env.CLIENT_INFO;
 
-  if (!email || !agentName || !clientInfo) {
+  if (!agentName || !clientInfo) {
     return {
       success: false,
-      error: 'Missing required parameters: --email, --name, --client (or set AGENT_EMAIL, AGENT_NAME, CLIENT_INFO)',
+      error: 'Missing required parameters: --name, --client (or set AGENT_NAME, CLIENT_INFO)',
     };
   }
 
   try {
-    const result = await registerAgent({ email, agent_name: agentName, client_info: clientInfo });
+    const result = await registerAgent({ agent_name: agentName, client_info: clientInfo });
 
     // Save to config
     saveAgentId({
       agent_id: result.agent_id,
       token: result.token,
       jwt: result.jwt,
-      email,
       agent_name: agentName,
       client_info: clientInfo,
     });
@@ -297,7 +291,6 @@ async function cmdInit(options: Record<string, string>): Promise<CommandResult> 
     await recordAudit({
       event: 'agent_registered',
       agent_id: result.agent_id,
-      email,
     });
 
     return {

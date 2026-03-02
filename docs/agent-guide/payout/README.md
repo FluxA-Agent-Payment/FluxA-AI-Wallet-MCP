@@ -48,7 +48,7 @@ Payouts require **user authorization** via the FluxA Wallet UI before the onchai
 Generate a unique `payout_id` for idempotency, then submit the payout request:
 
 ```bash
-node fluxa-cli.bundle.js payout \
+fluxa-wallet payout \
   --to "0x4eb5b229d43c30fc629d92bf7ed415d6d7f0cabe" \
   --amount "1000000" \
   --id "reward_task_20260204_001"
@@ -97,7 +97,7 @@ The payout is now in `pending_authorization` status. Ask the user to open `appro
 After the user approves, check the status until the transaction completes:
 
 ```bash
-node fluxa-cli.bundle.js payout-status --id "reward_task_20260204_001"
+fluxa-wallet payout-status --id "reward_task_20260204_001"
 ```
 
 **Via API:**

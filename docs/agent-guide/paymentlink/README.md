@@ -60,7 +60,7 @@ Each payment link has a fixed amount, a unique URL, and can optionally be limite
 ### Step 1 — Create a Payment Link
 
 ```bash
-node fluxa-cli.bundle.js paymentlink-create \
+fluxa-wallet paymentlink-create \
   --amount "5000000" \
   --desc "AI Research Report - Crypto Market Analysis Q1 2026" \
   --max-uses 100 \
@@ -124,7 +124,7 @@ Give the `url` to your users:
 After users pay, check who has paid:
 
 ```bash
-node fluxa-cli.bundle.js paymentlink-payments --id "lnk_a1b2c3d4e5" --limit 10
+fluxa-wallet paymentlink-payments --id "lnk_a1b2c3d4e5" --limit 10
 ```
 
 **Via API:**
@@ -157,31 +157,31 @@ curl -H "Authorization: Bearer $AGENT_JWT" \
 **Disable the link** (stop accepting new payments):
 
 ```bash
-node fluxa-cli.bundle.js paymentlink-update --id "lnk_a1b2c3d4e5" --status disabled
+fluxa-wallet paymentlink-update --id "lnk_a1b2c3d4e5" --status disabled
 ```
 
 **Update the description:**
 
 ```bash
-node fluxa-cli.bundle.js paymentlink-update --id "lnk_a1b2c3d4e5" --desc "SOLD OUT - Report no longer available"
+fluxa-wallet paymentlink-update --id "lnk_a1b2c3d4e5" --desc "SOLD OUT - Report no longer available"
 ```
 
 **Remove the expiry limit:**
 
 ```bash
-node fluxa-cli.bundle.js paymentlink-update --id "lnk_a1b2c3d4e5" --expires null
+fluxa-wallet paymentlink-update --id "lnk_a1b2c3d4e5" --expires null
 ```
 
 **Delete the link entirely:**
 
 ```bash
-node fluxa-cli.bundle.js paymentlink-delete --id "lnk_a1b2c3d4e5"
+fluxa-wallet paymentlink-delete --id "lnk_a1b2c3d4e5"
 ```
 
 **List all your payment links:**
 
 ```bash
-node fluxa-cli.bundle.js paymentlink-list --limit 20
+fluxa-wallet paymentlink-list --limit 20
 ```
 
 ## Flow Diagram

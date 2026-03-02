@@ -4,7 +4,6 @@ import { registerAgent } from '../../wallet/client.js';
 import { saveAgentId, hasAgentId, getEffectiveAgentId, getRegistrationInfoFromEnv, hasRegistrationInfo } from '../../agent/agentId.js';
 
 const RequestSchema = z.object({
-  email: z.string().email().optional(),
   agent_name: z.string().min(1).optional(),
   client_info: z.string().min(1).optional(),
 }).strict();
@@ -22,12 +21,9 @@ You MUST call this tool before using request_x402_payment if the agent is not ye
 **Configuration methods:**
 This tool supports two configuration methods:
 
-1. **Environment variables (automatic)**: If AGENT_EMAIL, AGENT_NAME, and CLIENT_INFO environment variables are set, this tool will automatically use them. You don't need to provide parameters.
+1. **Environment variables (automatic)**: If AGENT_NAME and CLIENT_INFO environment variables are set, this tool will automatically use them. You don't need to provide parameters.
 
 2. **Manual parameters**: If environment variables are not set, provide the following parameters:
-   - email: User's email address (required)
-     Example: "user@example.com"
-
    - agent_name: A meaningful name for this agent (required)
      Recommended format: "[Client Type] - [User Identifier]"
      Examples:
@@ -49,7 +45,6 @@ This tool supports two configuration methods:
 
 **Important notes:**
 - Registration is a one-time operation per agent
-- If registration fails (e.g., email already exists), ask the user to confirm or use a different email
 - The agent_id, token, and jwt are stored locally in the config file
 - Do NOT share the jwt or token with users or external services`;
 
@@ -85,20 +80,17 @@ This tool supports two configuration methods:
         const args = RequestSchema.parse(rawArgs) as InitAgentIdInput;
 
         // Determine registration info: env vars take precedence over parameters
-        let email: string;
         let agent_name: string;
         let client_info: string;
 
         const envInfo = getRegistrationInfoFromEnv();
         if (envInfo) {
           // Use environment variables
-          email = envInfo.email;
           agent_name = envInfo.agent_name;
           client_info = envInfo.client_info;
           console.error('[init_agent_id] Using registration info from environment variables');
-        } else if (args.email && args.agent_name && args.client_info) {
+        } else if (args.agent_name && args.client_info) {
           // Use provided parameters
-          email = args.email;
           agent_name = args.agent_name;
           client_info = args.client_info;
           console.error('[init_agent_id] Using registration info from parameters');
@@ -114,7 +106,7 @@ This tool supports two configuration methods:
                   message: 'Registration information is incomplete',
                   pmc: {
                     primer: PMC_PRIMER,
-                    instructions: 'Registration requires email, agent_name, and client_info. Either:\n1. Set environment variables: AGENT_EMAIL, AGENT_NAME, CLIENT_INFO, or\n2. Provide these parameters when calling init_agent_id.\n\nPlease collect the user\'s email and provide appropriate agent name and client info.',
+                    instructions: 'Registration requires agent_name and client_info. Either:\n1. Set environment variables: AGENT_NAME, CLIENT_INFO, or\n2. Provide these parameters when calling init_agent_id.\n\nPlease provide appropriate agent name and client info.',
                   },
                 }),
               },
@@ -124,7 +116,6 @@ This tool supports two configuration methods:
 
         // Call FluxA registration API
         const response = await registerAgent({
-          email,
           agent_name,
           client_info,
         });
@@ -134,7 +125,6 @@ This tool supports two configuration methods:
           agent_id: response.agent_id,
           token: response.token,
           jwt: response.jwt,
-          email,
           agent_name,
           client_info,
         });
@@ -162,7 +152,7 @@ This tool supports two configuration methods:
           message: err?.message || String(err),
           pmc: {
             primer: PMC_PRIMER,
-            instructions: `Registration failed: ${err?.message || 'Unknown error'}. Please check that:\n1. The email format is valid\n2. The email is not already registered (try a different email if needed)\n3. Network connectivity is available\n\nIf the problem persists, please contact FluxA support.`,
+            instructions: `Registration failed: ${err?.message || 'Unknown error'}. Please check that:\n1. The agent_name and client_info are valid\n2. Network connectivity is available\n\nIf the problem persists, please contact FluxA support.`,
           },
         };
         return {

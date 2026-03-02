@@ -11,7 +11,6 @@ const WALLET_APP = process.env.WALLET_APP || 'https://wallet.fluxapay.xyz';
 const JWT_EXPIRY_BUFFER_SECONDS = 300;
 
 export interface RegisterAgentRequest {
-  email: string;
   agent_name: string;
   client_info: string;
 }

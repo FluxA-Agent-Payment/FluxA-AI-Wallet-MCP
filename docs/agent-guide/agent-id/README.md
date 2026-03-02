@@ -46,8 +46,7 @@ Agent ID is the identity and authentication layer for AI agents using FluxA Wall
 **Via CLI:**
 
 ```bash
-node fluxa-cli.bundle.js init \
-  --email "agent@example.com" \
+fluxa-wallet init \
   --name "My AI Agent" \
   --client "Claude Code CLI v1.0"
 ```
@@ -58,7 +57,6 @@ node fluxa-cli.bundle.js init \
 curl -X POST https://agentid.fluxapay.xyz/register \
   -H "Content-Type: application/json" \
   -d '{
-    "email": "agent@example.com",
     "agent_name": "My AI Agent",
     "client_info": "Claude Code CLI v1.0"
   }'
@@ -77,7 +75,7 @@ curl -X POST https://agentid.fluxapay.xyz/register \
 ### Step 2 — Verify Status
 
 ```bash
-node fluxa-cli.bundle.js status
+fluxa-wallet status
 ```
 
 ```json
@@ -89,7 +87,6 @@ node fluxa-cli.bundle.js status
     "has_token": true,
     "has_jwt": true,
     "jwt_expired": false,
-    "email": "agent@example.com",
     "agent_name": "My AI Agent"
   }
 }
@@ -125,7 +122,6 @@ export AGENT_TOKEN="tok_xxxxxxxxxxxx"
 export AGENT_JWT="eyJhbGciOiJ..."
 
 # Method 2: Provide registration info (auto-registers on first use)
-export AGENT_EMAIL="agent@example.com"
 export AGENT_NAME="My AI Agent"
 export CLIENT_INFO="Claude Code CLI v1.0"
 ```

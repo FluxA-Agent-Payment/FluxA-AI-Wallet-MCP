@@ -1,0 +1,12 @@
+{
+  "name": "@fluxa-pay/fluxa-wallet",
+  "version": "0.2.0",
+  "description": "FluxA Agent Wallet CLI — payments, payouts, and payment links for AI agents",
+  "type": "module",
+  "bin": {
+    "fluxa-wallet": "bin/fluxa-wallet.js"
+  },
+  "files": ["bin", "README.md", "LICENSE"],
+  "engines": { "node": ">=18.0.0" },
+  "license": "Apache-2.0"
+}

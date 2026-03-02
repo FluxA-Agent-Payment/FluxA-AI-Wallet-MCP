@@ -9,14 +9,20 @@ description: >-
 
 # FluxA Agent Wallet
 
-FluxA Agent Wallet lets AI agents perform onchain financial operations — payments, payouts, and payment links — without managing private keys. All operations use the **CLI** (`scripts/fluxa-cli.bundle.js`).
+FluxA Agent Wallet lets AI agents perform onchain financial operations — payments, payouts, and payment links — without managing private keys. All operations use the **CLI** (`fluxa-wallet`).
 
 ## Setup
 
-The CLI bundle is located at `scripts/fluxa-cli.bundle.js` within this skill directory. It requires Node.js v18+.
+Install the CLI globally:
 
 ```bash
-node scripts/fluxa-cli.bundle.js <command> [options]
+npm install -g @fluxa-pay/fluxa-wallet
+```
+
+Then run commands directly:
+
+```bash
+fluxa-wallet <command> [options]
 ```
 
 All commands output JSON to stdout:
@@ -46,8 +52,7 @@ Exit code `0` = success, `1` = failure.
 Before any operation, the agent must have an Agent ID. Register once:
 
 ```bash
-node scripts/fluxa-cli.bundle.js init \
-  --email "agent@example.com" \
+fluxa-wallet init \
   --name "My AI Agent" \
   --client "Agent v1.0"
 ```
@@ -63,7 +68,7 @@ export AGENT_JWT="eyJhbGciOiJ..."
 Verify status:
 
 ```bash
-node scripts/fluxa-cli.bundle.js status
+fluxa-wallet status
 ```
 
 The CLI automatically refreshes expired JWTs.
@@ -142,7 +147,7 @@ All amounts are in **smallest units** (atomic units). For USDC (6 decimals):
 | Command | Required Flags | Description |
 |---------|----------------|-------------|
 | `status` | (none) | Check agent configuration |
-| `init` | `--email`, `--name` | Register agent ID |
+| `init` | `--name`, `--client` | Register agent ID |
 | `mandate-create` | `--desc`, `--amount` | Create an intent mandate |
 | `mandate-status` | `--id` | Query mandate status (NOT `--mandate`) |
 | `x402-v3` | `--mandate`, `--payload` | Execute x402 v3 payment |
@@ -170,7 +175,6 @@ All amounts are in **smallest units** (atomic units). For USDC (6 decimals):
 | `AGENT_ID` | Pre-configured agent ID |
 | `AGENT_TOKEN` | Pre-configured agent token |
 | `AGENT_JWT` | Pre-configured agent JWT |
-| `AGENT_EMAIL` | Email for auto-registration |
 | `AGENT_NAME` | Agent name for auto-registration |
 | `CLIENT_INFO` | Client info for auto-registration |
 | `FLUXA_DATA_DIR` | Custom data directory (default: `~/.fluxa-ai-wallet-mcp`) |

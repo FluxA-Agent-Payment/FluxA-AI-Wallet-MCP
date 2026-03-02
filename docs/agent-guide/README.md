@@ -40,7 +40,7 @@ npm start   # starts the MCP stdio server
 A standalone CLI tool that outputs JSON — ideal for shell scripts, CI/CD, and non-MCP environments.
 
 ```bash
-node fluxa-cli.bundle.js <command> [options]
+fluxa-wallet <command> [options]
 ```
 
 ## Quick Start
@@ -72,7 +72,6 @@ See each module's guide for detailed integration flows.
 | `AGENT_ID` | Pre-configured agent ID | — |
 | `AGENT_TOKEN` | Pre-configured agent token | — |
 | `AGENT_JWT` | Pre-configured agent JWT | — |
-| `AGENT_EMAIL` | Email for auto-registration | — |
 | `AGENT_NAME` | Agent name for auto-registration | — |
 | `CLIENT_INFO` | Client info for auto-registration | — |
 | `FLUXA_DATA_DIR` | Custom data directory path | `~/.fluxa-ai-wallet-mcp` |

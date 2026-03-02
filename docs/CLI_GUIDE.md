@@ -1,18 +1,15 @@
 # FluxA Wallet CLI Guide for AI Agents
 
-This guide explains how to use the FluxA Wallet CLI tool (`fluxa-cli.bundle.js`) to perform wallet operations. The CLI is a standalone JavaScript file that requires only Node.js (v18+) to run - no npm installation needed.
+This guide explains how to use the FluxA Wallet CLI tool (`fluxa-wallet`) to perform wallet operations.
 
 ## Quick Start
 
 ```bash
-# Download the bundle file
-curl -O https://example.com/fluxa-cli.bundle.js
-
-# Make it executable (optional)
-chmod +x fluxa-cli.bundle.js
+# Install the CLI globally
+npm install -g @fluxa-pay/fluxa-wallet
 
 # Run commands
-node fluxa-cli.bundle.js <command> [options]
+fluxa-wallet <command> [options]
 ```
 
 ## Commands Overview
@@ -57,7 +54,7 @@ Or on error:
 Check if the agent is configured and ready to use.
 
 ```bash
-node fluxa-cli.bundle.js status
+fluxa-wallet status
 ```
 
 **Output when configured:**
@@ -70,7 +67,6 @@ node fluxa-cli.bundle.js status
     "has_token": true,
     "has_jwt": true,
     "jwt_expired": false,
-    "email": "agent@example.com",
     "agent_name": "My AI Agent"
   }
 }
@@ -94,20 +90,18 @@ node fluxa-cli.bundle.js status
 Register a new agent ID with FluxA. This is required before making payments or payouts.
 
 ```bash
-node fluxa-cli.bundle.js init --email <email> --name <agent_name> --client <client_info>
+fluxa-wallet init --name <agent_name> --client <client_info>
 ```
 
 **Parameters:**
 | Parameter | Required | Description |
 |-----------|----------|-------------|
-| `--email` | Yes | Email address for the agent |
 | `--name` | Yes | A descriptive name for the agent |
 | `--client` | Yes | Client/environment information |
 
 **Example:**
 ```bash
-node fluxa-cli.bundle.js init \
-  --email "myagent@example.com" \
+fluxa-wallet init \
   --name "Claude Assistant Agent" \
   --client "Claude Code CLI on macOS"
 ```
@@ -125,10 +119,9 @@ node fluxa-cli.bundle.js init \
 
 **Alternative: Use environment variables**
 ```bash
-export AGENT_EMAIL="myagent@example.com"
 export AGENT_NAME="Claude Assistant Agent"
 export CLIENT_INFO="Claude Code CLI on macOS"
-node fluxa-cli.bundle.js init
+fluxa-wallet init
 ```
 
 ---
@@ -138,7 +131,7 @@ node fluxa-cli.bundle.js init
 Send funds to a recipient address. Requires agent to be initialized first.
 
 ```bash
-node fluxa-cli.bundle.js payout --to <address> --amount <amount> --id <payout_id>
+fluxa-wallet payout --to <address> --amount <amount> --id <payout_id>
 ```
 
 **Parameters:**
@@ -153,7 +146,7 @@ node fluxa-cli.bundle.js payout --to <address> --amount <amount> --id <payout_id
 **Example:**
 ```bash
 # Send 1 USDC (1000000 in smallest units)
-node fluxa-cli.bundle.js payout \
+fluxa-wallet payout \
   --to "0x1234567890abcdef1234567890abcdef12345678" \
   --amount "1000000" \
   --id "payout_unique_001"
@@ -185,12 +178,12 @@ node fluxa-cli.bundle.js payout \
 Check the current status of a payout.
 
 ```bash
-node fluxa-cli.bundle.js payout-status --id <payout_id>
+fluxa-wallet payout-status --id <payout_id>
 ```
 
 **Example:**
 ```bash
-node fluxa-cli.bundle.js payout-status --id "payout_unique_001"
+fluxa-wallet payout-status --id "payout_unique_001"
 ```
 
 **Output:**
@@ -221,12 +214,12 @@ node fluxa-cli.bundle.js payout-status --id "payout_unique_001"
 Generate an x402 payment authorization header for HTTP requests to paid APIs.
 
 ```bash
-node fluxa-cli.bundle.js x402 --payload '<json>'
+fluxa-wallet x402 --payload '<json>'
 ```
 
 **Example:**
 ```bash
-node fluxa-cli.bundle.js x402 --payload '{
+fluxa-wallet x402 --payload '{
   "x402Version": 1,
   "accepts": [{
     "scheme": "exact",
@@ -259,7 +252,7 @@ node fluxa-cli.bundle.js x402 --payload '{
 **Usage with curl:**
 ```bash
 # Get the payment header
-PAYMENT=$(node fluxa-cli.bundle.js x402 --payload '...' | jq -r '.data["X-PAYMENT"]')
+PAYMENT=$(fluxa-wallet x402 --payload '...' | jq -r '.data["X-PAYMENT"]')
 
 # Make the paid API request
 curl -H "X-PAYMENT: $PAYMENT" https://api.example.com/paid-endpoint
@@ -276,7 +269,6 @@ The CLI supports the following environment variables:
 | `AGENT_ID` | Pre-configured agent ID (skips registration) |
 | `AGENT_TOKEN` | Pre-configured agent token |
 | `AGENT_JWT` | Pre-configured agent JWT |
-| `AGENT_EMAIL` | Email for auto-registration |
 | `AGENT_NAME` | Agent name for auto-registration |
 | `CLIENT_INFO` | Client info for auto-registration |
 | `FLUXA_DATA_DIR` | Custom data directory (default: `~/.fluxa-ai-wallet-mcp`) |
@@ -288,7 +280,7 @@ export AGENT_TOKEN="tok_xxxxxxxxxxxx"
 export AGENT_JWT="eyJhbGciOiJ..."
 
 # Now all commands work without initialization
-node fluxa-cli.bundle.js payout --to 0x... --amount 1000000 --id pay_001
+fluxa-wallet payout --to 0x... --amount 1000000 --id pay_001
 ```
 
 ---
@@ -299,22 +291,21 @@ node fluxa-cli.bundle.js payout --to 0x... --amount 1000000 --id pay_001
 
 ```bash
 # Step 1: Initialize agent
-node fluxa-cli.bundle.js init \
-  --email "agent@company.com" \
+fluxa-wallet init \
   --name "Payment Bot" \
   --client "Automated System v1.0"
 
 # Step 2: Verify status
-node fluxa-cli.bundle.js status
+fluxa-wallet status
 
 # Step 3: Create payout
-node fluxa-cli.bundle.js payout \
+fluxa-wallet payout \
   --to "0x1234567890abcdef1234567890abcdef12345678" \
   --amount "5000000" \
   --id "order_12345_payout"
 
 # Step 4: Check payout status
-node fluxa-cli.bundle.js payout-status --id "order_12345_payout"
+fluxa-wallet payout-status --id "order_12345_payout"
 ```
 
 ### Example 2: Scripted Payout with Status Check
@@ -327,14 +318,14 @@ AMOUNT="1000000"
 PAYOUT_ID="payout_$(date +%s)"
 
 # Create payout
-RESULT=$(node fluxa-cli.bundle.js payout --to "$RECIPIENT" --amount "$AMOUNT" --id "$PAYOUT_ID")
+RESULT=$(fluxa-wallet payout --to "$RECIPIENT" --amount "$AMOUNT" --id "$PAYOUT_ID")
 
 if echo "$RESULT" | jq -e '.success' > /dev/null; then
   echo "Payout created: $PAYOUT_ID"
 
   # Poll for completion
   while true; do
-    STATUS=$(node fluxa-cli.bundle.js payout-status --id "$PAYOUT_ID" | jq -r '.data.status')
+    STATUS=$(fluxa-wallet payout-status --id "$PAYOUT_ID" | jq -r '.data.status')
     echo "Status: $STATUS"
 
     if [ "$STATUS" = "succeeded" ] || [ "$STATUS" = "failed" ]; then
@@ -363,7 +354,7 @@ if [ "$HTTP_CODE" = "402" ]; then
   PAYMENT_REQ=$(echo "$RESPONSE" | head -n -1)
 
   # Generate payment header
-  PAYMENT=$(node fluxa-cli.bundle.js x402 --payload "$PAYMENT_REQ" | jq -r '.data["X-PAYMENT"]')
+  PAYMENT=$(fluxa-wallet x402 --payload "$PAYMENT_REQ" | jq -r '.data["X-PAYMENT"]')
 
   # Retry with payment header
   curl -H "X-PAYMENT: $PAYMENT" "$API_URL"
