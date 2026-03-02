@@ -20,7 +20,7 @@ Payout lets the agent send USDC to any wallet address on Base network.
 ### Create Payout
 
 ```bash
-npx fluxa-wallet payout \
+fluxa-wallet payout \
   --to "0x4eb5b229d43c30fc629d92bf7ed415d6d7f0cabe" \
   --amount "1000000" \
   --id "reward_20260204_001"
@@ -64,7 +64,7 @@ npx fluxa-wallet payout \
 ### Query Payout Status
 
 ```bash
-npx fluxa-wallet payout-status --id "reward_20260204_001"
+fluxa-wallet payout-status --id "reward_20260204_001"
 ```
 
 **Output (completed):**
@@ -94,7 +94,7 @@ npx fluxa-wallet payout-status --id "reward_20260204_001"
 
 ```bash
 #!/bin/bash
-CLI="npx fluxa-wallet"
+CLI="fluxa-wallet"
 RECIPIENT="0x4eb5b229d43c30fc629d92bf7ed415d6d7f0cabe"
 AMOUNT="1000000"
 PAYOUT_ID="payout_$(date +%s)"
