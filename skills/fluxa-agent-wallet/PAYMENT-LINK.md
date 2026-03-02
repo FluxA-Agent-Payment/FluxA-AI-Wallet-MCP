@@ -18,7 +18,7 @@ Payment Links allow the agent to create shareable payment URLs to **receive** US
 ### Create Payment Link
 
 ```bash
-node scripts/fluxa-cli.bundle.js paymentlink-create \
+fluxa-wallet paymentlink-create \
   --amount "5000000" \
   --desc "AI Research Report" \
   --max-uses 100 \
@@ -64,7 +64,7 @@ Share the `url` value with payers.
 ### List Payment Links
 
 ```bash
-node scripts/fluxa-cli.bundle.js paymentlink-list --limit 20
+fluxa-wallet paymentlink-list --limit 20
 ```
 
 **Options:**
@@ -76,23 +76,23 @@ node scripts/fluxa-cli.bundle.js paymentlink-list --limit 20
 ### Get Payment Link Details
 
 ```bash
-node scripts/fluxa-cli.bundle.js paymentlink-get --id lnk_a1b2c3d4e5
+fluxa-wallet paymentlink-get --id lnk_a1b2c3d4e5
 ```
 
 ### Update Payment Link
 
 ```bash
 # Disable a link
-node scripts/fluxa-cli.bundle.js paymentlink-update --id lnk_a1b2c3d4e5 --status disabled
+fluxa-wallet paymentlink-update --id lnk_a1b2c3d4e5 --status disabled
 
 # Update description
-node scripts/fluxa-cli.bundle.js paymentlink-update --id lnk_a1b2c3d4e5 --desc "SOLD OUT"
+fluxa-wallet paymentlink-update --id lnk_a1b2c3d4e5 --desc "SOLD OUT"
 
 # Remove expiry limit
-node scripts/fluxa-cli.bundle.js paymentlink-update --id lnk_a1b2c3d4e5 --expires null
+fluxa-wallet paymentlink-update --id lnk_a1b2c3d4e5 --expires null
 
 # Remove max uses limit
-node scripts/fluxa-cli.bundle.js paymentlink-update --id lnk_a1b2c3d4e5 --max-uses null
+fluxa-wallet paymentlink-update --id lnk_a1b2c3d4e5 --max-uses null
 ```
 
 **Options (all optional except `--id`):**
@@ -109,13 +109,13 @@ node scripts/fluxa-cli.bundle.js paymentlink-update --id lnk_a1b2c3d4e5 --max-us
 ### Delete Payment Link
 
 ```bash
-node scripts/fluxa-cli.bundle.js paymentlink-delete --id lnk_a1b2c3d4e5
+fluxa-wallet paymentlink-delete --id lnk_a1b2c3d4e5
 ```
 
 ### View Payments Received
 
 ```bash
-node scripts/fluxa-cli.bundle.js paymentlink-payments --id lnk_a1b2c3d4e5 --limit 10
+fluxa-wallet paymentlink-payments --id lnk_a1b2c3d4e5 --limit 10
 ```
 
 **Options:**
@@ -165,7 +165,7 @@ Payment link URL format: `https://walletapi.fluxapay.xyz/paymentlink/<link_id>`
 
 ```bash
 #!/bin/bash
-CLI="node scripts/fluxa-cli.bundle.js"
+CLI="fluxa-wallet"
 
 # Create a payment link
 RESULT=$($CLI paymentlink-create --amount "1000000" --desc "Test payment link")

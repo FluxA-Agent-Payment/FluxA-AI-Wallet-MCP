@@ -12,6 +12,7 @@
 api_response.json 
 
 dist/
+packages/fluxa-wallet/bin/
 .data/
 
 # next.js

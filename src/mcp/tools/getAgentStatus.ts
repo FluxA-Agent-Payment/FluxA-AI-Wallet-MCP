@@ -25,7 +25,6 @@ Returns information about whether an Agent ID is configured and its details.
         configured,
         agent_id: agentId?.agent_id || null,
         agent_name: agentId?.agent_name || null,
-        email: agentId?.email || null,
         registered_at: agentId?.registered_at || null,
       };
 

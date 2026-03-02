@@ -62,7 +62,7 @@ The following is an end-to-end example of an agent fetching paid data from a Pol
 Define the spending plan and submit it to FluxA:
 
 ```bash
-node fluxa-cli.bundle.js mandate-create \
+fluxa-wallet mandate-create \
   --desc "Spend up to 0.10 USDC for Polymarket trading recommendations valid for 30 days" \
   --amount 100000 \
   --seconds 2592000 \
@@ -115,7 +115,7 @@ The user will:
 Confirm the mandate is signed before proceeding:
 
 ```bash
-node fluxa-cli.bundle.js mandate-status --id mand_xxxxxxxxxxxxx
+fluxa-wallet mandate-status --id mand_xxxxxxxxxxxxx
 ```
 
 **Via API:**
@@ -149,7 +149,7 @@ curl -H "Authorization: Bearer $AGENT_JWT" \
 When the agent hits the paid API and receives HTTP 402, extract the payment requirements and sign a payment:
 
 ```bash
-node fluxa-cli.bundle.js x402-v3 \
+fluxa-wallet x402-v3 \
   --mandate mand_xxxxxxxxxxxxx \
   --payload '{"accepts":[{"scheme":"exact","network":"base","maxAmountRequired":"10000","asset":"0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913","payTo":"0xFf319473ba1a09272B37c34717f6993b3F385CD3","resource":"https://fluxa-x402-api.gmlgtm.workers.dev/polymarket_recommendations_last_1h","description":"Get Polymarket trading recommendations","extra":{"name":"USD Coin","version":"2"},"maxTimeoutSeconds":60}]}'
 ```

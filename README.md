@@ -2,6 +2,15 @@
 
 MCP server for FluxA AI Wallet with x402 (EIP-3009 exact) payment support.
 
+## Packages
+
+This repository contains two packages:
+
+| Package | Description | Install |
+|---------|-------------|---------|
+| [`@fluxa-pay/fluxa-wallet-mcp`](https://www.npmjs.com/package/@fluxa-pay/fluxa-wallet-mcp) | MCP server for AI agent frameworks (Claude Desktop, etc.) | `npm install @fluxa-pay/fluxa-wallet-mcp` |
+| [`@fluxa-pay/fluxa-wallet`](./packages/fluxa-wallet/) | Standalone CLI for scripts and automation | `npm install -g @fluxa-pay/fluxa-wallet` |
+
 ## Overview
 
 This MCP server enables AI agents to make x402 payments using the FluxA Wallet API. It provides a simple interface for agents to register, authenticate, and execute blockchain payments without managing private keys locally.
@@ -12,16 +21,24 @@ This MCP server enables AI agents to make x402 payments using the FluxA Wallet A
 - **x402 Payment Support**: Generate EIP-3009 payment authorizations via FluxA Wallet API
 - **Automatic JWT Refresh**: Automatically refreshes expired JWT tokens before payments
 - **No Local Key Management**: All signing is handled by FluxA Wallet (no local private keys)
-- **No Web UI**: Pure CLI tool for easy deployment
 - **Policy Management**: Policies are managed remotely by FluxA Wallet
 - **Environment Variable Support**: Configure via env vars or config file
 
 ## Quick Start
 
-### Installation
+### CLI
+
+```bash
+npm install -g @fluxa-pay/fluxa-wallet
+fluxa-wallet status
+```
+
+### MCP Server
 
 ```bash
 npm install
+npm run build
+npm start
 ```
 
 ### Development
@@ -33,8 +50,14 @@ npm run dev
 ### Build
 
 ```bash
+# Build MCP server only
 npm run build
-npm start
+
+# Build CLI bundle only
+npm run build:wallet
+
+# Build both
+npm run build:all
 ```
 
 ### Configuration
@@ -68,7 +91,6 @@ This method bypasses registration and uses the provided credentials directly.
 If you don't have credentials yet, configure registration information:
 
 ```bash
-export AGENT_EMAIL=user@example.com
 export AGENT_NAME="Claude Desktop - John's MacBook"
 export CLIENT_INFO="Claude Desktop v1.0 on macOS 14.1"
 ```
@@ -91,7 +113,7 @@ Register a new FluxA Agent ID. This must be called before making payments.
 
 This tool supports two ways to provide registration information:
 
-1. **Using environment variables (Method 2 above)**: If `AGENT_EMAIL`, `AGENT_NAME`, and `CLIENT_INFO` are set, simply call with empty parameters:
+1. **Using environment variables (Method 2 above)**: If `AGENT_NAME` and `CLIENT_INFO` are set, simply call with empty parameters:
    ```json
    {}
    ```
@@ -99,7 +121,6 @@ This tool supports two ways to provide registration information:
 2. **Using parameters**: If environment variables are not set, provide the information directly:
    ```json
    {
-     "email": "user@example.com",
      "agent_name": "Claude Desktop - John's MacBook",
      "client_info": "Claude Desktop v1.0 on macOS 14.1"
    }
@@ -117,10 +138,9 @@ This tool supports two ways to provide registration information:
 **Usage by Agent:**
 - If environment variables are configured (Method 2), simply call `init_agent_id` with `{}`
 - Otherwise:
-  1. Ask the user for their email address
-  2. Choose a meaningful agent name (e.g., "Claude Desktop - User's Computer")
-  3. Provide client information (e.g., "Claude Desktop v1.0 on macOS")
-  4. Call this tool with the collected parameters
+  1. Choose a meaningful agent name (e.g., "Claude Desktop - User's Computer")
+  2. Provide client information (e.g., "Claude Desktop v1.0 on macOS")
+  3. Call this tool with the collected parameters
 
 ### 2. `request_x402_payment`
 
@@ -267,7 +287,6 @@ Query the current Agent ID configuration status.
   "configured": true,
   "agent_id": "uuid-string",
   "agent_name": "Claude Desktop - John's MacBook",
-  "email": "user@example.com",
   "registered_at": "2024-01-01T00:00:00.000Z"
 }
 ```
@@ -408,7 +427,6 @@ Sign an x402 v3 payment using an intent mandate. Requires a signed mandateId.
    - PMC instructions guide the agent to register
 
 2. **Agent collects user information**
-   - Ask user for email address
    - Generate meaningful agent name based on environment
    - Prepare client info string
 
@@ -437,7 +455,6 @@ Once registered, agents can directly call `request_x402_payment` without re-regi
 curl -X POST https://agentid.fluxapay.xyz/register \
   -H "Content-Type: application/json" \
   -d '{
-    "email": "user@example.com",
     "agent_name": "My Agent",
     "client_info": "My Client v1.0"
   }'
@@ -633,7 +650,6 @@ MCP Server (stdio)
 | `AGENT_TOKEN` | Agent token (highest priority) | - |
 | `AGENT_JWT` | Agent JWT (highest priority) | - |
 | **Method 2: Registration Info** | | |
-| `AGENT_EMAIL` | Email for registration | - |
 | `AGENT_NAME` | Agent name for registration | - |
 | `CLIENT_INFO` | Client info for registration | - |
 | **API Endpoints** | | |
@@ -650,7 +666,6 @@ Location: `~/.fluxa-ai-wallet-mcp/config.json`
     "agent_id": "uuid-string",
     "token": "token-string",
     "jwt": "jwt-string",
-    "email": "user@example.com",
     "agent_name": "My Agent",
     "client_info": "My Client v1.0",
     "registered_at": "2024-01-01T00:00:00.000Z"

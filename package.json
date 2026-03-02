@@ -1,11 +1,10 @@
 {
   "name": "@fluxa-pay/fluxa-wallet-mcp",
-  "version": "0.1.4",
+  "version": "0.2.0",
   "description": "MCP server for AI Wallet with x402 (EIP-3009 exact) support",
   "type": "module",
   "bin": {
-    "fluxa-wallet-mcp": "dist/index.js",
-    "fluxa-cli": "dist/cli.js"
+    "fluxa-wallet-mcp": "dist/index.js"
   },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -18,10 +17,10 @@
     "dev": "tsx src/index.ts",
     "dev:cli": "tsx src/cli.ts",
     "build": "tsc -p tsconfig.json && chmod +x dist/index.js dist/cli.js",
-    "build:cli-bundle": "esbuild src/cli.ts --bundle --platform=node --target=node18 --format=esm --outfile=dist/fluxa-cli.bundle.js && chmod +x dist/fluxa-cli.bundle.js",
-    "build:all": "npm run build && npm run build:cli-bundle",
+    "build:wallet": "esbuild src/cli.ts --bundle --platform=node --target=node18 --format=esm --outfile=packages/fluxa-wallet/bin/fluxa-wallet.js && chmod +x packages/fluxa-wallet/bin/fluxa-wallet.js",
+    "build:all": "npm run build && npm run build:wallet",
     "start": "node dist/index.js",
-    "prepublishOnly": "npm run build:all"
+    "prepublishOnly": "npm run build"
   },
   "keywords": [
     "mcp",

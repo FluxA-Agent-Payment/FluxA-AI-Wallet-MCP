@@ -81,14 +81,12 @@ export function hasAgentId(): boolean {
  * Get registration info from environment variables (method 2)
  * This requires calling registration API to convert to credentials
  */
-export function getRegistrationInfoFromEnv(): { email: string; agent_name: string; client_info: string } | null {
-  const email = process.env.AGENT_EMAIL;
+export function getRegistrationInfoFromEnv(): { agent_name: string; client_info: string } | null {
   const agentName = process.env.AGENT_NAME;
   const clientInfo = process.env.CLIENT_INFO;
 
-  if (email && agentName && clientInfo) {
+  if (agentName && clientInfo) {
     return {
-      email,
       agent_name: agentName,
       client_info: clientInfo,
     };
