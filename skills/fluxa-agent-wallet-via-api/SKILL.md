@@ -75,7 +75,7 @@ Content-Type: application/json
 |----------|-------|-------------|
 | `USDC` | `USDC` | USD Coin |
 | `XRP` | `XRP` | XRP |
-| `FLUXA_MONETIZE_CREDITS` | `FLUXA_MONETIZE_CREDITS` | FluxA Monetize Credits |
+| `FLUXA_MONETIZE_CREDITS` | `FLUXA_MONETIZE_CREDITS` | Credits for FluxA Monetize, used to consume FluxA Monetize resources |
 
 ### Amount Format
 

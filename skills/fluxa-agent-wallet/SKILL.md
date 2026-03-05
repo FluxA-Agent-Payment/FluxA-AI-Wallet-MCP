@@ -137,7 +137,7 @@ See [PAYMENT-LINK.md](PAYMENT-LINK.md) for the complete walkthrough with example
 |----------|----------------------|-----------------|
 | USDC | `USDC` | `usdc` |
 | XRP | `XRP` | `xrp` |
-| FluxA Monetize Credits | `FLUXA_MONETIZE_CREDITS` | `credits`, `fluxa-monetize-credits`, `fluxa-monetize-credit` |
+| Credits for FluxA Monetize, used to consume FluxA Monetize resources | `FLUXA_MONETIZE_CREDITS` | `credits`, `fluxa-monetize-credits`, `fluxa-monetize-credit` |
 
 ## Amount Format
 
