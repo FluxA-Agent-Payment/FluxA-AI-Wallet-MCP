@@ -69,6 +69,14 @@ Authorization: Bearer <AGENT_JWT>
 Content-Type: application/json
 ```
 
+### Supported Currencies
+
+| Currency | Value | Description |
+|----------|-------|-------------|
+| `USDC` | `USDC` | USD Coin |
+| `XRP` | `XRP` | XRP |
+| `FLUXA_MONETIZE_CREDITS` | `FLUXA_MONETIZE_CREDITS` | Credits for FluxA Monetize, used to consume FluxA Monetize resources |
+
 ### Amount Format
 
 All amounts are in **smallest units** (atomic units). For USDC (6 decimals):

@@ -44,7 +44,7 @@ curl -X POST https://walletapi.fluxapay.xyz/api/mandates/create-intent \
 |-------|----------|-------------|
 | `naturalLanguage` | Yes | Human-readable description of the spending plan |
 | `category` | No | Category tag (e.g., `trading_data`, `general`) |
-| `currency` | No | Currency (default: `USDC`) |
+| `currency` | No | Currency (default: `USDC`). Supported: `USDC`, `XRP`, `FLUXA_MONETIZE_CREDITS` |
 | `limitAmount` | Yes | Maximum budget in atomic units |
 | `validForSeconds` | Yes | Duration in seconds |
 | `hostAllowlist` | No | Restrict to specific API hosts (empty = any) |

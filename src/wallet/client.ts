@@ -10,6 +10,34 @@ const WALLET_APP = process.env.WALLET_APP || 'https://wallet.fluxapay.xyz';
 // JWT expiry buffer: refresh if expiring within 5 minutes
 const JWT_EXPIRY_BUFFER_SECONDS = 300;
 
+// Supported currencies
+export const SUPPORTED_CURRENCIES = ['USDC', 'XRP', 'FLUXA_MONETIZE_CREDITS'] as const;
+export type SupportedCurrency = typeof SUPPORTED_CURRENCIES[number];
+
+const CURRENCY_ALIASES: Record<string, SupportedCurrency> = {
+  'usdc': 'USDC',
+  'xrp': 'XRP',
+  'fluxa_monetize_credits': 'FLUXA_MONETIZE_CREDITS',
+  'fluxa-monetize-credits': 'FLUXA_MONETIZE_CREDITS',
+  'fluxa-monetize-credit': 'FLUXA_MONETIZE_CREDITS',
+  'fluxa_monetize_credit': 'FLUXA_MONETIZE_CREDITS',
+  'credits': 'FLUXA_MONETIZE_CREDITS',
+};
+
+/**
+ * Resolve a currency string to a supported currency, handling aliases.
+ * Returns the canonical currency name or null if not recognized.
+ */
+export function resolveCurrency(input: string): SupportedCurrency | null {
+  // Exact match (case-sensitive)
+  if ((SUPPORTED_CURRENCIES as readonly string[]).includes(input)) {
+    return input as SupportedCurrency;
+  }
+  // Alias match (case-insensitive)
+  const alias = CURRENCY_ALIASES[input.toLowerCase()];
+  return alias ?? null;
+}
+
 export interface RegisterAgentRequest {
   agent_name: string;
   client_info: string;
@@ -219,25 +247,33 @@ export function extractHost(url: string): string {
 }
 
 /**
- * Map asset address to currency symbol
- * Currently only supports USDC
+ * Map asset address + network to currency symbol.
+ * Returns the canonical currency name.
  */
 export function getCurrencyFromAsset(
   assetAddress: string,
   network: string
 ): string {
   const normalizedAddress = assetAddress.toLowerCase();
+  const normalizedNetwork = network.toLowerCase();
 
   // Base USDC
   if (
     normalizedAddress === '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913' &&
-    network === 'base'
+    (normalizedNetwork === 'base' || normalizedNetwork === 'eip155:8453')
   ) {
     return 'USDC';
   }
 
-  // Default to USDC for now
-  // TODO: Add more token mappings as needed
+  // FLUXA_MONETIZE_CREDITS — identified by network prefix
+  if (
+    normalizedNetwork === 'fluxa-monetize-credits' ||
+    normalizedNetwork.startsWith('fluxa-monetize')
+  ) {
+    return 'FLUXA_MONETIZE_CREDITS';
+  }
+
+  // Default to USDC for unrecognized assets on known EVM networks
   return 'USDC';
 }
 

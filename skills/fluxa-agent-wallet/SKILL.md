@@ -131,6 +131,14 @@ This is a 6-step process using CLI:
 
 See [PAYMENT-LINK.md](PAYMENT-LINK.md) for the complete walkthrough with examples.
 
+## Supported Currencies
+
+| Currency | Value for `--currency` | Aliases accepted |
+|----------|----------------------|-----------------|
+| USDC | `USDC` | `usdc` |
+| XRP | `XRP` | `xrp` |
+| Credits for FluxA Monetize, used to consume FluxA Monetize resources | `FLUXA_MONETIZE_CREDITS` | `credits`, `fluxa-monetize-credits`, `fluxa-monetize-credit` |
+
 ## Amount Format
 
 All amounts are in **smallest units** (atomic units). For USDC (6 decimals):
@@ -141,6 +149,8 @@ All amounts are in **smallest units** (atomic units). For USDC (6 decimals):
 | 0.10 USDC | `100000` |
 | 1.00 USDC | `1000000` |
 | 10.00 USDC | `10000000` |
+
+For FLUXA_MONETIZE_CREDITS, amounts are in the credits' smallest unit as defined by the service.
 
 ## CLI Commands Quick Reference
 
