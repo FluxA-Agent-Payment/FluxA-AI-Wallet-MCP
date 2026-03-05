@@ -6,6 +6,7 @@ import {
   isJWTExpired,
   refreshJWT,
   WalletApiError,
+  SUPPORTED_CURRENCIES,
 } from '../../wallet/client.js';
 import { recordAudit } from '../../store/store.js';
 
@@ -16,7 +17,7 @@ const DEFAULT_MANDATE_CATEGORY = 'general';
 const IntentSchema = z.object({
   naturalLanguage: z.string().min(1).describe('Natural language description of the intent, e.g., "I plan to spend up to 0.10 USDC to get Polymarket trading recommendations valid for 30 days."'),
   category: z.string().default(DEFAULT_MANDATE_CATEGORY).describe('Category of the intent (default: general)'),
-  currency: z.string().default('USDC').describe('Currency for the mandate (default: USDC)'),
+  currency: z.enum(SUPPORTED_CURRENCIES).default('USDC').describe('Currency for the mandate. Supported: USDC, XRP, FLUXA_MONETIZE_CREDITS (default: USDC)'),
   limitAmount: z.string().describe('Total budget limit in atomic units (e.g., "100000" = 0.1 USDC)'),
   validForSeconds: z.number().int().positive().default(DEFAULT_MANDATE_SECONDS).describe('Validity duration in seconds (default: 28800 = 8 hours)'),
   hostAllowlist: z.array(z.string()).optional().describe('Optional list of allowed hosts'),

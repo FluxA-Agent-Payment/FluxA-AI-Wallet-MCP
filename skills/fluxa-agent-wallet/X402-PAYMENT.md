@@ -45,7 +45,7 @@ fluxa-wallet mandate-create \
 | `--amount` | Yes | — | Budget limit in atomic units |
 | `--seconds` | No | `28800` (8h) | Validity duration in seconds |
 | `--category` | No | `general` | Category tag |
-| `--currency` | No | `USDC` | Currency |
+| `--currency` | No | `USDC` | Currency. Supported: `USDC`, `XRP`, `FLUXA_MONETIZE_CREDITS` (aliases: `credits`, `fluxa-monetize-credits`) |
 
 **Output:**
 
@@ -107,6 +107,8 @@ Wait until `mandate.status` is `"signed"`.
 ## Step 3 — Make x402 v3 Payment
 
 Pass the **complete** HTTP 402 response body as `--payload`. The payload **must** contain an `accepts` array.
+
+**Currency matching:** The CLI automatically selects the `accepts` entry that matches the mandate's currency. If the 402 response contains multiple entries (e.g., USDC + FLUXA_MONETIZE_CREDITS), only the one matching the mandate currency is used. This prevents `currency_mismatch` errors.
 
 **Critical:** Do NOT extract individual fields. Pass the entire 402 response JSON:
 
@@ -205,6 +207,7 @@ fi
 | `mandate_budget_exceeded` | Budget exhausted | Create a new mandate with higher limit |
 | `mandate_insufficient_budget` | Payment amount exceeds remaining budget | Create a new mandate with higher limit |
 | `mandate_not_found` | Mandate ID doesn't exist or belongs to different agent | Verify mandate ID and agent identity |
+| `currency_mismatch` / `No accepts entry matches mandate currency` | 402 payload has no entry for the mandate's currency | Ensure the mandate currency matches one of the 402 `accepts` currencies |
 | `agent_not_registered` | No Agent ID | Run `init` first |
 
 ## Network Format Note

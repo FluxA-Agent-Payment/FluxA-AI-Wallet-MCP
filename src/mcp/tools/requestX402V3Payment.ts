@@ -5,6 +5,7 @@ import {
   requestX402V3Payment,
   extractHost,
   getCurrencyFromAsset,
+  getMandateStatus,
   isJWTExpired,
   refreshJWT,
   WalletApiError,
@@ -80,17 +81,28 @@ export type RequestX402V3PaymentInput = z.infer<typeof RequestSchema>;
 const PMC_PRIMER = 'Please read and follow pmc.instructions to guide the user through the next steps.';
 
 /**
- * Select a payment requirement from the accepts array
+ * Select a payment requirement from the accepts array.
+ * Always matches against mandateCurrency to prevent currency_mismatch errors.
  */
 function selectRequirement(
   paymentRequired: z.infer<typeof PaymentRequiredSchema>,
+  mandateCurrency: string,
   selection?: z.infer<typeof SelectionSchema>,
   options?: z.infer<typeof OptionsSchema>
 ): { requirement: z.infer<typeof PaymentRequirementSchema>; index: number } {
   const accepts = paymentRequired.accepts;
 
+  // If explicit index given, validate it matches the mandate currency
   if (selection?.acceptIndex != null && accepts[selection.acceptIndex]) {
-    return { requirement: accepts[selection.acceptIndex], index: selection.acceptIndex };
+    const req = accepts[selection.acceptIndex];
+    const reqCurrency = getCurrencyFromAsset(req.asset, req.network);
+    if (reqCurrency !== mandateCurrency) {
+      throw new Error(
+        `Currency mismatch: accepts[${selection.acceptIndex}] is ${reqCurrency} but mandate currency is ${mandateCurrency}. ` +
+        `Available currencies in accepts: ${accepts.map((a, i) => `[${i}]=${getCurrencyFromAsset(a.asset, a.network)}`).join(', ')}`
+      );
+    }
+    return { requirement: req, index: selection.acceptIndex };
   }
 
   const preferredNetwork = options?.preferred_network;
@@ -99,12 +111,20 @@ function selectRequirement(
   for (let i = 0; i < accepts.length; i++) {
     const req = accepts[i];
     if (req.scheme !== 'exact') continue;
+    // Always filter by mandate currency
+    const reqCurrency = getCurrencyFromAsset(req.asset, req.network);
+    if (reqCurrency !== mandateCurrency) continue;
     if (preferredNetwork && req.network !== preferredNetwork) continue;
     if (preferredAsset && req.asset.toLowerCase() !== preferredAsset) continue;
     return { requirement: req, index: i };
   }
 
-  throw new Error('No supported payment requirement found (only "exact" scheme is supported)');
+  const availableCurrencies = accepts.map(a => getCurrencyFromAsset(a.asset, a.network));
+  throw new Error(
+    `No matching payment requirement found for mandate currency "${mandateCurrency}". ` +
+    `Available currencies in accepts: [${availableCurrencies.join(', ')}]. ` +
+    `Only "exact" scheme is supported.`
+  );
 }
 
 export function registerRequestX402V3PaymentTool(server: McpServer) {
@@ -219,10 +239,21 @@ After successful registration, you can retry the payment request.`;
           }
         }
 
-        // Select payment requirement
+        // Fetch mandate currency for matching
+        let mandateCurrency = 'USDC';
+        try {
+          const mandateInfo = await getMandateStatus(args.mandate_id, agentId.jwt);
+          if (mandateInfo.mandate?.currency) {
+            mandateCurrency = mandateInfo.mandate.currency;
+          }
+        } catch (err: any) {
+          console.error('[request_x402_v3_payment] Could not fetch mandate currency, defaulting to USDC:', err?.message);
+        }
+
+        // Select payment requirement matching mandate currency
         let selected;
         try {
-          selected = selectRequirement(args.payment_required, args.selection, args.options);
+          selected = selectRequirement(args.payment_required, mandateCurrency, args.selection, args.options);
         } catch (err: any) {
           return {
             content: [
@@ -234,7 +265,9 @@ After successful registration, you can retry the payment request.`;
                   message: err?.message || String(err),
                   pmc: {
                     primer: PMC_PRIMER,
-                    instructions: 'No supported payment method found in the 402 response. FluxA Wallet currently only supports "exact" scheme with EIP-3009. Please verify that the service supports Base USDC payments.',
+                    instructions: `No matching payment requirement found for mandate currency "${mandateCurrency}". ` +
+                      'Check that the 402 response includes an accepts entry matching your mandate currency, ' +
+                      'and that only "exact" scheme entries are present.',
                   },
                 }),
               },

@@ -23,6 +23,8 @@ import {
   updatePaymentLink,
   deletePaymentLink,
   getPaymentLinkPayments,
+  resolveCurrency,
+  SUPPORTED_CURRENCIES,
   type X402PaymentRequest,
 } from './wallet/client.js';
 import {
@@ -91,7 +93,7 @@ OPTIONS FOR 'mandate-create':
   --amount <amount>         Budget limit in atomic units (required)
   --seconds <duration>      Validity duration in seconds (default: 28800 = 8 hours)
   --category <category>     Category (default: general)
-  --currency <currency>     Currency (default: USDC)
+  --currency <currency>     Currency (default: USDC). Supported: USDC, XRP, FLUXA_MONETIZE_CREDITS
 
 OPTIONS FOR 'mandate-status':
   --id <mandate_id>         Mandate ID to query (required)
@@ -170,12 +172,17 @@ EXAMPLES:
 `);
 }
 
-function parseArgs(args: string[]): { command: string; options: Record<string, string> } {
+function parseArgs(args: string[]): { command: string; options: Record<string, string>; helpRequested: boolean } {
   const command = args[0] || 'help';
   const options: Record<string, string> = {};
+  let helpRequested = false;
 
   for (let i = 1; i < args.length; i++) {
     const arg = args[i];
+    if (arg === '--help' || arg === '-h') {
+      helpRequested = true;
+      continue;
+    }
     if (arg.startsWith('--')) {
       const key = arg.slice(2);
       const value = args[i + 1];
@@ -188,8 +195,176 @@ function parseArgs(args: string[]): { command: string; options: Record<string, s
     }
   }
 
-  return { command, options };
+  return { command, options, helpRequested };
 }
+
+const COMMAND_USAGE: Record<string, string> = {
+  status: `Usage: fluxa-wallet status
+
+Check agent configuration status. No options required.
+
+Example:
+  fluxa-wallet status`,
+
+  init: `Usage: fluxa-wallet init [options]
+
+Initialize/register agent ID.
+
+Options:
+  --name <name>       Agent name (or set AGENT_NAME env var)
+  --client <info>     Client info description (or set CLIENT_INFO env var)
+
+Example:
+  fluxa-wallet init --name "My Agent" --client "CLI v1.0"`,
+
+  payout: `Usage: fluxa-wallet payout [options]
+
+Create a payout to send funds to a wallet address.
+
+Options:
+  --to <address>      Recipient address (required)
+  --amount <amount>   Amount in smallest units (required)
+  --id <payout_id>    Unique payout ID (required)
+  --network <network> Network (default: base)
+  --asset <address>   Asset contract address (default: USDC on Base)
+
+Example:
+  fluxa-wallet payout --to 0x1234...abcd --amount 1000000 --id pay_001`,
+
+  'payout-status': `Usage: fluxa-wallet payout-status --id <payout_id>
+
+Query payout status.
+
+Options:
+  --id <payout_id>    Payout ID to query (required)
+
+Example:
+  fluxa-wallet payout-status --id pay_001`,
+
+  x402: `Usage: fluxa-wallet x402 --payload <json>
+
+Generate x402 payment header (v1).
+
+Options:
+  --payload <json>    Full x402 payment payload as JSON (required)
+
+Example:
+  fluxa-wallet x402 --payload '{"accepts":[{...}]}'`,
+
+  'mandate-create': `Usage: fluxa-wallet mandate-create [options]
+
+Create an intent mandate for x402 v3 payments.
+
+Options:
+  --desc <text>           Natural language description (required)
+  --amount <amount>       Budget limit in atomic units (required)
+  --seconds <duration>    Validity duration in seconds (default: 28800 = 8h)
+  --category <category>   Category (default: general)
+  --currency <currency>   Currency (default: USDC)
+
+Supported currencies: USDC, XRP, FLUXA_MONETIZE_CREDITS
+  Aliases accepted: credits, fluxa-monetize-credits, fluxa-monetize-credit
+
+Examples:
+  fluxa-wallet mandate-create --desc "Spend up to 0.1 USDC" --amount 100000
+  fluxa-wallet mandate-create --desc "Spend credits" --amount 500 --currency FLUXA_MONETIZE_CREDITS`,
+
+  'mandate-status': `Usage: fluxa-wallet mandate-status --id <mandate_id>
+
+Query mandate status.
+
+Options:
+  --id <mandate_id>   Mandate ID to query (required). Use --id, NOT --mandate.
+
+Example:
+  fluxa-wallet mandate-status --id mand_xxxxxxxxxxxxx`,
+
+  'x402-v3': `Usage: fluxa-wallet x402-v3 --mandate <mandate_id> --payload <json>
+
+Generate x402 v3 payment using an intent mandate.
+
+Options:
+  --mandate <mandate_id>  Mandate ID (required)
+  --payload <json>        Complete HTTP 402 response body (required, must include accepts array)
+
+The command automatically matches the accepts entry to the mandate's currency.
+If the 402 response contains multiple accepts (e.g., USDC + credits), only the
+entry matching the mandate currency will be used.
+
+Example:
+  fluxa-wallet x402-v3 --mandate mand_xxx --payload '{"accepts":[{...}]}'`,
+
+  'paymentlink-create': `Usage: fluxa-wallet paymentlink-create [options]
+
+Create a payment link.
+
+Options:
+  --amount <amount>     Amount in smallest units (required)
+  --desc <text>         Description
+  --resource <content>  Resource content
+  --expires <iso8601>   Expiry date (ISO 8601)
+  --max-uses <number>   Maximum number of uses
+  --network <network>   Network (default: base)
+
+Example:
+  fluxa-wallet paymentlink-create --amount 1000000 --desc "Test payment"`,
+
+  'paymentlink-list': `Usage: fluxa-wallet paymentlink-list [options]
+
+List payment links.
+
+Options:
+  --limit <number>    Max number of results
+
+Example:
+  fluxa-wallet paymentlink-list --limit 10`,
+
+  'paymentlink-get': `Usage: fluxa-wallet paymentlink-get --id <link_id>
+
+Get payment link details.
+
+Options:
+  --id <link_id>      Payment link ID (required)
+
+Example:
+  fluxa-wallet paymentlink-get --id lnk_xxxxx`,
+
+  'paymentlink-update': `Usage: fluxa-wallet paymentlink-update --id <link_id> [options]
+
+Update a payment link.
+
+Options:
+  --id <link_id>        Payment link ID (required)
+  --desc <text>         New description
+  --resource <content>  New resource content
+  --status <status>     Status: active or disabled
+  --expires <iso8601>   New expiry date (ISO 8601), "null" to clear
+  --max-uses <number>   New max uses, "null" to clear
+
+Example:
+  fluxa-wallet paymentlink-update --id lnk_xxx --status disabled`,
+
+  'paymentlink-delete': `Usage: fluxa-wallet paymentlink-delete --id <link_id>
+
+Delete a payment link.
+
+Options:
+  --id <link_id>      Payment link ID (required)
+
+Example:
+  fluxa-wallet paymentlink-delete --id lnk_xxxxx`,
+
+  'paymentlink-payments': `Usage: fluxa-wallet paymentlink-payments --id <link_id> [options]
+
+Get payment records for a payment link.
+
+Options:
+  --id <link_id>      Payment link ID (required)
+  --limit <number>    Max number of results
+
+Example:
+  fluxa-wallet paymentlink-payments --id lnk_xxxxx --limit 10`,
+};
 
 function output(result: CommandResult) {
   console.log(JSON.stringify(result, null, 2));
@@ -441,12 +616,19 @@ async function cmdX402(options: Record<string, string>): Promise<CommandResult> 
     };
   }
 
-  // Build x402 payment request
-  const accept = payload.accepts?.[0];
-  if (!accept) {
+  // Build x402 payment request — use first "exact" scheme entry
+  const accepts = payload.accepts;
+  if (!Array.isArray(accepts) || accepts.length === 0) {
     return {
       success: false,
       error: 'Invalid payload: missing accepts array',
+    };
+  }
+  const accept = accepts.find((a: any) => a.scheme === 'exact') || accepts[0];
+  if (!accept) {
+    return {
+      success: false,
+      error: 'Invalid payload: no usable accepts entry found',
     };
   }
 
@@ -498,12 +680,20 @@ async function cmdMandateCreate(options: Record<string, string>): Promise<Comman
   const limitAmount = options.amount;
   const validForSeconds = options.seconds;
   const category = options.category || DEFAULT_MANDATE_CATEGORY;
-  const currency = options.currency || 'USDC';
+  const rawCurrency = options.currency || 'USDC';
+  const currency = resolveCurrency(rawCurrency);
 
   if (!description || !limitAmount) {
     return {
       success: false,
       error: 'Missing required parameters: --desc, --amount',
+    };
+  }
+
+  if (!currency) {
+    return {
+      success: false,
+      error: `Unsupported currency: "${rawCurrency}". Supported currencies: ${SUPPORTED_CURRENCIES.join(', ')}`,
     };
   }
 
@@ -639,12 +829,40 @@ async function cmdX402V3(options: Record<string, string>): Promise<CommandResult
     };
   }
 
-  // Build x402 v3 payment request
-  const accept = payload.accepts?.[0];
-  if (!accept) {
+  // Validate accepts array
+  const accepts = payload.accepts;
+  if (!Array.isArray(accepts) || accepts.length === 0) {
     return {
       success: false,
       error: 'Invalid payload: missing accepts array',
+    };
+  }
+
+  // Fetch mandate to determine its currency
+  let mandateCurrency = 'USDC';
+  try {
+    const mandateInfo = await getMandateStatus(mandateId, auth.jwt);
+    if (mandateInfo.mandate?.currency) {
+      mandateCurrency = mandateInfo.mandate.currency;
+    }
+  } catch (err: any) {
+    console.error('[cli] Could not fetch mandate currency, defaulting to USDC:', err?.message);
+  }
+
+  // Find accepts entry matching mandate currency
+  const accept = accepts.find((a: any) => {
+    if (a.scheme !== 'exact') return false;
+    const currency = getCurrencyFromAsset(a.asset || DEFAULT_ASSET, a.network || DEFAULT_NETWORK);
+    return currency === mandateCurrency;
+  });
+
+  if (!accept) {
+    const availableCurrencies = accepts.map((a: any) =>
+      getCurrencyFromAsset(a.asset || DEFAULT_ASSET, a.network || DEFAULT_NETWORK)
+    );
+    return {
+      success: false,
+      error: `No accepts entry matches mandate currency "${mandateCurrency}". Available currencies in accepts: [${availableCurrencies.join(', ')}]`,
     };
   }
 
@@ -842,7 +1060,19 @@ async function cmdPaymentLinkPayments(options: Record<string, string>): Promise<
 // Main entry point
 async function main() {
   const args = process.argv.slice(2);
-  const { command, options } = parseArgs(args);
+  const { command, options, helpRequested } = parseArgs(args);
+
+  // Per-command help: `fluxa-wallet <command> --help`
+  if (helpRequested && command !== 'help' && command !== '--help' && command !== '-h') {
+    const usage = COMMAND_USAGE[command];
+    if (usage) {
+      console.log(usage);
+      process.exit(0);
+    }
+    // Unknown command with --help, fall through to global help
+    printUsage();
+    process.exit(0);
+  }
 
   // Initialize storage
   ensureDataDirs();
