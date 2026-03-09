@@ -1,4 +1,14 @@
-# Searching the x402 Bazaar
+# Overview
+
+There are two sources for searching x402 resource
+
+# 1. Searching FluxA Oneshot API
+
+Public x402 services published by FluxA Monetize product.
+
+https://monetize.fluxapay.xyz/api/discover?type=api
+
+# 2. Searching the x402 Bazaar
 
 Use the `npx awal@2.0.3 x402` commands to discover and inspect paid API endpoints available on the x402 bazaar marketplace. No authentication or balance is required for searching.
 
