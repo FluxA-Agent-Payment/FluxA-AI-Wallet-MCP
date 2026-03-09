@@ -117,7 +117,7 @@ This is a 6-step process using CLI:
 3. User signs at authorizationUrl                           → Mandate becomes "signed"
 4. mandate-status --id <mandate_id>                         → Verify signed (use --id, NOT --mandate)
 5. x402-v3 --mandate <id> --payload "$PAYLOAD"              → Get xPaymentB64 (pass FULL 402 JSON)
-6. curl -H "X-Payment: <token>" <url>                       → Submit payment
+6. curl -H "X-Payment: <x402 object>" <url>                       → Submit payment
 ```
 
 **Critical:** The `--payload` for `x402-v3` must be the **complete** 402 response JSON including the `accepts` array, not just extracted fields.
