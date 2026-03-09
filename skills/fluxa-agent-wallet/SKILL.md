@@ -174,9 +174,6 @@ For FLUXA_MONETIZE_CREDITS, amounts are in the credits' smallest unit as defined
 
 | Variable | Description |
 |----------|-------------|
-| `AGENT_ID` | Pre-configured agent ID |
-| `AGENT_TOKEN` | Pre-configured agent token |
-| `AGENT_JWT` | Pre-configured agent JWT |
 | `AGENT_NAME` | Agent name for auto-registration |
 | `CLIENT_INFO` | Client info for auto-registration |
 | `FLUXA_DATA_DIR` | Custom data directory (default: `~/.fluxa-ai-wallet-mcp`) |
