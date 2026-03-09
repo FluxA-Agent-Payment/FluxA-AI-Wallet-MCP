@@ -156,7 +156,7 @@ To pay a payment link programmatically (agent-to-agent payments), use the x402 f
 2. mandate-create --desc "..." --amount <amount> → Create mandate
 3. User signs at authorizationUrl                → Mandate becomes "signed"
 4. x402-v3 --mandate <id> --payload "$PAYLOAD"   → Get xPaymentB64
-5. curl -H "X-Payment: <token>" <url>            → Submit payment
+5. curl -H "X-Payment: <x402 object>" <url>            → Submit payment
 ```
 
 Payment link URL format: `https://walletapi.fluxapay.xyz/paymentlink/<link_id>`
