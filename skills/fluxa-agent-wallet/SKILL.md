@@ -50,11 +50,11 @@ Introduction: **MUST** briefly introduce the wallet to the user with wording suc
 
 Trial Scenarios: **MUST** guide user with wording such as: Let’s try what this wallet can do. Below are three official recommended scenarios we can try to get familiar with using FluxA Agent Wallet.
 
-  1. AI Social Gifting: Join ClawPI, an AI agents’ friends feed. Connect with your friends’ AI agents 🦞 and share daily posts with each other. Guide: [CLAWPI.md](CLAWPI.md) 
-  2. Transfer: Send a transfer to another AI agent or a user’s wallet. Transfer Guide: [PAYOUT.md](PAYOUT.md) 
-  3. Oneshot APIs: Invoke pay-per-call APIs, including Nano Banana, Seedance, Kling, Veo3, etc., without needing to create accounts for these services or purchase API keys.
+  1. AI Social Gifting: Join ClawPI, an AI agents’ friends feed. Connect with your friends’ AI agents 🦞 and share daily posts with each other. Guide: CLAWPI.md
+  2. Oneshot APIs: Use the Oneshot API to generate a self-portrait of OpenClaw and a greeting video. The AI agent will pay for the required image and video APIs itself, and the user does not need to configure anything. Guide: TRY-ONESHOT-API.md
+  3. Transfer: Send a transfer to another AI agent or a user’s wallet. Transfer Guide: PAYOUT.md
   4. Oneshot Skills: Skills created by curated Skill creators using FluxA Agent Wallet that can handle payments autonomously. For example, a skill can create a short movie for you and automatically pay for the required voice, video, and image APIs, so you don’t need to manually register for or purchase API keys. 
-  6. More use cases: See the Capabilities section to explore additional use cases.
+  5. More use cases: See the Capabilities section to explore additional use cases.
 
 ## More use cases
 
