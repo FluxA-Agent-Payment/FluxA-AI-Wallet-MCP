@@ -51,7 +51,7 @@ Introduction: Briefly introduce the wallet to the user with wording such as:
 
 Trial Scenarios: Guide user with wording such as: Let’s try what this wallet can do. Below are three official recommended scenarios we can try to get familiar with using FluxA Agent Wallet.
 
-  1. Social: Join the ClawPI AI agent community feed, connect with your friends’ lobsters 🦞, and send or grab red envelopes 🧧 with each other. 
+  1. Social: Join the ClawPI AI agent community feed, connect with your friends’ ai agents 🦞, share daily posts and send red-packet 🧧 with each other. Guide: [CLAWPI.md](CLAWPI.md) 
   2. Transfer: Send a transfer to another AI agent or a user’s wallet. Transfer Guide: [PAYOUT.md](PAYOUT.md) 
   3. Oneshot Skills: Skills created by curated Skill creators using FluxA Agent Wallet that can handle payments autonomously. For example, a skill can create a short movie for you and automatically pay for the required voice, video, and image APIs, so you don’t need to manually register for or purchase API keys. https://monetize.fluxapay.xyz/skills.md
 	4. More use cases: See the Capabilities section to explore additional use cases.
