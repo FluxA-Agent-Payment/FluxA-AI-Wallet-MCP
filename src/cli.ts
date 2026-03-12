@@ -55,6 +55,7 @@ USAGE:
 COMMANDS:
   status                    Check agent configuration status
   init                      Initialize/register agent ID
+  refresh                   Refresh JWT and print new token
   payout                    Create a payout
   payout-status             Query payout status
   x402                      Generate x402 payment header (v1)
@@ -71,6 +72,7 @@ COMMANDS:
 OPTIONS FOR 'init':
   --name <name>             Agent name
   --client <info>           Client info description
+  --force                   Force re-registration (overwrite existing config)
   (Or set AGENT_NAME, CLIENT_INFO environment variables)
 
 OPTIONS FOR 'payout':
@@ -253,13 +255,15 @@ async function cmdStatus(): Promise<CommandResult> {
 }
 
 async function cmdInit(options: Record<string, string>): Promise<CommandResult> {
+  const force = options.force === 'true';
+
   // Check if already configured
-  if (hasAgentId()) {
+  if (hasAgentId() && !force) {
     const agentConfig = getEffectiveAgentId();
     return {
       success: true,
       data: {
-        message: 'Agent ID already configured',
+        message: 'Agent ID already configured. Use --force to re-register.',
         agent_id: agentConfig?.agent_id,
       },
     };
@@ -304,6 +308,40 @@ async function cmdInit(options: Record<string, string>): Promise<CommandResult> 
     return {
       success: false,
       error: err.message || 'Registration failed',
+    };
+  }
+}
+
+async function cmdRefresh(): Promise<CommandResult> {
+  const agentConfig = getEffectiveAgentId();
+  if (!agentConfig) {
+    return {
+      success: false,
+      error: 'FluxA Agent ID not initialized. Run "init" first.',
+    };
+  }
+
+  try {
+    const newJWT = await refreshJWT(agentConfig.agent_id, agentConfig.token);
+    updateJWT(newJWT);
+
+    await recordAudit({
+      event: 'jwt_refreshed',
+      agent_id: agentConfig.agent_id,
+    });
+
+    return {
+      success: true,
+      data: {
+        message: 'JWT refreshed successfully',
+        agent_id: agentConfig.agent_id,
+        jwt: newJWT,
+      },
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      error: err.message || 'JWT refresh failed',
     };
   }
 }
@@ -856,6 +894,9 @@ async function main() {
       break;
     case 'init':
       result = await cmdInit(options);
+      break;
+    case 'refresh':
+      result = await cmdRefresh();
       break;
     case 'payout':
       result = await cmdPayout(options);
