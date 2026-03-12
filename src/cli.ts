@@ -55,7 +55,7 @@ USAGE:
 COMMANDS:
   status                    Check agent configuration status
   init                      Initialize/register agent ID
-  refresh                   Refresh JWT and print new token
+  refreshJWT                Refresh expired JWT and print new token
   payout                    Create a payout
   payout-status             Query payout status
   x402                      Generate x402 payment header (v1)
@@ -72,7 +72,6 @@ COMMANDS:
 OPTIONS FOR 'init':
   --name <name>             Agent name
   --client <info>           Client info description
-  --force                   Force re-registration (overwrite existing config)
   (Or set AGENT_NAME, CLIENT_INFO environment variables)
 
 OPTIONS FOR 'payout':
@@ -255,15 +254,13 @@ async function cmdStatus(): Promise<CommandResult> {
 }
 
 async function cmdInit(options: Record<string, string>): Promise<CommandResult> {
-  const force = options.force === 'true';
-
   // Check if already configured
-  if (hasAgentId() && !force) {
+  if (hasAgentId()) {
     const agentConfig = getEffectiveAgentId();
     return {
       success: true,
       data: {
-        message: 'Agent ID already configured. Use --force to re-register.',
+        message: 'Agent ID already configured',
         agent_id: agentConfig?.agent_id,
       },
     };
@@ -895,7 +892,7 @@ async function main() {
     case 'init':
       result = await cmdInit(options);
       break;
-    case 'refresh':
+    case 'refreshJWT':
       result = await cmdRefresh();
       break;
     case 'payout':
