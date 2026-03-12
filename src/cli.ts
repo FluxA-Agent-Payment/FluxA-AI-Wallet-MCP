@@ -57,6 +57,7 @@ USAGE:
 COMMANDS:
   status                    Check agent configuration status
   init                      Initialize/register agent ID
+  refreshJWT                Refresh expired JWT and print new token
   payout                    Create a payout
   payout-status             Query payout status
   x402                      Generate x402 payment header (v1)
@@ -479,6 +480,40 @@ async function cmdInit(options: Record<string, string>): Promise<CommandResult> 
     return {
       success: false,
       error: err.message || 'Registration failed',
+    };
+  }
+}
+
+async function cmdRefresh(): Promise<CommandResult> {
+  const agentConfig = getEffectiveAgentId();
+  if (!agentConfig) {
+    return {
+      success: false,
+      error: 'FluxA Agent ID not initialized. Run "init" first.',
+    };
+  }
+
+  try {
+    const newJWT = await refreshJWT(agentConfig.agent_id, agentConfig.token);
+    updateJWT(newJWT);
+
+    await recordAudit({
+      event: 'jwt_refreshed',
+      agent_id: agentConfig.agent_id,
+    });
+
+    return {
+      success: true,
+      data: {
+        message: 'JWT refreshed successfully',
+        agent_id: agentConfig.agent_id,
+        jwt: newJWT,
+      },
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      error: err.message || 'JWT refresh failed',
     };
   }
 }
@@ -1086,6 +1121,9 @@ async function main() {
       break;
     case 'init':
       result = await cmdInit(options);
+      break;
+    case 'refreshJWT':
+      result = await cmdRefresh();
       break;
     case 'payout':
       result = await cmdPayout(options);

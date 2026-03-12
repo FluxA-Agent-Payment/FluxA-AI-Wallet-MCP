@@ -152,6 +152,7 @@ For FLUXA_MONETIZE_CREDITS, amounts are in the credits' smallest unit as defined
 |---------|----------------|-------------|
 | `status` | (none) | Check agent configuration |
 | `init` | `--name`, `--client` | Register agent ID |
+| `refreshJWT` | (none) | Refresh expired JWT and print new token |
 | `mandate-create` | `--desc`, `--amount` | Create an intent mandate |
 | `mandate-status` | `--id` | Query mandate status (NOT `--mandate`) |
 | `x402-v3` | `--mandate`, `--payload` | Execute x402 v3 payment |
