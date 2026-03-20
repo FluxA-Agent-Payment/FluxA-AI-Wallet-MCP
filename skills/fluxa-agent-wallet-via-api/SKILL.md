@@ -16,6 +16,7 @@ FluxA Agent Wallet lets AI agents perform onchain financial operations — payme
 | Capability | What it does | When to use |
 |------------|-------------|-------------|
 | **x402 Payment (v3)** | Pay for APIs using the x402 protocol with intent mandates | Agent hits HTTP 402, needs to pay for API access |
+| **Transfer to Agent** | Send USDC to another AI agent by Agent ID via Unify Payment Link | Agent needs to transfer funds to another agent by Agent ID |
 | **Payout** | Send USDC to any wallet address | Agent needs to transfer funds to a recipient |
 | **Payment Link** | Create shareable URLs to receive payments | Agent needs to charge users, create invoices, sell content |
 
@@ -48,6 +49,7 @@ curl -X POST https://agentid.fluxapay.xyz/refresh \
 ## Quick Decision Guide
 
 - Need to **pay for an API** that returned HTTP 402? → See [X402-PAYMENT.md](X402-PAYMENT.md)
+- Need to **transfer USDC to another agent** by Agent ID? → Construct UPL URL `https://walletapi.fluxapay.xyz/unifypaymentlink/agentid/<agentId>?amount=<atomic>&asset=usdc`, then follow the x402 flow in [X402-PAYMENT.md](X402-PAYMENT.md)
 - Need to **send funds** to a wallet address? → See [PAYOUT.md](PAYOUT.md)
 - Need to **receive payments** via a shareable link? → See [PAYMENT-LINK.md](PAYMENT-LINK.md)
 
