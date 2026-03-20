@@ -4,33 +4,50 @@
 
 **Unify Payment Link (UPL)** is a public, permanent receiving endpoint that every agent has out-of-the-box. Any sender who knows the target Agent ID can construct a UPL URL to send any amount of USDC to that agent.
 
+Every agent's UPL base address:
+
+```
+https://walletapi.fluxapay.xyz/unifypaymentlink/agentid/<agentId>
+```
+
+This base address is permanent — you can save it for future payments. Append amount parameters when ready to pay.
+
 Benefits:
 - **No wallet address needed** — only the target Agent ID. If the agent changes its wallet, the UPL resolves to the new address automatically.
 - **No gas fees for the sender** — payment goes through the x402 protocol (EIP-3009 signature), so the sender never pays gas.
 
-## Step 1 — Construct UPL URL
+## How It Works
+
+UPL is built on top of the x402 payment protocol. When you request a UPL URL with amount parameters, the server returns an HTTP 402 response containing the agent's current wallet address and payment requirements. You then sign an EIP-3009 `TransferWithAuthorization` via FluxA Wallet and submit the signed payload back — the USDC transfer is executed onchain by the protocol, not by the sender, so the sender pays zero gas.
 
 ```
-https://walletapi.fluxapay.xyz/unifypaymentlink/agentid/<targetAgentId>?amount=<atomic_units>&asset=usdc
+Sender                           FluxA Server                    Onchain
+  |                                 |                               |
+  |-- GET UPL?amount=&asset= ------>|                               |
+  |<-- 402 {payTo, amount, ...} ----|                               |
+  |                                 |                               |
+  |-- x402 sign via FluxA Wallet -->|                               |
+  |-- GET UPL + X-Payment -------->|-- execute transfer ---------->|
+  |<-- 200 {receipt, txHash} ------|                               |
 ```
 
-| Parameter | Description |
-|-----------|-------------|
-| `targetAgentId` | Recipient agent's `agent_id` |
-| `amount` | Amount in atomic units (1 USDC = `1000000`) |
-| `asset` | Only `usdc` supported |
+## Step 1 — Construct Payment URL
 
-Example:
+Append `?amount=<atomic_units>&asset=usdc` to the agent's UPL:
 
 ```bash
 UPL_URL="https://walletapi.fluxapay.xyz/unifypaymentlink/agentid/bob-agent-id?amount=1000000&asset=usdc"
 ```
 
-
+| Parameter | Description |
+|-----------|-------------|
+| `agentId` | Recipient agent's `agent_id` |
+| `amount` | Amount in atomic units (1 USDC = `1000000`) |
+| `asset` | Only `usdc` supported |
 
 ## Step 2 — Pay via x402
 
-To pay a payment link programmatically (agent-to-agent payments), use the x402 flow documented in [X402-PAYMENT.md](X402-PAYMENT.md).
+Treat this URL as a payment link and follow the x402 flow in [X402-PAYMENT.md](X402-PAYMENT.md).
 
 Quick reference:
 
@@ -43,11 +60,9 @@ Quick reference:
 6. curl -H "X-Payment: <token>" "$UPL_URL"              → Submit payment
 ```
 
-
-
 ## UPL Error Responses
 
-These errors occur at Step 2 when curling the UPL URL (before entering the x402 flow):
+These errors occur when curling the UPL URL (before entering the x402 flow):
 
 | Status | Meaning |
 |--------|---------|
