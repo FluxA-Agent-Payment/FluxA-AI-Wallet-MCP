@@ -38,7 +38,13 @@ curl -X POST https://agentid.fluxapay.xyz/register \
 
 Response returns `agent_id`, `token`, and `jwt`. Use the `jwt` as `Authorization: Bearer <jwt>` for all subsequent calls.
 
-**Refresh JWT** when expired:
+**Refresh JWT** when expired (via CLI):
+
+```bash
+fluxa-wallet refreshJWT
+```
+
+Or via API:
 
 ```bash
 curl -X POST https://agentid.fluxapay.xyz/refresh \

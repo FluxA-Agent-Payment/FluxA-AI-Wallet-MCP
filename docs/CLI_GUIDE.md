@@ -18,6 +18,7 @@ fluxa-wallet <command> [options]
 |---------|-------------|
 | `status` | Check agent configuration status |
 | `init` | Initialize/register a new agent ID |
+| `refreshJWT` | Refresh expired JWT and print new token |
 | `payout` | Create a payout to a recipient address |
 | `payout-status` | Query the status of a payout |
 | `x402` | Generate x402 payment header for HTTP requests |
@@ -126,7 +127,31 @@ fluxa-wallet init
 
 ---
 
-### 3. Create Payout
+### 3. Refresh JWT
+
+Manually refresh an expired JWT and get a new token.
+
+```bash
+fluxa-wallet refreshJWT
+```
+
+**Success output:**
+```json
+{
+  "success": true,
+  "data": {
+    "message": "JWT refreshed successfully",
+    "agent_id": "ag_xxxxxxxxxxxx",
+    "jwt": "eyJhbGciOiJ..."
+  }
+}
+```
+
+> **Note:** Other commands (payout, x402, etc.) auto-refresh the JWT before each call. Use `refreshJWT` when you need the new token explicitly (e.g., for external scripts or debugging).
+
+---
+
+### 4. Create Payout
 
 Send funds to a recipient address. Requires agent to be initialized first.
 
@@ -370,7 +395,7 @@ Common errors and solutions:
 | Error | Cause | Solution |
 |-------|-------|----------|
 | `Agent not configured` | No agent ID registered | Run `init` command first |
-| `JWT refresh failed` | Token expired or invalid | Re-run `init` with credentials |
+| `JWT refresh failed` | Token expired or invalid | Run `refreshJWT` to get a new JWT, or re-run `init` |
 | `Invalid recipient address` | Address not in 0x format | Use valid Ethereum address |
 | `Amount must be positive integer` | Invalid amount format | Use smallest units (no decimals) |
 

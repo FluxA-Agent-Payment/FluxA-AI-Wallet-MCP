@@ -20,6 +20,7 @@ fluxa-wallet <command> [options]
 |---------|-------------|
 | `status` | Check agent configuration status |
 | `init` | Register a new agent ID |
+| `refreshJWT` | Refresh expired JWT and print new token |
 | `mandate-create` | Create an intent mandate |
 | `mandate-status` | Query mandate status |
 | `x402-v3` | Execute x402 v3 payment |
