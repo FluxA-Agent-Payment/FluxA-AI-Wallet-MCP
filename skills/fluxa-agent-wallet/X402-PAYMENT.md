@@ -13,7 +13,6 @@ This document uses the **CLI** method.
 | Scenario | Document |
 |----------|----------|
 | Pay for a paid API (HTTP 402) | **This document** |
-| Pay to a payment link | [PAYMENT-LINK.md](PAYMENT-LINK.md) — see "Paying TO a Payment Link" section |
 | Send USDC to a wallet address | [PAYOUT.md](PAYOUT.md) |
 
 ## End-to-End Flow
