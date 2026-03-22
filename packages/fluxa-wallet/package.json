@@ -1,6 +1,6 @@
 {
   "name": "@fluxa-pay/fluxa-wallet",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "FluxA Agent Wallet CLI — payments, payouts, and payment links for AI agents",
   "type": "module",
   "bin": {
