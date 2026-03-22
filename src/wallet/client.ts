@@ -489,6 +489,46 @@ export async function requestX402V3Payment(
   }
 }
 
+// ==================== x402 V2 Payment ====================
+
+export interface X402V2PaymentRequest {
+  mandateId: string;
+  paymentRequest?: any;
+  paymentRequestB64?: string;
+  preferredAssets?: Array<{ network: string; asset: string }>;
+}
+
+/**
+ * Request x402 v2 payment with intent mandate
+ */
+export async function requestX402V2Payment(
+  params: X402V2PaymentRequest,
+  jwt: string
+): Promise<any> {
+  const url = `${WALLET_API}/api/v2/payment/x402-payment`;
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${jwt}`,
+    },
+    body: JSON.stringify(params),
+  });
+
+  const text = await response.text();
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new WalletApiError(
+      `Invalid x402V2 payment response (not JSON): ${text}`,
+      response.status,
+      text
+    );
+  }
+}
+
 // ==================== Payment Link APIs ====================
 
 export interface CreatePaymentLinkRequest {

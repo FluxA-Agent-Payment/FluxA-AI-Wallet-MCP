@@ -7,7 +7,6 @@
 
 import {
   registerAgent,
-  requestX402Payment,
   createPayout,
   getPayoutStatus,
   refreshJWT,
@@ -17,6 +16,7 @@ import {
   createIntentMandate,
   getMandateStatus,
   requestX402V3Payment,
+  requestX402V2Payment,
   createPaymentLink,
   listPaymentLinks,
   getPaymentLink,
@@ -25,7 +25,6 @@ import {
   getPaymentLinkPayments,
   resolveCurrency,
   SUPPORTED_CURRENCIES,
-  type X402PaymentRequest,
 } from './wallet/client.js';
 import {
   getEffectiveAgentId,
@@ -60,10 +59,10 @@ COMMANDS:
   refreshJWT                Refresh expired JWT and print new token
   payout                    Create a payout
   payout-status             Query payout status
-  x402                      Generate x402 payment header (v1)
+  x402                      Generate x402 payment (delegates to x402-v3)
   mandate-create            Create an intent mandate for x402 v3
   mandate-status            Query mandate status
-  x402-v3                   Generate x402 v3 payment with mandate
+  x402-v3                   Generate x402 v2/v3 payment with mandate
   paymentlink-create        Create a payment link
   paymentlink-list          List payment links
   paymentlink-get           Get payment link details
@@ -87,7 +86,9 @@ OPTIONS FOR 'payout-status':
   --id <payout_id>          Payout ID to query (required)
 
 OPTIONS FOR 'x402':
+  --mandate <mandate_id>    Mandate ID (required)
   --payload <json>          Full x402 payment payload as JSON (required)
+  (Same as x402-v3 — x402 now delegates to x402-v3)
 
 OPTIONS FOR 'mandate-create':
   --desc <text>             Natural language description (required)
@@ -102,6 +103,7 @@ OPTIONS FOR 'mandate-status':
 OPTIONS FOR 'x402-v3':
   --mandate <mandate_id>    Mandate ID (required)
   --payload <json>          Full x402 payment payload as JSON (required)
+                            If payload.x402Version === 2, uses v2 endpoint automatically
 
 OPTIONS FOR 'paymentlink-create':
   --amount <amount>         Amount in smallest units (required)
@@ -242,15 +244,18 @@ Options:
 Example:
   fluxa-wallet payout-status --id pay_001`,
 
-  x402: `Usage: fluxa-wallet x402 --payload <json>
+  x402: `Usage: fluxa-wallet x402 --mandate <mandate_id> --payload <json>
 
-Generate x402 payment header (v1).
+Generate x402 payment (delegates to x402-v3).
 
 Options:
-  --payload <json>    Full x402 payment payload as JSON (required)
+  --mandate <mandate_id>  Mandate ID (required)
+  --payload <json>        Full x402 payment payload as JSON (required)
+
+Same as x402-v3. If payload.x402Version === 2, uses v2 endpoint automatically.
 
 Example:
-  fluxa-wallet x402 --payload '{"accepts":[{...}]}'`,
+  fluxa-wallet x402 --mandate mand_xxx --payload '{"accepts":[{...}]}'`,
 
   'mandate-create': `Usage: fluxa-wallet mandate-create [options]
 
@@ -282,18 +287,24 @@ Example:
 
   'x402-v3': `Usage: fluxa-wallet x402-v3 --mandate <mandate_id> --payload <json>
 
-Generate x402 v3 payment using an intent mandate.
+Generate x402 v2/v3 payment using an intent mandate.
 
 Options:
   --mandate <mandate_id>  Mandate ID (required)
   --payload <json>        Complete HTTP 402 response body (required, must include accepts array)
 
-The command automatically matches the accepts entry to the mandate's currency.
-If the 402 response contains multiple accepts (e.g., USDC + credits), only the
-entry matching the mandate currency will be used.
+If payload.x402Version === 2, the command routes to the v2 endpoint
+(POST /api/v2/payment/x402-payment) and passes the payload as paymentRequest.
+Otherwise, the existing v3 logic is used.
 
-Example:
-  fluxa-wallet x402-v3 --mandate mand_xxx --payload '{"accepts":[{...}]}'`,
+The command automatically matches the accepts entry to the mandate's currency.
+
+Examples:
+  # v3 payment
+  fluxa-wallet x402-v3 --mandate mand_xxx --payload '{"accepts":[{...}]}'
+
+  # v2 payment (auto-detected by x402Version)
+  fluxa-wallet x402-v3 --mandate mand_xxx --payload '{"x402Version":2,"resource":{"url":"https://...","description":"...","mimeType":"application/json"},"accepts":[{...}]}'`,
 
   'paymentlink-create': `Usage: fluxa-wallet paymentlink-create [options]
 
@@ -624,86 +635,8 @@ async function cmdPayoutStatus(options: Record<string, string>): Promise<Command
 }
 
 async function cmdX402(options: Record<string, string>): Promise<CommandResult> {
-  const payloadJson = options.payload;
-
-  if (!payloadJson) {
-    return {
-      success: false,
-      error: 'Missing required parameter: --payload (JSON string)',
-    };
-  }
-
-  let payload: any;
-  try {
-    payload = JSON.parse(payloadJson);
-  } catch {
-    return {
-      success: false,
-      error: 'Invalid JSON in --payload',
-    };
-  }
-
-  const auth = await ensureValidJWT();
-  if (!auth) {
-    return {
-      success: false,
-      error: 'FluxA Agent ID not initialized. Run "init" first.',
-    };
-  }
-
-  // Build x402 payment request — use first "exact" scheme entry
-  const accepts = payload.accepts;
-  if (!Array.isArray(accepts) || accepts.length === 0) {
-    return {
-      success: false,
-      error: 'Invalid payload: missing accepts array',
-    };
-  }
-  const accept = accepts.find((a: any) => a.scheme === 'exact') || accepts[0];
-  if (!accept) {
-    return {
-      success: false,
-      error: 'Invalid payload: no usable accepts entry found',
-    };
-  }
-
-  const request: X402PaymentRequest = {
-    scheme: accept.scheme || 'exact',
-    network: accept.network || DEFAULT_NETWORK,
-    amount: accept.maxAmountRequired || '0',
-    currency: getCurrencyFromAsset(accept.asset || DEFAULT_ASSET, accept.network || DEFAULT_NETWORK),
-    assetAddress: accept.asset || DEFAULT_ASSET,
-    payTo: accept.payTo,
-    host: extractHost(accept.resource || ''),
-    resource: accept.resource || '',
-    description: accept.description || '',
-    tokenName: accept.extra?.name || 'USD Coin',
-    tokenVersion: accept.extra?.version || '2',
-    validityWindowSeconds: accept.maxTimeoutSeconds || 60,
-    approvalId: payload.approvalId,
-  };
-
-  try {
-    const xPaymentHeader = await requestX402Payment(request, auth.jwt);
-
-    await recordAudit({
-      event: 'x402_payment',
-      resource: request.resource,
-      amount: request.amount,
-    });
-
-    return {
-      success: true,
-      data: {
-        'X-PAYMENT': xPaymentHeader,
-      },
-    };
-  } catch (err: any) {
-    return {
-      success: false,
-      error: err.message || 'x402 payment request failed',
-    };
-  }
+  // Deprecated: x402 now delegates to x402-v3 logic (requires --mandate)
+  return cmdX402V3(options);
 }
 
 // Default values for mandate creation
@@ -847,14 +780,29 @@ async function cmdX402V3(options: Record<string, string>): Promise<CommandResult
   }
 
   let payload: any;
+  let payloadIsB64 = false;
   try {
     payload = JSON.parse(payloadJson);
   } catch {
-    return {
-      success: false,
-      error: 'Invalid JSON in --payload',
-    };
+    // Not valid JSON — try base64 decode (e.g. raw PAYMENT-REQUIRED header value)
+    try {
+      const decoded = Buffer.from(payloadJson, 'base64').toString('utf-8');
+      payload = JSON.parse(decoded);
+      payloadIsB64 = true;
+    } catch {
+      return {
+        success: false,
+        error: 'Invalid --payload: not valid JSON or base64-encoded JSON',
+      };
+    }
   }
+
+  // x402 v2 branch: if x402Version === 2, route to v2 endpoint
+  if (payload.x402Version === 2) {
+    return cmdX402V2(mandateId, payload, payloadIsB64 ? payloadJson : undefined);
+  }
+
+  // --- existing v3 logic below ---
 
   const auth = await ensureValidJWT();
   if (!auth) {
@@ -937,6 +885,65 @@ async function cmdX402V3(options: Record<string, string>): Promise<CommandResult
     return {
       success: false,
       error: err.message || 'x402 v3 payment request failed',
+    };
+  }
+}
+
+async function cmdX402V2(mandateId: string, payload: any, rawB64?: string): Promise<CommandResult> {
+  const auth = await ensureValidJWT();
+  if (!auth) {
+    return {
+      success: false,
+      error: 'FluxA Agent ID not initialized. Run "init" first.',
+    };
+  }
+
+  // Validate: v2 requires resource as object with url
+  if (!payload.resource || typeof payload.resource.url !== 'string') {
+    return {
+      success: false,
+      error: 'Invalid v2 payload: missing resource.url',
+    };
+  }
+
+  // Validate accepts array
+  if (!Array.isArray(payload.accepts) || payload.accepts.length === 0) {
+    return {
+      success: false,
+      error: 'Invalid v2 payload: missing accepts array',
+    };
+  }
+
+  try {
+    // If input was base64, pass as paymentRequestB64; otherwise pass decoded JSON
+    const request: any = { mandateId };
+    if (rawB64) {
+      request.paymentRequestB64 = rawB64;
+    } else {
+      request.paymentRequest = payload;
+    }
+
+    const result = await requestX402V2Payment(request, auth.jwt);
+
+    await recordAudit({
+      event: 'x402_v2_payment',
+      mandate_id: mandateId,
+      resource: payload.resource?.url,
+      x402Version: 2,
+    });
+
+    // Filter out paymentPayload, only keep paymentPayloadB64
+    const { paymentPayload, ...filtered } = result;
+
+    return {
+      success: filtered.status === 'ok',
+      data: filtered,
+      error: filtered.status !== 'ok' ? filtered.message : undefined,
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      error: err.message || 'x402 v2 payment request failed',
     };
   }
 }
