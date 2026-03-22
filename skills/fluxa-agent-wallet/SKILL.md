@@ -6,13 +6,13 @@ description: >-
 
 # FluxA Agent Wallet
 
-**Skill version: 0.3.1** | **CLI version: @fluxa-pay/fluxa-wallet@0.3.0** — **MUST** use this exact CLI version. Install or update before use.
+**Skill version: 0.3.2** | **CLI version: @fluxa-pay/fluxa-wallet@0.3.0** — **MUST** use this exact CLI version. Install or update before use.
 
 FluxA Agent Wallet is a co-wallet that allows AI agents to securely use a user’s wallet, enabling them to perform payment-related actions within the user’s approved scope. Capabilities include x402 payments, USDC transfers, agent-to-agent transfers, payment links for receiving payments, AI social gifting, discovering and calling x402 resources (one-shot APIs), and using payment-related skills (one-shot skills). Use this tool when the user the user asks to perform any of these payment-related actions.
 
 ## Setup
 
-Install the CLI globally:
+### Step 1 — Install the CLI
 
 ```bash
 npm install -g @fluxa-pay/fluxa-wallet@0.3.0
@@ -24,38 +24,58 @@ Then run commands directly:
 fluxa-wallet <command> [options]
 ```
 
-## Prerequisites — Register Agent ID
+### Step 2 — Init Wallet
 
-Before any operation, the agent must have an Agent ID. Register once:
+Before any operation, the agent must have an Agent ID.
 
-```bash
-fluxa-wallet init \
-  --name "eg. My AI Agent" \
-  --client "eg. OpenClaw v1.0.0"
-```
-
-Verify status:
+**First**, check if the agent is already initialized:
 
 ```bash
 fluxa-wallet status
 ```
 
-The CLI will save Agent ID credential in ~/.fluxa-ai-wallet-mcp/config.json
+If `configured` is `true`, the agent is already initialized — skip the `init` step. If `init` has already been run, running it again will be ignored.
 
-### User Onboarding Flow
-• **MUST** run User Onboarding Flow immediately after successful install
+If not initialized, register once:
 
-Onboarding Flow: After introducing the wallet, guide the user to try out its features.
+```bash
+fluxa-wallet init \
+  --name “eg. My AI Agent” \
+  --client “eg. OpenClaw v1.0.0”
+```
+
+The CLI will save Agent ID credential in `~/.fluxa-ai-wallet-mcp/config.json`.
+
+**Link to user’s wallet:** After init, check if the agent is already linked to the user’s wallet:
+
+```bash
+curl -s -H "Authorization: Bearer <jwt>" https://agentwallet.fluxapay.xyz/api/mandates
+```
+
+Replace `<jwt>` with the agent’s JWT token from `~/.fluxa-ai-wallet-mcp/config.json`.
+
+- `200` with `{ status: ‘ok’, mandates: [...] }` → already linked, proceed to Step 3
+- `403` with `code: agent_not_authorized` → not linked, ask the user to open the following URL to authorize wallet access:
+
+```
+https://agentwallet.fluxapay.xyz/add-agent?agentId=YOUR_AGENT_ID&name=YOUR_AGENT_NAME
+```
+
+Use the “Opening Authorization URLs” UX pattern below to present this link to the user.
+
+### Step 3 — User Onboarding Flow
+
+**MUST** run User Onboarding Flow immediately after successful setup.
 
 Introduction: **MUST** briefly introduce the wallet to the user with wording such as:
-“I’ve successfully installed FluxA Agent Wallet and can securely access your wallet. It built around a model where AI agents request actions and human users approve them. All actions will only be performed within your authorization.”
+“I’ve successfully installed FluxA Agent Wallet and can securely access your wallet. It is built around a model where AI agents request actions and human users approve them. All actions will only be performed within your authorization.”
 
-Trial Scenarios: **MUST** guide user with wording such as: Let’s try what this wallet can do. Below are three official recommended scenarios we can try to get familiar with using FluxA Agent Wallet.
+Trial Scenarios: **MUST** guide user with wording such as: Let’s try what this wallet can do. Below are some official recommended scenarios we can try to get familiar with using FluxA Agent Wallet.
 
   1. AI Social Gifting: Join ClawPI, an AI agents’ friends feed. Connect with your friends’ AI agents 🦞 and share daily posts with each other. Guide: CLAWPI.md
   2. Oneshot APIs: Use the Oneshot API to generate a self-portrait of OpenClaw and a greeting video. The AI agent will pay for the required image and video APIs itself, and the user does not need to configure anything. Guide: TRY-ONESHOT-API.md
   3. Transfer: Send a transfer to another AI agent or a user’s wallet. Transfer Guide: PAYOUT.md
-  4. Oneshot Skills: Skills created by curated Skill creators using FluxA Agent Wallet that can handle payments autonomously. For example, a skill can create a short movie for you and automatically pay for the required voice, video, and image APIs, so you don’t need to manually register for or purchase API keys. 
+  4. Oneshot Skills: Skills created by curated Skill creators using FluxA Agent Wallet that can handle payments autonomously. For example, a skill can create a short movie for you and automatically pay for the required voice, video, and image APIs, so you don’t need to manually register for or purchase API keys.
   5. More use cases: See the Capabilities section to explore additional use cases.
 
 ## More use cases
