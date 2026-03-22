@@ -155,7 +155,7 @@ To pay a payment link programmatically (agent-to-agent payments), use the x402 f
 1. curl -s <payment_link_url>                    → Get 402 payload
 2. mandate-create --desc "..." --amount <amount> → Create mandate
 3. User signs at authorizationUrl                → Mandate becomes "signed"
-4. x402-v3 --mandate <id> --payload "$PAYLOAD"   → Get xPaymentB64
+4. x402 --mandate <id> --payload "$PAYLOAD"       → Get xPaymentB64
 5. curl -H "X-Payment: <x402 object>" <url>            → Submit payment
 ```
 

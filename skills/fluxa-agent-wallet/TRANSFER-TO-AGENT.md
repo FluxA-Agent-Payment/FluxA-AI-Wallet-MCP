@@ -56,7 +56,7 @@ Quick reference:
 2. mandate-create --desc "..." --amount <amount>         → Create mandate
 3. User signs at authorizationUrl                        → Mandate becomes "signed"
 4. mandate-status --id <mandate_id>                      → Verify signed
-5. x402-v3 --mandate <id> --payload "$PAYLOAD"           → Get xPaymentB64
+5. x402 --mandate <id> --payload "$PAYLOAD"               → Get xPaymentB64
 6. curl -H "X-Payment: <token>" "$UPL_URL"              → Submit payment
 ```
 
