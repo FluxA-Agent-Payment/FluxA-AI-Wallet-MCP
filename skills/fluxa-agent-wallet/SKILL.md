@@ -6,7 +6,7 @@ description: >-
 
 # FluxA Agent Wallet
 
-**Skill version: 0.3.0** | **CLI version: @fluxa-pay/fluxa-wallet@0.3.0**
+**Skill version: 0.3.1** | **CLI version: @fluxa-pay/fluxa-wallet@0.3.0** — **MUST** use this exact CLI version. Install or update before use.
 
 FluxA Agent Wallet is a co-wallet that allows AI agents to securely use a user’s wallet, enabling them to perform payment-related actions within the user’s approved scope. Capabilities include x402 payments, USDC transfers, agent-to-agent transfers, payment links for receiving payments, AI social gifting, discovering and calling x402 resources (one-shot APIs), and using payment-related skills (one-shot skills). Use this tool when the user the user asks to perform any of these payment-related actions.
 
@@ -69,6 +69,7 @@ Trial Scenarios: **MUST** guide user with wording such as: Let’s try what this
 | **Payment Link** | Create shareable URLs to receive payments | Use when you (AI Agent) or user needs to charge users or ai agents, create invoices, sell something | PAYMENT-LINK.md |
 | **Oneshot Skills** | Discover and run payment-enabled skills built on FluxA | Use when you (AI Agent) need to find a skill. Search here first and recommend relevant skills to the user. | curl -s "https://monetize.fluxapay.xyz/api/discover?type=skill" |
 | **Search x402 Services (Oneshot APIs)** | Search and call pay-per-call APIs, including Nano Banana, Seedance, Kling, Veo3, etc.| Use when you (AI Agent) need to find APIs. Search here for x402 pay-per-use APIs and recommend them to the user. | x402-SERVICES.md |
+| **Mandate Planning** | Smart mandate creation, reuse, and budgeting strategy | Use before creating any mandate — check for reusable mandates first | MANDATE-PLANNING.md |
 
 
 ## Opening Authorization URLs (UX Pattern)
@@ -102,6 +103,15 @@ This pattern applies to:
 - Mandate authorization (`authorizationUrl` from `mandate-create`)
 - Payout approval (`approvalUrl` from `payout`)
 - Agent registration (if manual registration is needed)
+
+## Mandate Planning Policy
+
+**MUST** follow when working with intent mandates:
+
+1. **Plan by task intent, not by API call.** Assess the full task before creating a mandate — estimate total cost across all steps, create one mandate for the whole workflow.
+2. **Check for reusable mandates first.** Before creating a new mandate, check both the current conversation context and `~/.fluxa-ai-wallet-mcp/mandates.json` for existing signed, unexpired mandates that fit.
+
+Full planning rules, task classification, and state file schema: [MANDATE-PLANNING.md](MANDATE-PLANNING.md)
 
 ## Quick Decision Guide
 
