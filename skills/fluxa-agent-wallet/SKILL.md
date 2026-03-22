@@ -49,7 +49,7 @@ The CLI will save Agent ID credential in `~/.fluxa-ai-wallet-mcp/config.json`.
 **Link to user’s wallet:** After init, check if the agent is already linked to the user’s wallet:
 
 ```bash
-curl -s -H "Authorization: Bearer <jwt>" https://agentwallet.fluxapay.xyz/api/mandates
+curl -s -H "Authorization: Bearer <jwt>" https://walletapi.fluxapay.xyz/api/mandates
 ```
 
 Replace `<jwt>` with the agent’s JWT token from `~/.fluxa-ai-wallet-mcp/config.json`.
