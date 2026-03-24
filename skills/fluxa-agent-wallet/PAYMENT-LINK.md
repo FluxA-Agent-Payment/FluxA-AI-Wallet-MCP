@@ -146,6 +146,62 @@ fluxa-wallet paymentlink-payments --id lnk_a1b2c3d4e5 --limit 10
 }
 ```
 
+### List All Received Records
+
+List all received payment records across all payment links (including Unify Payment Links).
+
+```bash
+fluxa-wallet received-records --limit 20 --offset 0
+```
+
+**Options:**
+
+| Option | Required | Default | Description |
+|--------|----------|---------|-------------|
+| `--limit` | No | 20 | Max number of results (max 100) |
+| `--offset` | No | 0 | Pagination offset |
+
+**Output:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "payments": [
+      {
+        "id": 1,
+        "payerAddress": "0xPayerAddr...",
+        "amount": "1000000",
+        "currency": "USDC",
+        "settlementStatus": "settled",
+        "settlementTxHash": "0xabc123...",
+        "sourceType": "payment_link",
+        "description": "Premium API Access",
+        "paymentLinkId": "pl_abc123xyz456",
+        "payerEmail": "payer@example.com",
+        "createdAt": "2026-03-24T13:00:00.000Z"
+      }
+    ]
+  }
+}
+```
+
+### Get Received Record Detail
+
+Get a single received payment record by ID.
+
+```bash
+fluxa-wallet received-record --id 1
+```
+
+**Options:**
+
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--id` | Yes | Payment record ID |
+
+**Output includes extra fields:** `network`, `payTo` (in addition to list fields).
+
 ## Paying TO a Payment Link
 
 To pay a payment link programmatically (agent-to-agent payments), use the x402 flow documented in [X402-PAYMENT.md](X402-PAYMENT.md).

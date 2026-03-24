@@ -765,6 +765,88 @@ export async function getPaymentLinkPayments(
   }
 }
 
+export interface ReceivedPayment {
+  id: number;
+  payerAddress: string;
+  amount: string;
+  currency: string;
+  settlementStatus: string;
+  settlementTxHash: string | null;
+  sourceType: string;
+  description: string | null;
+  paymentLinkId: string | null;
+  payerEmail: string | null;
+  createdAt: string;
+}
+
+export interface ReceivedPaymentDetail extends ReceivedPayment {
+  network: string | null;
+  payTo: string | null;
+}
+
+/**
+ * List all received payments across all payment links
+ */
+export async function listReceivedPayments(
+  jwt: string,
+  limit?: number,
+  offset?: number
+): Promise<{ payments: ReceivedPayment[] }> {
+  const params = new URLSearchParams();
+  if (limit !== undefined) params.set('limit', String(limit));
+  if (offset !== undefined) params.set('offset', String(offset));
+  const qs = params.toString();
+  const url = `${WALLET_API}/api/received-payments${qs ? `?${qs}` : ''}`;
+
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: {
+      'Authorization': `Bearer ${jwt}`,
+    },
+  });
+
+  const text = await response.text();
+
+  if (!response.ok) {
+    throw new WalletApiError(text || `List received payments failed (${response.status})`, response.status, text || null);
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new WalletApiError('Invalid received payments response (not JSON)', response.status, text);
+  }
+}
+
+/**
+ * Get a single received payment detail
+ */
+export async function getReceivedPayment(
+  paymentId: number,
+  jwt: string
+): Promise<{ payment: ReceivedPaymentDetail }> {
+  const url = `${WALLET_API}/api/received-payments/${encodeURIComponent(paymentId)}`;
+
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: {
+      'Authorization': `Bearer ${jwt}`,
+    },
+  });
+
+  const text = await response.text();
+
+  if (!response.ok) {
+    throw new WalletApiError(text || `Get received payment failed (${response.status})`, response.status, text || null);
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new WalletApiError('Invalid received payment response (not JSON)', response.status, text);
+  }
+}
+
 export interface MandateStatusResponse {
   status: string;
   mandate?: {
