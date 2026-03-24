@@ -6,7 +6,7 @@ description: >-
 
 # FluxA Agent Wallet
 
-**Skill version: 0.3.3** | **CLI version: @fluxa-pay/fluxa-wallet@0.3.1** — **MUST** use this exact CLI version. Install or update before use.
+**Skill version: 0.3.4** | **CLI version: @fluxa-pay/fluxa-wallet@0.3.2** — **MUST** use this exact CLI version. Install or update before use.
 
 FluxA Agent Wallet is a co-wallet that allows AI agents to securely use a user’s wallet, enabling them to perform payment-related actions within the user’s approved scope. Capabilities include x402 payments, USDC transfers, agent-to-agent transfers, payment links for receiving payments, AI social gifting, discovering and calling x402 resources (one-shot APIs), and using payment-related skills (one-shot skills). Use this tool when the user the user asks to perform any of these payment-related actions.
 
@@ -15,7 +15,7 @@ FluxA Agent Wallet is a co-wallet that allows AI agents to securely use a user�
 ### Step 1 — Install the CLI
 
 ```bash
-npm install -g @fluxa-pay/fluxa-wallet@0.3.1
+npm install -g @fluxa-pay/fluxa-wallet@0.3.2
 ```
 
 Then run commands directly:
@@ -46,22 +46,14 @@ fluxa-wallet init \
 
 The CLI will save Agent ID credential in `~/.fluxa-ai-wallet-mcp/config.json`.
 
-**Link to user’s wallet:** After init, check if the agent is already linked to the user’s wallet:
+**Link to user’s wallet:** After init, check if the agent is already linked:
 
 ```bash
-curl -s -H "Authorization: Bearer <jwt>" https://walletapi.fluxapay.xyz/api/mandates
+fluxa-wallet check-wallet
 ```
 
-Replace `<jwt>` with the agent’s JWT token from `~/.fluxa-ai-wallet-mcp/config.json`.
-
-- `200` with `{ status: ‘ok’, mandates: [...] }` → already linked, proceed to Step 3
-- `403` with `code: agent_not_authorized` → not linked, ask the user to open the following URL to authorize wallet access:
-
-```
-https://agentwallet.fluxapay.xyz/add-agent?agentId=YOUR_AGENT_ID&name=YOUR_AGENT_NAME
-```
-
-Use the “Opening Authorization URLs” UX pattern below to present this link to the user.
+- `linked: true` → proceed to Step 3
+- `linked: false` → run `fluxa-wallet link-wallet` to get the authorization URL, then ask the user to open it using the “Opening Authorization URLs” UX pattern below.
 
 ### Step 3 — User Onboarding Flow
 
@@ -201,6 +193,8 @@ For FLUXA_MONETIZE_CREDITS, amounts are in the credits' smallest unit as defined
 | `paymentlink-payments` | `--id` | Get payment records for a link |
 | `received-records` | (none) | List all received payment records |
 | `received-record` | `--id` | Get a single received payment record detail |
+| `check-wallet` | (none) | Check if agent is linked to user's wallet |
+| `link-wallet` | (none) | Get wallet linking URL or confirm already linked |
 
 **Common Mistakes to Avoid:**
 
