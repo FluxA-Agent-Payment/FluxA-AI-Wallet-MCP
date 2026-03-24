@@ -6,7 +6,7 @@ description: >-
 
 # FluxA Agent Wallet
 
-**Skill version: 0.3.2** | **CLI version: @fluxa-pay/fluxa-wallet@0.3.0** — **MUST** use this exact CLI version. Install or update before use.
+**Skill version: 0.3.3** | **CLI version: @fluxa-pay/fluxa-wallet@0.3.1** — **MUST** use this exact CLI version. Install or update before use.
 
 FluxA Agent Wallet is a co-wallet that allows AI agents to securely use a user’s wallet, enabling them to perform payment-related actions within the user’s approved scope. Capabilities include x402 payments, USDC transfers, agent-to-agent transfers, payment links for receiving payments, AI social gifting, discovering and calling x402 resources (one-shot APIs), and using payment-related skills (one-shot skills). Use this tool when the user the user asks to perform any of these payment-related actions.
 
@@ -15,7 +15,7 @@ FluxA Agent Wallet is a co-wallet that allows AI agents to securely use a user�
 ### Step 1 — Install the CLI
 
 ```bash
-npm install -g @fluxa-pay/fluxa-wallet@0.3.0
+npm install -g @fluxa-pay/fluxa-wallet@0.3.1
 ```
 
 Then run commands directly:
@@ -199,6 +199,8 @@ For FLUXA_MONETIZE_CREDITS, amounts are in the credits' smallest unit as defined
 | `paymentlink-update` | `--id` | Update a payment link |
 | `paymentlink-delete` | `--id` | Delete a payment link |
 | `paymentlink-payments` | `--id` | Get payment records for a link |
+| `received-records` | (none) | List all received payment records |
+| `received-record` | `--id` | Get a single received payment record detail |
 
 **Common Mistakes to Avoid:**
 
