@@ -6,6 +6,7 @@
 const AGENT_ID_API = process.env.AGENT_ID_API || 'https://agentid.fluxapay.xyz';
 const WALLET_API = process.env.WALLET_API || 'https://walletapi.fluxapay.xyz';
 const WALLET_APP = process.env.WALLET_APP || 'https://wallet.fluxapay.xyz';
+const AGENT_WALLET_APP = process.env.AGENT_WALLET_APP || 'https://agentwallet.fluxapay.xyz';
 
 // JWT expiry buffer: refresh if expiring within 5 minutes
 const JWT_EXPIRY_BUFFER_SECONDS = 300;
@@ -845,6 +846,42 @@ export async function getReceivedPayment(
   } catch {
     throw new WalletApiError('Invalid received payment response (not JSON)', response.status, text);
   }
+}
+
+/**
+ * Check if agent is linked to a user's wallet
+ * Returns linked: true on 200, linked: false on 403
+ */
+export async function checkWalletLinked(
+  jwt: string
+): Promise<{ linked: boolean }> {
+  const url = `${WALLET_API}/api/mandates`;
+
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: {
+      'Authorization': `Bearer ${jwt}`,
+    },
+  });
+
+  if (response.ok) {
+    return { linked: true };
+  }
+
+  if (response.status === 403) {
+    return { linked: false };
+  }
+
+  const text = await response.text();
+  throw new WalletApiError(text || `Check wallet linked failed (${response.status})`, response.status, text || null);
+}
+
+/**
+ * Build the URL for linking an agent to a user's wallet
+ */
+export function buildLinkWalletUrl(agentId: string, agentName: string): string {
+  const params = new URLSearchParams({ agentId, name: agentName });
+  return `${AGENT_WALLET_APP}/add-agent?${params.toString()}`;
 }
 
 export interface MandateStatusResponse {

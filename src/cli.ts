@@ -25,6 +25,8 @@ import {
   getPaymentLinkPayments,
   listReceivedPayments,
   getReceivedPayment,
+  checkWalletLinked,
+  buildLinkWalletUrl,
   resolveCurrency,
   SUPPORTED_CURRENCIES,
 } from './wallet/client.js';
@@ -73,6 +75,8 @@ COMMANDS:
   paymentlink-payments      Get payment records for a payment link
   received-records          List all received payment records
   received-record           Get a single received payment record detail
+  check-wallet              Check if agent is linked to user's wallet
+  link-wallet               Get wallet linking URL (or confirm already linked)
 
 OPTIONS FOR 'init':
   --name <name>             Agent name
@@ -414,6 +418,24 @@ Options:
 
 Example:
   fluxa-wallet received-record --id 1`,
+
+  'check-wallet': `Usage: fluxa-wallet check-wallet
+
+Check if the agent is linked to a user's wallet.
+
+No options required.
+
+Example:
+  fluxa-wallet check-wallet`,
+
+  'link-wallet': `Usage: fluxa-wallet link-wallet
+
+Get the wallet linking URL if not linked, or confirm already linked.
+
+No options required.
+
+Example:
+  fluxa-wallet link-wallet`,
 };
 
 function output(result: CommandResult) {
@@ -455,17 +477,26 @@ async function cmdStatus(): Promise<CommandResult> {
   const regInfo = getRegistrationInfoFromEnv();
 
   if (hasConfig && agentConfig) {
-    return {
-      success: true,
-      data: {
-        configured: true,
-        agent_id: agentConfig.agent_id,
-        has_token: !!agentConfig.token,
-        has_jwt: !!agentConfig.jwt,
-        jwt_expired: isJWTExpired(agentConfig.jwt),
-        agent_name: agentConfig.agent_name,
-      },
+    const data: any = {
+      configured: true,
+      agent_id: agentConfig.agent_id,
+      has_token: !!agentConfig.token,
+      has_jwt: !!agentConfig.jwt,
+      jwt_expired: isJWTExpired(agentConfig.jwt),
+      agent_name: agentConfig.agent_name,
     };
+
+    // Check wallet linking if JWT is valid
+    if (agentConfig.jwt && !isJWTExpired(agentConfig.jwt)) {
+      try {
+        const { linked } = await checkWalletLinked(agentConfig.jwt);
+        data.wallet_linked = linked;
+      } catch {
+        data.wallet_linked = null; // unable to determine
+      }
+    }
+
+    return { success: true, data };
   }
 
   return {
@@ -1137,6 +1168,61 @@ async function cmdPaymentLinkPayments(options: Record<string, string>): Promise<
   }
 }
 
+async function cmdCheckWallet(): Promise<CommandResult> {
+  const auth = await ensureValidJWT();
+  if (!auth) {
+    return { success: false, error: 'FluxA Agent ID not initialized. Run "init" first.' };
+  }
+
+  try {
+    const { linked } = await checkWalletLinked(auth.jwt);
+    const agentConfig = getEffectiveAgentId();
+
+    if (linked) {
+      return { success: true, data: { linked: true } };
+    }
+
+    const linkUrl = agentConfig?.agent_id
+      ? buildLinkWalletUrl(agentConfig.agent_id, agentConfig.agent_name || '')
+      : undefined;
+
+    return { success: true, data: { linked: false, linkUrl } };
+  } catch (err: any) {
+    return { success: false, error: err.message || 'Check wallet linking failed' };
+  }
+}
+
+async function cmdLinkWallet(): Promise<CommandResult> {
+  const auth = await ensureValidJWT();
+  if (!auth) {
+    return { success: false, error: 'FluxA Agent ID not initialized. Run "init" first.' };
+  }
+
+  try {
+    const { linked } = await checkWalletLinked(auth.jwt);
+
+    if (linked) {
+      return { success: true, data: { linked: true, message: "Agent is already linked to user's wallet." } };
+    }
+
+    const agentConfig = getEffectiveAgentId();
+    const linkUrl = agentConfig?.agent_id
+      ? buildLinkWalletUrl(agentConfig.agent_id, agentConfig.agent_name || '')
+      : undefined;
+
+    return {
+      success: true,
+      data: {
+        linked: false,
+        linkUrl,
+        message: 'Please ask user to open this URL to authorize wallet access.',
+      },
+    };
+  } catch (err: any) {
+    return { success: false, error: err.message || 'Link wallet failed' };
+  }
+}
+
 async function cmdReceivedRecords(options: Record<string, string>): Promise<CommandResult> {
   const auth = await ensureValidJWT();
   if (!auth) {
@@ -1257,6 +1343,12 @@ async function main() {
       break;
     case 'received-record':
       result = await cmdReceivedRecord(options);
+      break;
+    case 'check-wallet':
+      result = await cmdCheckWallet();
+      break;
+    case 'link-wallet':
+      result = await cmdLinkWallet();
       break;
     case 'help':
     case '--help':
