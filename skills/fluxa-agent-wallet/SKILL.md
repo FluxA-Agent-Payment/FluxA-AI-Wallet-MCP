@@ -143,20 +143,20 @@ Full planning rules, task classification, and state file schema: [MANDATE-PLANNI
 | **Send USDC** to a wallet address | [PAYOUT.md](PAYOUT.md) |
 | **Create a payment link** to receive payments | [PAYMENT-LINK.md](PAYMENT-LINK.md) — "Create Payment Link" section |
 
-### Common Flow: Paying to a Payment Link (x402 Payment)
+### Common Flow: Paying to a x402 url
 
 This is a 6-step process using CLI:
 
 ```
-1. PAYLOAD=$(curl -s <payment_link_url>)                    → Get full 402 payload JSON
-2. mandate-create --desc "..." --amount <amount>            → Create mandate (BOTH flags required)
+1. curl -s <x402_url>                    → Get full 402 payload from JSON or response header
+2. fluxa-wallet mandate-create --desc "..." --amount <amount>            → Create mandate (BOTH flags required)
 3. User signs at authorizationUrl                           → Mandate becomes "signed"
-4. mandate-status --id <mandate_id>                         → Verify signed (use --id, NOT --mandate)
-5. x402 --mandate <id> --payload "$PAYLOAD"                 → Get xPaymentB64 (pass FULL 402 JSON)
-6. curl -H "X-Payment: <x402 object>" <url>                       → Submit payment
+4. fluxa-wallet mandate-status --id <mandate_id>                         → Verify signed (use --id, NOT --mandate)
+5. fluxa-wallet x402 --mandate <id> --payload "<402 payload>"                 → Get signed x402 payment response
+6. retry x402 url again with x402 payment response                   → Submit payment
 ```
 
-**Critical:** The `--payload` for `x402` must be the **complete** 402 response JSON including the `accepts` array, not just extracted fields.
+**Critical:** The `--payload` for `x402` must be the **complete** 402 response.
 
 See [PAYMENT-LINK.md](PAYMENT-LINK.md) for the complete walkthrough with examples.
 
