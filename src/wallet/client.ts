@@ -6,6 +6,7 @@
 const AGENT_ID_API = process.env.AGENT_ID_API || 'https://agentid.fluxapay.xyz';
 const WALLET_API = process.env.WALLET_API || 'https://walletapi.fluxapay.xyz';
 const WALLET_APP = process.env.WALLET_APP || 'https://wallet.fluxapay.xyz';
+const CARD_SERVICE_API = process.env.CARD_SERVICE_API || 'http://localhost:3002';
 
 // JWT expiry buffer: refresh if expiring within 5 minutes
 const JWT_EXPIRY_BUFFER_SECONDS = 300;
@@ -99,6 +100,42 @@ export interface PayoutResponse {
   [key: string]: any;
 }
 
+export interface CardRecord {
+  id: number;
+  provider: string;
+  externalCardId: string;
+  ownerUserId: number;
+  ownerAgentId: number | null;
+  ownerExternalAgentId: string | null;
+  maskedPan: string | null;
+  lastFour: string | null;
+  brand: string | null;
+  expiryMonth: string | null;
+  expiryYear: string | null;
+  fundedAmountUsd: string;
+  remainingAmountUsd: string;
+  currency: string;
+  status: string;
+  lastBalanceSyncedAt: string | null;
+  lastRevealedAt: string | null;
+  metadata?: any;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CardDetailsResponse {
+  success: boolean;
+  details: {
+    cardId: number;
+    pan: string;
+    cvv: string;
+    expiryMonth: string;
+    expiryYear: string;
+    holderName?: string;
+    billingAddress?: any | null;
+  };
+}
+
 /**
  * Register a new agent with FluxA Agent ID service
  */
@@ -168,6 +205,43 @@ export async function requestX402Payment(
   return responseText;
 }
 
+async function requestCardService<T>(
+  path: string,
+  jwt: string,
+  options: {
+    method?: string;
+    body?: Record<string, unknown>;
+  } = {}
+): Promise<T> {
+  const response = await fetch(`${CARD_SERVICE_API}${path}`, {
+    method: options.method || 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${jwt}`,
+    },
+    body: options.body ? JSON.stringify(options.body) : undefined,
+  });
+
+  const text = await response.text();
+  let data: any = null;
+
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    data = text;
+  }
+
+  if (!response.ok) {
+    const message =
+      typeof data === 'object' && data?.error
+        ? data.error
+        : text || `Card service request failed (${response.status})`;
+    throw new WalletApiError(message, response.status, data);
+  }
+
+  return data as T;
+}
+
 /**
  * Create a payout via FluxA Wallet API
  */
@@ -198,6 +272,42 @@ export async function createPayout(
   } catch (e) {
     throw new WalletApiError('Invalid payout API response (not JSON)', response.status, text);
   }
+}
+
+export async function listCards(jwt: string): Promise<{ cards: CardRecord[]; cardCount: number }> {
+  return requestCardService('/api/cards', jwt);
+}
+
+export async function createCard(
+  params: { amountUsd: string; currency?: string; metadata?: Record<string, unknown> },
+  jwt: string
+): Promise<{ success: boolean; card: CardRecord }> {
+  return requestCardService('/api/cards', jwt, {
+    method: 'POST',
+    body: params,
+  });
+}
+
+export async function getCardDetails(cardId: string, jwt: string): Promise<CardDetailsResponse> {
+  return requestCardService(`/api/cards/${encodeURIComponent(cardId)}/details`, jwt, {
+    method: 'POST',
+  });
+}
+
+export async function getCardBalance(
+  cardId: string,
+  jwt: string
+): Promise<{
+  card: CardRecord;
+  balance: {
+    fundedAmountUsd: string;
+    remainingAmountUsd: string;
+    currency: string;
+    status: string;
+    lastBalanceSyncedAt: string | null;
+  };
+}> {
+  return requestCardService(`/api/cards/${encodeURIComponent(cardId)}/balance`, jwt);
 }
 
 /**

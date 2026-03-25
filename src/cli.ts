@@ -23,6 +23,10 @@ import {
   updatePaymentLink,
   deletePaymentLink,
   getPaymentLinkPayments,
+  listCards,
+  createCard,
+  getCardDetails,
+  getCardBalance,
   resolveCurrency,
   SUPPORTED_CURRENCIES,
 } from './wallet/client.js';
@@ -57,6 +61,10 @@ COMMANDS:
   status                    Check agent configuration status
   init                      Initialize/register agent ID
   refreshJWT                Refresh expired JWT and print new token
+  card list                 List issued cards
+  card create               Issue a funded card
+  card details              Reveal full card details
+  card balance              Refresh and query card balance
   payout                    Create a payout
   payout-status             Query payout status
   x402                      Generate x402 payment (delegates to x402-v3)
@@ -81,6 +89,15 @@ OPTIONS FOR 'payout':
   --id <payout_id>          Unique payout ID (required)
   --network <network>       Network (default: base)
   --asset <address>         Asset contract address (default: USDC)
+
+OPTIONS FOR 'card create':
+  --amount <usd>            Card amount in USD, human-readable (required)
+
+OPTIONS FOR 'card details':
+  --id <card_id>            Card ID (required)
+
+OPTIONS FOR 'card balance':
+  --id <card_id>            Card ID (required)
 
 OPTIONS FOR 'payout-status':
   --id <payout_id>          Payout ID to query (required)
@@ -152,6 +169,15 @@ EXAMPLES:
   # Create payout
   fluxa-wallet payout --to 0x1234...abcd --amount 1000000 --id pay_001
 
+  # List cards
+  fluxa-wallet card list
+
+  # Issue a card
+  fluxa-wallet card create --amount 25.00
+
+  # Reveal card details
+  fluxa-wallet card details --id 12
+
   # Query payout status
   fluxa-wallet payout-status --id pay_001
 
@@ -176,11 +202,20 @@ EXAMPLES:
 }
 
 function parseArgs(args: string[]): { command: string; options: Record<string, string>; helpRequested: boolean } {
-  const command = args[0] || 'help';
+  let command = args[0] || 'help';
   const options: Record<string, string> = {};
   let helpRequested = false;
+  let optionStartIndex = 1;
 
-  for (let i = 1; i < args.length; i++) {
+  if (command === 'card') {
+    const subcommand = args[1];
+    if (subcommand && !subcommand.startsWith('-')) {
+      command = `card ${subcommand}`;
+      optionStartIndex = 2;
+    }
+  }
+
+  for (let i = optionStartIndex; i < args.length; i++) {
     const arg = args[i];
     if (arg === '--help' || arg === '-h') {
       helpRequested = true;
@@ -219,6 +254,43 @@ Options:
 
 Example:
   fluxa-wallet init --name "My Agent" --client "CLI v1.0"`,
+
+  'card list': `Usage: fluxa-wallet card list
+
+List cards owned by the current authorized agent.
+
+Example:
+  fluxa-wallet card list`,
+
+  'card create': `Usage: fluxa-wallet card create --amount <usd>
+
+Issue a funded card from the configured wallet balance.
+
+Options:
+  --amount <usd>       Card amount in USD, human-readable (required)
+
+Example:
+  fluxa-wallet card create --amount 25.00`,
+
+  'card details': `Usage: fluxa-wallet card details --id <card_id>
+
+Reveal the full PAN, CVV, and expiry for a specific card.
+
+Options:
+  --id <card_id>       Card ID (required)
+
+Example:
+  fluxa-wallet card details --id 12`,
+
+  'card balance': `Usage: fluxa-wallet card balance --id <card_id>
+
+Refresh and retrieve the current balance for a specific card.
+
+Options:
+  --id <card_id>       Card ID (required)
+
+Example:
+  fluxa-wallet card balance --id 12`,
 
   payout: `Usage: fluxa-wallet payout [options]
 
@@ -426,6 +498,7 @@ async function cmdStatus(): Promise<CommandResult> {
         has_jwt: !!agentConfig.jwt,
         jwt_expired: isJWTExpired(agentConfig.jwt),
         agent_name: agentConfig.agent_name,
+        card_service_api: process.env.CARD_SERVICE_API || 'http://localhost:3002',
       },
     };
   }
@@ -525,6 +598,151 @@ async function cmdRefresh(): Promise<CommandResult> {
     return {
       success: false,
       error: err.message || 'JWT refresh failed',
+    };
+  }
+}
+
+async function cmdCardList(): Promise<CommandResult> {
+  const auth = await ensureValidJWT();
+  if (!auth) {
+    return {
+      success: false,
+      error: 'FluxA Agent ID not initialized. Run "init" first.',
+    };
+  }
+
+  try {
+    const result = await listCards(auth.jwt);
+
+    await recordAudit({
+      event: 'card_list',
+      count: result.cardCount,
+    });
+
+    return {
+      success: true,
+      data: result,
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      error: err.message || 'Card list failed',
+    };
+  }
+}
+
+async function cmdCardCreate(options: Record<string, string>): Promise<CommandResult> {
+  const amountUsd = options.amount;
+
+  if (!amountUsd) {
+    return {
+      success: false,
+      error: 'Missing required parameter: --amount',
+    };
+  }
+
+  const auth = await ensureValidJWT();
+  if (!auth) {
+    return {
+      success: false,
+      error: 'FluxA Agent ID not initialized. Run "init" first.',
+    };
+  }
+
+  try {
+    const result = await createCard({ amountUsd }, auth.jwt);
+
+    await recordAudit({
+      event: 'card_create',
+      amount_usd: amountUsd,
+      card_id: result.card?.id,
+    });
+
+    return {
+      success: true,
+      data: result,
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      error: err.message || 'Card creation failed',
+    };
+  }
+}
+
+async function cmdCardDetails(options: Record<string, string>): Promise<CommandResult> {
+  const cardId = options.id;
+
+  if (!cardId) {
+    return {
+      success: false,
+      error: 'Missing required parameter: --id',
+    };
+  }
+
+  const auth = await ensureValidJWT();
+  if (!auth) {
+    return {
+      success: false,
+      error: 'FluxA Agent ID not initialized. Run "init" first.',
+    };
+  }
+
+  try {
+    const result = await getCardDetails(cardId, auth.jwt);
+
+    await recordAudit({
+      event: 'card_details',
+      card_id: cardId,
+    });
+
+    return {
+      success: true,
+      data: result,
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      error: err.message || 'Card details request failed',
+    };
+  }
+}
+
+async function cmdCardBalance(options: Record<string, string>): Promise<CommandResult> {
+  const cardId = options.id;
+
+  if (!cardId) {
+    return {
+      success: false,
+      error: 'Missing required parameter: --id',
+    };
+  }
+
+  const auth = await ensureValidJWT();
+  if (!auth) {
+    return {
+      success: false,
+      error: 'FluxA Agent ID not initialized. Run "init" first.',
+    };
+  }
+
+  try {
+    const result = await getCardBalance(cardId, auth.jwt);
+
+    await recordAudit({
+      event: 'card_balance',
+      card_id: cardId,
+      remaining_amount_usd: result.balance?.remainingAmountUsd,
+    });
+
+    return {
+      success: true,
+      data: result,
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      error: err.message || 'Card balance request failed',
     };
   }
 }
@@ -1131,6 +1349,18 @@ async function main() {
       break;
     case 'refreshJWT':
       result = await cmdRefresh();
+      break;
+    case 'card list':
+      result = await cmdCardList();
+      break;
+    case 'card create':
+      result = await cmdCardCreate(options);
+      break;
+    case 'card details':
+      result = await cmdCardDetails(options);
+      break;
+    case 'card balance':
+      result = await cmdCardBalance(options);
       break;
     case 'payout':
       result = await cmdPayout(options);
