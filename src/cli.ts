@@ -27,6 +27,10 @@ import {
   createCard,
   getCardDetails,
   getCardBalance,
+  listReceivedPayments,
+  getReceivedPayment,
+  checkWalletLinked,
+  buildLinkWalletUrl,
   resolveCurrency,
   SUPPORTED_CURRENCIES,
 } from './wallet/client.js';
@@ -77,6 +81,10 @@ COMMANDS:
   paymentlink-update        Update a payment link
   paymentlink-delete        Delete a payment link
   paymentlink-payments      Get payment records for a payment link
+  received-records          List all received payment records
+  received-record           Get a single received payment record detail
+  check-wallet              Check if agent is linked to user's wallet
+  link-wallet               Get wallet linking URL (or confirm already linked)
 
 OPTIONS FOR 'init':
   --name <name>             Agent name
@@ -151,6 +159,13 @@ OPTIONS FOR 'paymentlink-payments':
   --id <link_id>            Payment link ID (required)
   --limit <number>          Max number of results
 
+OPTIONS FOR 'received-records':
+  --limit <number>          Max number of results (default: 20, max: 100)
+  --offset <number>         Pagination offset (default: 0)
+
+OPTIONS FOR 'received-record':
+  --id <payment_id>         Payment record ID (required)
+
 ENVIRONMENT VARIABLES:
   AGENT_ID                  Pre-configured agent ID
   AGENT_TOKEN               Pre-configured agent token
@@ -198,6 +213,12 @@ EXAMPLES:
 
   # Delete a payment link
   fluxa-wallet paymentlink-delete --id lnk_xxxxx
+
+  # List all received payment records
+  fluxa-wallet received-records --limit 10
+
+  # Get a single received payment record
+  fluxa-wallet received-record --id 1
 `);
 }
 
@@ -448,6 +469,45 @@ Options:
 
 Example:
   fluxa-wallet paymentlink-payments --id lnk_xxxxx --limit 10`,
+
+  'received-records': `Usage: fluxa-wallet received-records [options]
+
+List all received payment records across all payment links.
+
+Options:
+  --limit <number>    Max number of results (default: 20, max: 100)
+  --offset <number>   Pagination offset (default: 0)
+
+Example:
+  fluxa-wallet received-records --limit 10 --offset 0`,
+
+  'received-record': `Usage: fluxa-wallet received-record --id <payment_id>
+
+Get a single received payment record detail.
+
+Options:
+  --id <payment_id>   Payment record ID (required)
+
+Example:
+  fluxa-wallet received-record --id 1`,
+
+  'check-wallet': `Usage: fluxa-wallet check-wallet
+
+Check if the agent is linked to a user's wallet.
+
+No options required.
+
+Example:
+  fluxa-wallet check-wallet`,
+
+  'link-wallet': `Usage: fluxa-wallet link-wallet
+
+Get the wallet linking URL if not linked, or confirm already linked.
+
+No options required.
+
+Example:
+  fluxa-wallet link-wallet`,
 };
 
 function output(result: CommandResult) {
@@ -489,18 +549,27 @@ async function cmdStatus(): Promise<CommandResult> {
   const regInfo = getRegistrationInfoFromEnv();
 
   if (hasConfig && agentConfig) {
-    return {
-      success: true,
-      data: {
-        configured: true,
-        agent_id: agentConfig.agent_id,
-        has_token: !!agentConfig.token,
-        has_jwt: !!agentConfig.jwt,
-        jwt_expired: isJWTExpired(agentConfig.jwt),
-        agent_name: agentConfig.agent_name,
-        card_service_api: process.env.CARD_SERVICE_API || 'http://localhost:3002',
-      },
+    const data: any = {
+      configured: true,
+      agent_id: agentConfig.agent_id,
+      has_token: !!agentConfig.token,
+      has_jwt: !!agentConfig.jwt,
+      jwt_expired: isJWTExpired(agentConfig.jwt),
+      agent_name: agentConfig.agent_name,
+      card_service_api: process.env.CARD_SERVICE_API || 'http://localhost:3002',
     };
+
+    // Check wallet linking if JWT is valid
+    if (agentConfig.jwt && !isJWTExpired(agentConfig.jwt)) {
+      try {
+        const { linked } = await checkWalletLinked(agentConfig.jwt);
+        data.wallet_linked = linked;
+      } catch {
+        data.wallet_linked = null; // unable to determine
+      }
+    }
+
+    return { success: true, data };
   }
 
   return {
@@ -1317,6 +1386,107 @@ async function cmdPaymentLinkPayments(options: Record<string, string>): Promise<
   }
 }
 
+async function cmdCheckWallet(): Promise<CommandResult> {
+  const auth = await ensureValidJWT();
+  if (!auth) {
+    return { success: false, error: 'FluxA Agent ID not initialized. Run "init" first.' };
+  }
+
+  try {
+    const { linked } = await checkWalletLinked(auth.jwt);
+    const agentConfig = getEffectiveAgentId();
+
+    if (linked) {
+      return { success: true, data: { linked: true } };
+    }
+
+    const linkUrl = agentConfig?.agent_id
+      ? buildLinkWalletUrl(agentConfig.agent_id, agentConfig.agent_name || '')
+      : undefined;
+
+    return { success: true, data: { linked: false, linkUrl } };
+  } catch (err: any) {
+    return { success: false, error: err.message || 'Check wallet linking failed' };
+  }
+}
+
+async function cmdLinkWallet(): Promise<CommandResult> {
+  const auth = await ensureValidJWT();
+  if (!auth) {
+    return { success: false, error: 'FluxA Agent ID not initialized. Run "init" first.' };
+  }
+
+  try {
+    const { linked } = await checkWalletLinked(auth.jwt);
+
+    if (linked) {
+      return { success: true, data: { linked: true, message: "Agent is already linked to user's wallet." } };
+    }
+
+    const agentConfig = getEffectiveAgentId();
+    const linkUrl = agentConfig?.agent_id
+      ? buildLinkWalletUrl(agentConfig.agent_id, agentConfig.agent_name || '')
+      : undefined;
+
+    return {
+      success: true,
+      data: {
+        linked: false,
+        linkUrl,
+        message: 'Please ask user to open this URL to authorize wallet access.',
+      },
+    };
+  } catch (err: any) {
+    return { success: false, error: err.message || 'Link wallet failed' };
+  }
+}
+
+async function cmdReceivedRecords(options: Record<string, string>): Promise<CommandResult> {
+  const auth = await ensureValidJWT();
+  if (!auth) {
+    return { success: false, error: 'FluxA Agent ID not initialized. Run "init" first.' };
+  }
+
+  try {
+    const limit = options.limit ? parseInt(options.limit, 10) : undefined;
+    const offset = options.offset ? parseInt(options.offset, 10) : undefined;
+    const result = await listReceivedPayments(auth.jwt, limit, offset);
+
+    await recordAudit({ event: 'received_records_list' });
+
+    return { success: true, data: result };
+  } catch (err: any) {
+    return { success: false, error: err.message || 'List received records failed' };
+  }
+}
+
+async function cmdReceivedRecord(options: Record<string, string>): Promise<CommandResult> {
+  const paymentId = options.id;
+  if (!paymentId) {
+    return { success: false, error: 'Missing required parameter: --id' };
+  }
+
+  const id = parseInt(paymentId, 10);
+  if (isNaN(id)) {
+    return { success: false, error: 'Invalid payment ID: must be a number' };
+  }
+
+  const auth = await ensureValidJWT();
+  if (!auth) {
+    return { success: false, error: 'FluxA Agent ID not initialized. Run "init" first.' };
+  }
+
+  try {
+    const result = await getReceivedPayment(id, auth.jwt);
+
+    await recordAudit({ event: 'received_record_get', payment_id: id });
+
+    return { success: true, data: result };
+  } catch (err: any) {
+    return { success: false, error: err.message || 'Get received record failed' };
+  }
+}
+
 // Main entry point
 async function main() {
   const args = process.argv.slice(2);
@@ -1397,6 +1567,18 @@ async function main() {
       break;
     case 'paymentlink-payments':
       result = await cmdPaymentLinkPayments(options);
+      break;
+    case 'received-records':
+      result = await cmdReceivedRecords(options);
+      break;
+    case 'received-record':
+      result = await cmdReceivedRecord(options);
+      break;
+    case 'check-wallet':
+      result = await cmdCheckWallet();
+      break;
+    case 'link-wallet':
+      result = await cmdLinkWallet();
       break;
     case 'help':
     case '--help':
