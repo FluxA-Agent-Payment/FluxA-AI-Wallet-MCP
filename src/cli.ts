@@ -24,7 +24,8 @@ import {
   deletePaymentLink,
   getPaymentLinkPayments,
   listCards,
-  createCard,
+  initiateCard,
+  completeCard,
   getCardDetails,
   getCardBalance,
   listReceivedPayments,
@@ -100,6 +101,7 @@ OPTIONS FOR 'payout':
 
 OPTIONS FOR 'card create':
   --amount <usd>            Card amount in USD, human-readable (required)
+  --mandate <mandate_id>    Mandate ID for x402 payment (required)
 
 OPTIONS FOR 'card details':
   --id <card_id>            Card ID (required)
@@ -187,8 +189,8 @@ EXAMPLES:
   # List cards
   fluxa-wallet card list
 
-  # Issue a card
-  fluxa-wallet card create --amount 25.00
+  # Issue a card (requires mandate for x402 payment)
+  fluxa-wallet card create --amount 25.00 --mandate mand_xxxxx
 
   # Reveal card details
   fluxa-wallet card details --id 12
@@ -283,15 +285,16 @@ List cards owned by the current authorized agent.
 Example:
   fluxa-wallet card list`,
 
-  'card create': `Usage: fluxa-wallet card create --amount <usd>
+  'card create': `Usage: fluxa-wallet card create --amount <usd> --mandate <mandate_id>
 
-Issue a funded card from the configured wallet balance.
+Issue a funded card using the two-step x402 payment flow.
 
 Options:
-  --amount <usd>       Card amount in USD, human-readable (required)
+  --amount <usd>             Card amount in USD, human-readable (required)
+  --mandate <mandate_id>     Mandate ID for x402 payment (required)
 
 Example:
-  fluxa-wallet card create --amount 25.00`,
+  fluxa-wallet card create --amount 25.00 --mandate mand_xxxxx`,
 
   'card details': `Usage: fluxa-wallet card details --id <card_id>
 
@@ -702,11 +705,19 @@ async function cmdCardList(): Promise<CommandResult> {
 
 async function cmdCardCreate(options: Record<string, string>): Promise<CommandResult> {
   const amountUsd = options.amount;
+  const mandateId = options.mandate;
 
   if (!amountUsd) {
     return {
       success: false,
       error: 'Missing required parameter: --amount',
+    };
+  }
+
+  if (!mandateId) {
+    return {
+      success: false,
+      error: 'Missing required parameter: --mandate',
     };
   }
 
@@ -719,11 +730,35 @@ async function cmdCardCreate(options: Record<string, string>): Promise<CommandRe
   }
 
   try {
-    const result = await createCard({ amountUsd }, auth.jwt);
+    // Step 1: Initiate card issuance → get payment request
+    const initiated = await initiateCard({ amountUsd }, auth.jwt);
+
+    // Step 2: Sign payment via wallet backend using agent's mandate
+    const signed = await requestX402V2Payment(
+      { mandateId, paymentRequest: initiated.paymentRequest },
+      auth.jwt
+    );
+
+    if (signed.status !== 'ok' || !signed.paymentPayloadB64) {
+      return {
+        success: false,
+        error: signed.message || 'x402 payment signing failed',
+      };
+    }
+
+    // Step 3: Complete card issuance with signed payment
+    const result = await completeCard(
+      {
+        pendingRequestId: initiated.pendingRequestId,
+        paymentPayloadB64: signed.paymentPayloadB64,
+      },
+      auth.jwt
+    );
 
     await recordAudit({
       event: 'card_create',
       amount_usd: amountUsd,
+      mandate_id: mandateId,
       card_id: result.card?.id,
     });
 

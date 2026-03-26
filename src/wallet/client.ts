@@ -279,11 +279,21 @@ export async function listCards(jwt: string): Promise<{ cards: CardRecord[]; car
   return requestCardService('/api/cards', jwt);
 }
 
-export async function createCard(
-  params: { amountUsd: string; currency?: string; metadata?: Record<string, unknown> },
+export async function initiateCard(
+  params: { amountUsd: string },
+  jwt: string
+): Promise<{ pendingRequestId: string; paymentRequest: any; expiresAt: string; status: string }> {
+  return requestCardService('/api/cards/initiate', jwt, {
+    method: 'POST',
+    body: params,
+  });
+}
+
+export async function completeCard(
+  params: { pendingRequestId: string; paymentPayloadB64: string },
   jwt: string
 ): Promise<{ success: boolean; card: CardRecord }> {
-  return requestCardService('/api/cards', jwt, {
+  return requestCardService('/api/cards/complete', jwt, {
     method: 'POST',
     body: params,
   });
