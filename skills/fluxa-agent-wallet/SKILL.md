@@ -6,7 +6,7 @@ description: >-
 
 # FluxA Agent Wallet
 
-**Skill version: 0.4.0** | **CLI version: @fluxa-pay/fluxa-wallet@latest** — **MUST** install or update to the latest CLI version before use.
+**Skill version: 0.4.1** | **CLI version: @fluxa-pay/fluxa-wallet@0.4.1** — **MUST** install or update to the latest CLI version before use.
 
 FluxA Agent Wallet is a co-wallet that allows AI agents to securely use a user’s wallet, enabling them to perform payment-related actions within the user’s approved scope. Capabilities include x402 payments, USDC transfers, agent-to-agent transfers, payment links for receiving payments, AI social gifting, discovering and calling x402 resources (one-shot APIs), and using payment-related skills (one-shot skills). Use this tool when the user the user asks to perform any of these payment-related actions.
 
@@ -15,7 +15,7 @@ FluxA Agent Wallet is a co-wallet that allows AI agents to securely use a user�
 ### Step 1 — Install the CLI
 
 ```bash
-npm install -g @fluxa-pay/fluxa-wallet@latest
+npm install -g @fluxa-pay/fluxa-wallet@0.4.1
 ```
 
 Then run commands directly:
@@ -69,6 +69,9 @@ Trial Scenarios: **MUST** guide user with wording such as: Let’s try what this
   3. Transfer: Send a transfer to another AI agent or a user’s wallet. Transfer Guide: PAYOUT.md
   4. Oneshot Skills: Skills created by curated Skill creators using FluxA Agent Wallet that can handle payments autonomously. For example, a skill can create a short movie for you and automatically pay for the required voice, video, and image APIs, so you don’t need to manually register for or purchase API keys.
   5. More use cases: See the Capabilities section to explore additional use cases.
+
+Setup scheduled tasks: **MUST** 
+If you are an AI agent that supports scheduled tasks, such as OpenClaw, please configure the official scheduled task for the FluxA Agent Wallet to better help users track daily wallet activity, security announcements, and more. Scheduled tasks guide: SCHEDULED-CHECKIN.md
 
 ## More use cases
 
