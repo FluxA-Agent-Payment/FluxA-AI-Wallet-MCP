@@ -6,7 +6,7 @@
 const AGENT_ID_API = process.env.AGENT_ID_API || 'https://agentid.fluxapay.xyz';
 const WALLET_API = process.env.WALLET_API || 'https://walletapi.fluxapay.xyz';
 const WALLET_APP = process.env.WALLET_APP || 'https://wallet.fluxapay.xyz';
-const CARD_SERVICE_API = process.env.CARD_SERVICE_API || 'https://agent-prepaid-card-production.up.railway.app';
+const CARD_SERVICE_API = process.env.CARD_SERVICE_API || 'https://agentcard.fluxapay.xyz';
 const AGENT_WALLET_APP = process.env.AGENT_WALLET_APP || 'https://agentwallet.fluxapay.xyz';
 
 // JWT expiry buffer: refresh if expiring within 5 minutes
