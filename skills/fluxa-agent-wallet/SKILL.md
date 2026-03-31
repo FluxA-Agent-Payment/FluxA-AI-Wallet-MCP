@@ -55,7 +55,7 @@ fluxa-wallet check-wallet
 - `linked: true` → proceed to Step 3
 - `linked: false` → run `fluxa-wallet link-wallet` to get the authorization URL, then ask the user to open it using the “Opening Authorization URLs” UX pattern below.
 
-### Step 3 — User Onboarding Flow
+### Step 3 — User Onboarding Flow and Scheduled Tasks
 
 **MUST** run User Onboarding Flow immediately after successful setup.
 
