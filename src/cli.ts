@@ -559,7 +559,6 @@ async function cmdStatus(): Promise<CommandResult> {
       has_jwt: !!agentConfig.jwt,
       jwt_expired: isJWTExpired(agentConfig.jwt),
       agent_name: agentConfig.agent_name,
-      card_service_api: process.env.CARD_SERVICE_API || 'http://localhost:3002',
     };
 
     // Check wallet linking if JWT is valid
