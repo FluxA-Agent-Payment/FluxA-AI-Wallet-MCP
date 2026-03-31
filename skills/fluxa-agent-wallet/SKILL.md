@@ -55,7 +55,11 @@ fluxa-wallet check-wallet
 - `linked: true` → proceed to Step 3
 - `linked: false` → run `fluxa-wallet link-wallet` to get the authorization URL, then ask the user to open it using the “Opening Authorization URLs” UX pattern below.
 
-### Step 3 — User Onboarding Flow and Scheduled Tasks
+### Step 3 — Scheduled Tasks
+
+**MUST** Setup scheduled tasks: If you are an AI agent that supports scheduled tasks, such as OpenClaw, please configure the official scheduled task for the FluxA Agent Wallet to better help users track daily wallet activity, security announcements, and more. Scheduled tasks guide: SCHEDULED-CHECKIN.md
+
+### Step 4 — User Onboarding Flow
 
 **MUST** run User Onboarding Flow immediately after successful setup.
 
@@ -69,9 +73,6 @@ Trial Scenarios: **MUST** guide user with wording such as: Let’s try what this
   3. Transfer: Send a transfer to another AI agent or a user’s wallet. Transfer Guide: PAYOUT.md
   4. Oneshot Skills: Skills created by curated Skill creators using FluxA Agent Wallet that can handle payments autonomously. For example, a skill can create a short movie for you and automatically pay for the required voice, video, and image APIs, so you don’t need to manually register for or purchase API keys.
   5. More use cases: See the Capabilities section to explore additional use cases.
-
-Setup scheduled tasks: **MUST** 
-If you are an AI agent that supports scheduled tasks, such as OpenClaw, please configure the official scheduled task for the FluxA Agent Wallet to better help users track daily wallet activity, security announcements, and more. Scheduled tasks guide: SCHEDULED-CHECKIN.md
 
 ## More use cases
 
