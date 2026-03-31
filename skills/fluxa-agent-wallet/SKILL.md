@@ -53,7 +53,7 @@ fluxa-wallet check-wallet
 ```
 
 - `linked: true` → proceed to Step 3
-- `linked: false` → run `fluxa-wallet link-wallet` to get the authorization URL, then ask the user to open it using the “Opening Authorization URLs” UX pattern below.
+- `linked: false` → run `fluxa-wallet link-wallet` to get a URL, then ask the user to open it using the “Opening Authorization URLs” UX pattern below.
 
 ### Step 3 — Scheduled Tasks
 
@@ -143,15 +143,13 @@ Full planning rules, task classification, and state file schema: [MANDATE-PLANNI
 This is a 6-step process using CLI:
 
 ```
-1. curl -s <x402_url>                    → Get full 402 payload from JSON or response header
+1. curl -s <x402_url>                    → Get full payload from JSON or response header
 2. fluxa-wallet mandate-create --desc "..." --amount <amount>            → Create mandate (BOTH flags required)
 3. User signs at authorizationUrl                           → Mandate becomes "signed"
 4. fluxa-wallet mandate-status --id <mandate_id>                         → Verify signed (use --id, NOT --mandate)
-5. fluxa-wallet x402 --mandate <id> --payload "<402 payload>"                 → Get signed x402 payment response
+5. fluxa-wallet x402 --mandate <id> --payload "..."                 → Get signed x402 payment response
 6. retry x402 url again with x402 payment response                   → Submit payment
 ```
-
-**Critical:** The `--payload` for `x402` must be the **complete** 402 response.
 
 See [PAYMENT-LINK.md](PAYMENT-LINK.md) for the complete walkthrough with examples.
 
@@ -182,7 +180,6 @@ For FLUXA_MONETIZE_CREDITS, amounts are in the credits' smallest unit as defined
 |---------|----------------|-------------|
 | `status` | (none) | Check agent configuration |
 | `init` | `--name`, `--client` | Register agent ID |
-| `refreshJWT` | (none) | Refresh expired JWT and print new token |
 | `mandate-create` | `--desc`, `--amount` | Create an intent mandate |
 | `mandate-status` | `--id` | Query mandate status (NOT `--mandate`) |
 | `x402` | `--mandate`, `--payload` | Execute x402 payment (v1/v2 auto-detected) |
