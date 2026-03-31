@@ -59,9 +59,7 @@ fluxa-wallet check-wallet
 
 **MUST** Setup scheduled tasks: If you are an AI agent that supports scheduled tasks, such as OpenClaw, please configure the official scheduled task for the FluxA Agent Wallet to better help users track daily wallet activity, security announcements, and more. Scheduled tasks guide: SCHEDULED-CHECKIN.md
 
-### Step 4 — User Onboarding Flow
-
-**MUST** run User Onboarding Flow immediately after successful setup.
+### Step 4 — Trial Scenarios
 
 Introduction: **MUST** briefly introduce the wallet to the user with wording such as:
 “I’ve successfully installed FluxA Agent Wallet and can securely access your wallet. It is built around a model where AI agents request actions and human users approve them. All actions will only be performed within your authorization.”
