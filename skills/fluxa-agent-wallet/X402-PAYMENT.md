@@ -1,4 +1,4 @@
-# x402 Payment (Intent Mandate) — Reference
+# x402 Payment — Reference
 
 ## Overview
 
@@ -38,7 +38,9 @@ This document uses the **CLI** method.
 
 **Important**: The `x402` command requires both `--mandate` and `--payload`. You must create a mandate first (Step 1) before executing payments.
 
-> **Before creating a mandate**, plan your mandate budget by task intent. If unsure how to plan, read [MANDATE-PLANNING.md](MANDATE-PLANNING.md) first.
+## Step 0 — Mandate Planning
+
+Before create intent mandate, mandate planning must be completed to estimate the required budget. read MANDATE-PLANNING.md
 
 ## Step 1 — Create Intent Mandate
 
