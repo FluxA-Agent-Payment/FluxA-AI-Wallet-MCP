@@ -2,7 +2,13 @@
 
 ## Core Principle
 
-Plan mandate budget by **task intent**, not by current API call. Minimize user authorization clicks by planning ahead.
+When using fluxa agent wallet for payments, a mandate must be requested. This is a spending budget, subsequent payment requests must reference this mandate id so the wallet can automatically approve them.
+
+You **MUST** to clearly define the purpose of this budget so the user knows what the funds will be used for, and so the fluxa agent wallet risk control module can verify whether actual payment requests match the intended use.
+
+When applying for the budget, you may already know the exact number of payments and amounts (for example, calling an image generation api three times). or you may not know the exact payments in advance, and the spending will only be determined dynamically during task execution, including the number of transactions and total cost. both cases are allowed. you just need to apply for a reasonable budget.
+
+You must avoid applying for a budget for each individual payment, as this creates a poor user experience. You should analyze the user’s intent and determine whether a reusable budget can be requested so related tasks can use the same budget. For example: recurring video production for operations, or ongoing fund transfers to friends.
 
 ## Task Classification
 
@@ -17,7 +23,9 @@ A one-off action with a known, fixed cost.
 - Pay one payment link
 - One API call with known price
 
-**Strategy:** Request the exact cost. Do not add buffer — the user should see the actual amount being spent.
+**Strategy:** 
+1. Request the exact cost. Do not add buffer — the user should see the actual amount being spent.
+2. Ask or suggest to the user whether a long term budget should be set up, so repeated approvals are not needed and you can complete related tasks autonomously.
 
 ### Type 2 — Multi-Step Workflow
 
@@ -29,15 +37,6 @@ A task that requires multiple paid API calls in sequence.
 - Search x402 services → call multiple APIs to compare results
 
 **Strategy:** Estimate the **total cost across all steps** before creating the mandate. Include retry buffer (1 extra attempt per step). Create **one mandate** covering the entire workflow — do NOT create a new mandate per step.
-
-**Example calculation:**
-| Step | Estimated cost |
-|------|---------------|
-| Auth call | 0.001 USDC |
-| Generate image | 0.10 USDC |
-| Possible retry | 0.10 USDC |
-| **Total** | **0.201 USDC** |
-| **Mandate request** | **~0.25 USDC** (with retry buffer) |
 
 ### Type 3 — Recurring / Long-Term Task
 
