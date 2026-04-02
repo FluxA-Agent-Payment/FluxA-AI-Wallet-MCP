@@ -6,7 +6,7 @@ description: >-
 
 # FluxA Agent Wallet
 
-**Skill version: 0.4.1** | **CLI version: @fluxa-pay/fluxa-wallet@0.4.1** — **MUST** install or update to the latest CLI version before use.
+**Skill version: 0.4.2** | **CLI version: @fluxa-pay/fluxa-wallet@0.4.1** — **MUST** install or update to the latest CLI version before use.
 
 FluxA Agent Wallet is a co-wallet that allows AI agents to securely use a user’s wallet, enabling them to perform payment-related actions within the user’s approved scope. Capabilities include x402 payments, USDC transfers, agent-to-agent transfers, payment links for receiving payments, AI social gifting, discovering and calling x402 resources (one-shot APIs), and using payment-related skills (one-shot skills). Use this tool when the user the user asks to perform any of these payment-related actions.
 
