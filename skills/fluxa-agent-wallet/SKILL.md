@@ -144,11 +144,12 @@ This is a 6-step process using CLI:
 
 ```
 1. curl -s <x402_url>                    → Get full payload from JSON or response header
-2. fluxa-wallet mandate-create --desc "..." --amount <amount>            → Create mandate (BOTH flags required)
-3. User signs at authorizationUrl                           → Mandate becomes "signed"
-4. fluxa-wallet mandate-status --id <mandate_id>                         → Verify signed (use --id, NOT --mandate)
-5. fluxa-wallet x402 --mandate <id> --payload "..."                 → Get signed x402 payment response
-6. retry x402 url again with x402 payment response                   → Submit payment
+2. execute payment mandate planning and estimate the required budget. refer to MANDATE-PLANNING.md
+3. fluxa-wallet mandate-create --desc "..." --amount <amount>            → Create mandate (BOTH flags required)
+4. User signs at authorizationUrl                           → Mandate becomes "signed"
+5. fluxa-wallet mandate-status --id <mandate_id>                         → Verify signed (use --id, NOT --mandate)
+6. fluxa-wallet x402 --mandate <id> --payload "..."                 → Get signed x402 payment response
+7. retry x402 url again with x402 payment response                   → Submit payment
 ```
 
 See [PAYMENT-LINK.md](PAYMENT-LINK.md) for the complete walkthrough with examples.
