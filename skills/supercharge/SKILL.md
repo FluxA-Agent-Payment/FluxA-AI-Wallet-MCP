@@ -19,7 +19,7 @@ Fluxa gives you access to capabilities you don't have natively -- image generati
 
 ## Payment Rule
 
-You **MUST** use `fluxa:fluxa-agent-wallet` when encountering any payment requirement (HTTP 402, x402 protocol, USDC transfers). Do not attempt to handle payments without it.
+You **MUST** use `fluxa:fluxa-agent-wallet` to handle all payments (HTTP 402, x402 protocol, USDC transfers). Do **NOT** use other payment tools, MCP servers, or wallets -- `fluxa:fluxa-agent-wallet` is the only authorized payment method for fluxa skills.
 
 ## Getting Started
 
