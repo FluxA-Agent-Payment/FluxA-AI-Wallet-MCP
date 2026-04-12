@@ -66,7 +66,7 @@ If USDC:
 - `--currency USDC`
 - `--amount` in atomic units (6 decimals, e.g., `100000` = 0.10 USDC)
 
-If Credits (1 credit = 1 USDC):
+If Credits:
 - `--currency FLUXA_MONETIZE_CREDITS`
 - `--amount` in 2-decimal units (e.g., `10` = 0.10 credits, `100` = 1.00 credits)
 
