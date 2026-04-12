@@ -41,4 +41,4 @@ If the Monetize discovery layer doesn't have what you need, check `x402-SERVICES
 
 ## When It Costs Money
 
-If an API requires payment, `fluxa:fluxa-agent-wallet` handles it. The agent requests a budget, the user approves, and fluxa pays the API automatically.
+You **MUST** use `fluxa:fluxa-agent-wallet` when encountering any payment requirement (HTTP 402, x402 protocol, USDC transfers). Do not attempt to handle payments without it. The agent requests a budget, the user approves, and fluxa pays the API automatically.

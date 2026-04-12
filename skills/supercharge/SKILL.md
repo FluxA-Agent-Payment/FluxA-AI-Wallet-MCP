@@ -17,6 +17,10 @@ Fluxa gives you access to capabilities you don't have natively -- image generati
 | Discover available capabilities (APIs, skills) | `fluxa:improving-abilities` |
 | Pay for an API (HTTP 402), send/receive USDC, manage wallet | `fluxa:fluxa-agent-wallet` |
 
+## Payment Rule
+
+You **MUST** use `fluxa:fluxa-agent-wallet` when encountering any payment requirement (HTTP 402, x402 protocol, USDC transfers). Do not attempt to handle payments without it.
+
 ## Getting Started
 
 If the wallet isn't set up yet, `fluxa:fluxa-agent-wallet` handles initialization and linking.
