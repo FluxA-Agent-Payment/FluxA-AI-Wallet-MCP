@@ -17,7 +17,7 @@ Use this skill as the release-grade operator runbook for checkout automation. It
 ### Step1: 检查url是否支持自动化checkout
 
 1. 用户有没有给定具体的商品url，没有的话需要让用户提供具体需要购买的商品链接。
-2. 给定的链接是否在目前支持的自动化范围内。当前版本主要支持Shopify平台的标准结账流程，以及Stripe结账页面的字段自动填写。如果链接指向的商户或结账流程不在支持范围内，技能会明确告知用户需要手动完成购买，并提供直接打开链接的建议。
+2. 给定的链接是否在目前支持的自动化范围内。这个技能定位是通用 checkout automation skill，会根据给定链接判断当前是否存在可执行的自动化路径；如果链接指向的商户或结账流程不在当前可执行范围内，技能会明确告知用户需要手动完成购买，并提供直接打开链接的建议。
 3. 如果链接在支持范围内，和用户反馈：这个商品支持自动化结账，我们可以帮你自动填写结账信息并引导你完成购买。我现在开始帮你自动化结账。
 
 ### Step2: 检查checkout skill的执行环境
@@ -69,7 +69,7 @@ python3 scripts/checkout_playwright_handoff.py \
    Preferred wording:
 
 ```text
-因为目前 FluxA Agentic Checkout 仅支持特定的 Shopify 结账类型，这个商品暂时需要你自己手动 checkout。
+因为这个商户当前的结账流程还不在 FluxA Agentic Checkout 已验证的自动化范围内，这个商品暂时需要你自己手动 checkout。
 你可以直接打开下面的链接继续购买：
 <product-or-checkout-url>
 ```
@@ -104,13 +104,13 @@ Use this section as the product truth. Do not claim support beyond it.
 
 ### Implemented now
 
-1. **Shopify standard checkout navigation via Playwright**
-   - Accepts Shopify product, collection, cart, or direct checkout pages
-   - Navigates into standard Shopify checkout with deterministic actions
+1. **Standard storefront checkout navigation via Playwright**
+   - Accepts product, collection, cart, or direct checkout pages on currently validated storefront routes
+   - Navigates into checkout with deterministic actions
    - Fills contact and delivery fields when the checkout presents a shipping step
    - Supports `preview` and `execute`
-2. **Stripe checkout field filling**
-   - Detects direct Stripe-hosted checkout pages and common embedded Stripe checkout surfaces
+2. **Hosted checkout field filling**
+   - Detects direct hosted checkout pages and common embedded payment surfaces on currently validated routes
    - Fills visible identity, postal, and card fields
 3. **Checkout profile loading**
    - Reads a single JSON file that contains `payment`, `delivery`, and `billing`
@@ -140,7 +140,7 @@ When these appear, stop and return the handoff state. Do not improvise a best-ef
 
 - Universal support for all ecommerce platforms
 - Arbitrary pre-checkout storefront traversal on every merchant
-- Full support for heavily customized Shopify themes
+- Full support for heavily customized storefront themes
 - CAPTCHA / OTP / 3DS bypass
 - First-class adapters for Adyen, Braintree, and other providers not yet validated
 
@@ -179,7 +179,7 @@ This skill is an execution and handoff product, not a recommendation report.
 - `scripts/order_store.py`
   Filesystem-backed order ledger used by the checkout skill.
 - `scripts/shopify/`
-  Bundled Playwright helpers for the currently implemented Shopify navigation route and shared payment adapters.
+  Bundled Playwright helpers for the currently validated checkout navigation routes and shared payment adapters.
 
 ## Environment setup
 

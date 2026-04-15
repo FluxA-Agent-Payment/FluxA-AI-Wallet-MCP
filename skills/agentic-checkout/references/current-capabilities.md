@@ -4,13 +4,13 @@ Use this file when you need an exact statement of what is implemented today.
 
 ## Implemented now
 
-### 1. Shopify standard checkout pages via Playwright
+### 1. Validated storefront checkout pages via Playwright
 
 Current scope:
 
-- Accept a Shopify entry link such as a product page, collection page, cart page, or direct checkout page.
-- Navigate standard Shopify storefront pages to checkout using deterministic Playwright actions.
-- Fill guest contact fields, delivery/shipping fields when present, billing identity fields, and Shopify native PCI card fields.
+- Accept supported entry links such as a product page, collection page, cart page, or direct checkout page on currently validated storefront routes.
+- Navigate validated storefront pages to checkout using deterministic Playwright actions.
+- Fill guest contact fields, delivery/shipping fields when present, billing identity fields, and native PCI card fields on supported routes.
 - Support `preview` and `execute` modes with a `MAX_TOTAL_USD` safety guard.
 - Emit screenshots, traces, and structured JSON results.
 
@@ -19,19 +19,27 @@ Profile setup support:
 - Accept a single JSON credential file that bundles `payment`, `delivery`, and `billing`.
 - Keep backward compatibility with the earlier card-only JSON shape.
 
+Implementation note:
+
+- The currently validated storefront route is the standard Shopify checkout flow.
+
 Current limits:
 
-- Built for standard Shopify DOM patterns, not arbitrary heavily customized storefronts.
+- Built for the currently validated storefront DOM patterns, not arbitrary heavily customized storefronts.
 - If CAPTCHA, Cloudflare, login walls, or unsupported merchant widgets appear, the run should stop with handoff.
 
-### 2. Stripe checkout field filling
+### 2. Hosted checkout field filling
 
 Current scope:
 
-- Detect direct Stripe-hosted checkout pages and Stripe checkout surfaces that are already open on the page.
+- Detect direct hosted checkout pages and supported embedded checkout surfaces that are already open on the page.
 - Fill card number, expiration, CVC, postal code, and visible identity fields.
-- Handle common Stripe iframe layouts and embedded modal/page variants.
+- Handle common hosted-payment iframe layouts and embedded modal/page variants on validated routes.
 - Support `preview` and `execute` modes, including submit attempts and post-submit outcome classification.
+
+Implementation note:
+
+- The currently validated hosted checkout adapter is Stripe.
 
 Current limits:
 
