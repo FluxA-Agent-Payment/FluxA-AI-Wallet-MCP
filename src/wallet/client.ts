@@ -1063,3 +1063,156 @@ export async function getMandateStatus(
     );
   }
 }
+
+// ==================== Payment-Link Refund APIs ====================
+
+export interface InitiateRefundRequest {
+  paymentId: number;
+  amount?: string;   // atomic units; omit for full refund
+  reason?: string;
+}
+
+export interface RefundResponse {
+  refundId: number;
+  refundUrl: string;
+  paymentId: number;
+  linkId: string;
+  sourceType: string;
+  amount: string;
+  currency: string;
+  network: string;
+  refundFrom: string;
+  refundTo: string;
+  status: string;          // pending | settled | failed | expired | cancelled
+  refundTxHash: string | null;
+  refundType: string;
+  reason: string | null;
+  originalAmount: string;
+  originalTxHash: string | null;
+  agentName: string;
+  expiresAt: string;
+  createdAt: string;
+}
+
+/**
+ * Initiate a refund for a payment-link payment
+ */
+export async function initiateRefund(
+  params: InitiateRefundRequest,
+  jwt: string
+): Promise<RefundResponse> {
+  const url = `${WALLET_API}/api/payment-links/refunds/initiate`;
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${jwt}`,
+    },
+    body: JSON.stringify(params),
+  });
+
+  const text = await response.text();
+
+  if (!response.ok) {
+    throw new WalletApiError(text || `Initiate refund failed (${response.status})`, response.status, text || null);
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new WalletApiError('Invalid initiate refund response (not JSON)', response.status, text);
+  }
+}
+
+/**
+ * List all payment-link refunds
+ */
+export async function listRefunds(
+  jwt: string,
+  limit?: number,
+  offset?: number
+): Promise<{ refunds: RefundResponse[] }> {
+  const params = new URLSearchParams();
+  if (limit !== undefined) params.set('limit', String(limit));
+  if (offset !== undefined) params.set('offset', String(offset));
+  const qs = params.toString();
+  const url = `${WALLET_API}/api/payment-links/refunds${qs ? `?${qs}` : ''}`;
+
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: {
+      'Authorization': `Bearer ${jwt}`,
+    },
+  });
+
+  const text = await response.text();
+
+  if (!response.ok) {
+    throw new WalletApiError(text || `List refunds failed (${response.status})`, response.status, text || null);
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new WalletApiError('Invalid list refunds response (not JSON)', response.status, text);
+  }
+}
+
+/**
+ * Get a single payment-link refund by ID
+ */
+export async function getRefund(
+  refundId: number,
+  jwt: string
+): Promise<RefundResponse> {
+  const url = `${WALLET_API}/api/payment-links/refunds/${encodeURIComponent(refundId)}`;
+
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: {
+      'Authorization': `Bearer ${jwt}`,
+    },
+  });
+
+  const text = await response.text();
+
+  if (!response.ok) {
+    throw new WalletApiError(text || `Get refund failed (${response.status})`, response.status, text || null);
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new WalletApiError('Invalid get refund response (not JSON)', response.status, text);
+  }
+}
+
+/**
+ * Cancel a pending payment-link refund
+ */
+export async function cancelRefund(
+  refundId: number,
+  jwt: string
+): Promise<RefundResponse> {
+  const url = `${WALLET_API}/api/payment-links/refunds/${encodeURIComponent(refundId)}/cancel`;
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${jwt}`,
+    },
+  });
+
+  const text = await response.text();
+
+  if (!response.ok) {
+    throw new WalletApiError(text || `Cancel refund failed (${response.status})`, response.status, text || null);
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new WalletApiError('Invalid cancel refund response (not JSON)', response.status, text);
+  }
+}
