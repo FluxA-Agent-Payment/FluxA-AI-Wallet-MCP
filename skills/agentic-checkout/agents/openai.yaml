@@ -1,0 +1,4 @@
+interface:
+  display_name: "FluxA Agentic Checkout"
+  short_description: "Automate supported checkouts, then hand off safely"
+  default_prompt: "Use FluxA Agentic Checkout to open a checkout link, autofill supported payment surfaces, and stop for human takeover when verification or unsupported flows appear."
