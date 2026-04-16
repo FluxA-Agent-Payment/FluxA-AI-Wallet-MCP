@@ -14,24 +14,24 @@ Use this skill as the release-grade operator runbook for checkout automation. It
 
 ## How to do checkout for users
 
-### Step1: 检查url是否支持自动化checkout
+### Step 1: Check whether the URL supports automated checkout
 
-1. 用户有没有给定具体的商品url，没有的话需要让用户提供具体需要购买的商品链接。
-2. 给定的链接是否在目前支持的自动化范围内。这个技能定位是通用 checkout automation skill，会根据给定链接判断当前是否存在可执行的自动化路径；如果链接指向的商户或结账流程不在当前可执行范围内，技能会明确告知用户需要手动完成购买，并提供直接打开链接的建议。
-3. 如果链接在支持范围内，和用户反馈：这个商品支持自动化结账，我们可以帮你自动填写结账信息并引导你完成购买。我现在开始帮你自动化结账。
+1. Check whether the user has provided a specific product URL. If not, ask the user for the exact product link they want to buy.
+2. Check whether the link falls within the currently supported automation scope. This skill is positioned as a general checkout automation skill and should determine whether there is an executable automation path for the given link. If the merchant or checkout flow is outside the currently executable scope, the skill should clearly tell the user that they need to complete the purchase manually and provide a direct link they can open.
+3. If the link is supported, tell the user: "This item supports automated checkout. We can help autofill the checkout information and guide you through the purchase. I’m starting the checkout automation now."
 
-### Step2: 检查checkout skill的执行环境
-1. 检查环境：技能需要在支持Playwright的环境中运行，并且需要安装Chromium浏览器。你需要检查 python-dotenv、socksio、playwright等是否已经安装，如果没有安装，需要先安装这些依赖。安装步骤：查看Environment setup这个章节。
-2. 安装环境前，和用户反馈：为了完成自动化结账，我们需要安装一些必要的工具和浏览器。这个过程可能需要几分钟时间，请耐心等待。我现在开始安装环境。
+### Step 2: Check the checkout skill execution environment
+1. Check the environment. The skill must run in an environment that supports Playwright, and Chromium must be installed. Check whether `python-dotenv`, `socksio`, `playwright`, and related dependencies are already installed. If they are missing, install them first. See the `Environment setup` section for the setup steps.
+2. Before installing the environment, tell the user: "To complete the automated checkout, we need to install a few required tools and the browser runtime. This may take a few minutes. I’m starting the setup now."
 
-### Step3: 收集用户的结账信息并生成profile
-1. 查阅“收集用户邮寄地址”章节，看看用户是否已经有一个包含支付、配送和账单信息的JSON文件。如果没有，我们需要引导用户提供这些信息。
-2. 如果信息已存在，和用户再确认一遍本次购物的收货地址
+### Step 3: Collect the user's checkout information and generate the profile
+1. Read the `Collect the user's shipping information` section and check whether the user already has a JSON file containing payment, delivery, and billing information. If not, guide the user to provide that information.
+2. If the information already exists, confirm the shipping address for this purchase with the user again.
 
-### Step4: 运行checkout脚本进行预览和执行
-1. 开始前，和用户反馈：现在开始自动化结账，我会先进行预览模式，帮你自动填写结账信息，但不会提交订单。
+### Step 4: Run the checkout script in preview and execute modes
+1. Before starting, tell the user: "I’m starting the checkout automation now. I’ll begin in preview mode so I can autofill the checkout information without submitting the order."
 
-2. 使用用户提供的entry-url和生成的profile JSON文件，运行checkout_playwright_handoff.py脚本，选择preview模式先进行预览，确认自动化流程能够正确执行并填写信息。
+2. Use the user-provided `entry-url` and the generated profile JSON file to run `checkout_playwright_handoff.py` in `preview` mode first, so you can confirm that the automation flow runs correctly and fills the required information.
 
 ```bash
 python3 scripts/checkout_playwright_handoff.py \
@@ -44,14 +44,14 @@ python3 scripts/checkout_playwright_handoff.py \
   --record-video
 ```
 
-3.如果preview执行成功，把截图和视频，发给用户看一下自动化结账的预览效果，和用户反馈：自动化结账已经成功预览，结账信息已经填写好了。请确认一下配送信息是否正确，如果正确的话，我们就可以继续执行最终的结账操作了。 
+3. If `preview` succeeds, send the screenshots and video to the user so they can review the automated checkout preview, and tell the user: "The automated checkout preview completed successfully, and the checkout information has been filled in. Please confirm that the delivery information is correct. If everything looks right, we can proceed with the final checkout step."
 
-   默认不要删除本地 `artifacts/` 里的截图、trace、视频和结果 JSON。它们是 checkout handoff 的审计和人工接管依据。
-   只有用户明确要求清理本地产物，或者明确要求删除其中的敏感文件时，才可以执行清理。
+   Do not delete screenshots, traces, videos, or result JSON files under the local `artifacts/` directory by default. They are part of the audit trail and manual handoff record for checkout continuation.
+   Only clean up local artifacts if the user explicitly asks for cleanup, or explicitly asks to delete sensitive files among them.
 
-4. 如果页面出现法律同意、隐私授权、跨境传输或本地法规相关的必选 checkbox，不要默认替用户勾选。先用自然语言征求用户明确同意；只有用户明确答应后，才在运行命令时加上 `--confirm-legal-consent`。
+4. If the page contains a required checkbox for legal consent, privacy authorization, cross-border transfer, or other local regulatory requirements, do not check it on the user's behalf by default. First ask for the user's explicit consent in natural language. Only after the user clearly agrees should you add `--confirm-legal-consent` to the command.
 
-5. 如果用户确认配送信息正确，运行checkout_playwright_handoff.py脚本，选择execute模式进行最终的结账执行。只要使用标准的统一 profile（含 `delivery`），通常都应加上 `--confirm-delivery`；否则脚本会拒绝执行。
+5. If the user confirms that the delivery information is correct, run `checkout_playwright_handoff.py` in `execute` mode for the final checkout attempt. When using the standard unified profile that includes `delivery`, you should usually add `--confirm-delivery`; otherwise the script will refuse to run.
 ```bash
 python3 scripts/checkout_playwright_handoff.py \
   --entry-url "https://gracie-designs.myshopify.com/products/gift-card" \
@@ -69,8 +69,8 @@ python3 scripts/checkout_playwright_handoff.py \
    Preferred wording:
 
 ```text
-因为这个商户当前的结账流程还不在 FluxA Agentic Checkout 已验证的自动化范围内，这个商品暂时需要你自己手动 checkout。
-你可以直接打开下面的链接继续购买：
+This merchant's current checkout flow is not yet within the validated automation scope of FluxA Agentic Checkout, so you will need to complete this purchase manually for now.
+You can open the link below to continue the purchase:
 <product-or-checkout-url>
 ```
 
@@ -213,15 +213,15 @@ python3 -m playwright install chromium
 
 Use the final `python3 -m playwright install chromium` in the same user context that will run the checkout command. If the container installs dependencies as `root` but OpenClaw executes as `node`, run that final install again as `node` so the browser cache exists under the runtime user's home directory.
 
-## 收集用户邮寄地址
+## Collect the user's shipping information
 
-更新脚本如下
+Run the update script:
 ```bash
 python3 scripts/setup_checkout_profile.py \
   --output "$HOME/.clawdbot/credentials/real_card.json"
 ```
 
-更新前，先看看这个文件，有没有已经收集好的用户信息，The generated profile JSON uses this shape:
+Before updating it, first check whether this file already contains the user's collected information. The generated profile JSON uses this shape:
 
 ```json
 {
@@ -273,8 +273,8 @@ python3 scripts/setup_checkout_profile.py \
 
 `additional_information.resident_id_number` is optional. When the merchant requires it only for one checkout, you can also pass it at runtime with `--resident-id-number` or `RESIDENT_ID_NUMBER`.
 
-如果没有，通过让用户提供相关信息，然后运行上面脚本更新。
-对于中国地址，如果用户没有额外提供英文 / Latin 版本，skill 应先自动生成 `address1_ascii`、`city_ascii`、`state_ascii`，并在缺失邮编时先回退到省级通用邮编，再继续 checkout。只有自动推断后页面仍拒绝，才回头向用户补问更精确的信息。
+If it does not, ask the user for the relevant information and then run the script above to update it.
+For addresses in China, if the user does not separately provide an English or Latin version, the skill should first generate `address1_ascii`, `city_ascii`, and `state_ascii` automatically. If the postal code is missing, it should first fall back to a province-level generic postal code before continuing the checkout. Only if the page still rejects the address after automatic inference should the skill go back to the user and ask for more precise information.
 If any of these are missing, ask the user directly in plain language:
 
 - Checkout email

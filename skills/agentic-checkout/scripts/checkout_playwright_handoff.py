@@ -403,7 +403,7 @@ async def async_main() -> int:
             "startedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "finishedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "scriptVersion": SCRIPT_VERSION,
-            "userMessage": "这边暂时还没法开始结账，因为缺少必要信息或本地配置还没准备好。你把缺的资料补齐后，我就能继续帮你处理。",
+            "userMessage": "Checkout cannot start yet because required information is missing or the local setup is not ready. Once the missing details are provided, I can continue from there.",
             "hint": str(exc),
         }
         print(json_dumps(result))
@@ -495,7 +495,7 @@ async def async_main() -> int:
             "query": config.query,
             "route": "unknown",
             **default_payload(),
-            "userMessage": f"这边已经持续帮你处理了较长时间，但页面在 {config.max_run_seconds} 秒内还是没能顺利完成这一步。你可以稍后再试一次，或者把当前页面链接发我继续排查。",
+            "userMessage": f"I have been working on this for a while, but the page still could not complete this step within {config.max_run_seconds} seconds. You can try again later, or send me the current page link so I can keep investigating.",
             "hint": f"Checkout run exceeded MAX_RUN_SECONDS={config.max_run_seconds}.",
             "traceDir": str(traces_dir) if config.record_trace else None,
             "videoDir": str(videos_dir) if config.record_video and videos_dir else None,
@@ -513,7 +513,7 @@ async def async_main() -> int:
             "query": config.query,
             "route": "unknown",
             **default_payload(),
-            "userMessage": "这边在继续结账时遇到了页面异常，暂时没能替你完成这一步。你可以把链接发给我，我继续帮你排查。",
+            "userMessage": "The page encountered an unexpected issue while continuing the checkout, so I could not complete this step for you yet. Send me the link and I can continue investigating.",
             "hint": str(exc),
             "traceDir": str(traces_dir) if config.record_trace else None,
             "videoDir": str(videos_dir) if config.record_video and videos_dir else None,

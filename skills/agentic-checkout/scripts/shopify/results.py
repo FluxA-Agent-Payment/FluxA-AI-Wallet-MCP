@@ -57,35 +57,35 @@ def _build_user_message(data: dict[str, Any], phase: str) -> str:
     blocking_fields = [str(item).strip() for item in (data.get("blockingFields") or []) if str(item).strip()]
     def with_link(base: str) -> str:
         if link:
-            return f"{base} 链接如下，你点击进去继续即可：{link}"
+            return f"{base} You can continue from this link: {link}"
         return base
     if phase == "preview_complete":
-        return "这边已经帮你把信息填写到付款前了。请先确认 Delivery 和 Billing 是否正确，确认没问题后再决定是否点击 Pay now。"
+        return "I have filled in the checkout information up to the point right before payment. Please confirm that the Delivery and Billing information is correct before deciding whether to click Pay now."
     if phase == "payment_details_filled":
         if blocking_fields:
-            labels = "、".join(blocking_fields[:3])
-            base = f"这边已经帮你进入 checkout，并填好了大部分信息。不过这个商家还要求补充 {labels}，这一步需要你手动完成。"
+            labels = ", ".join(blocking_fields[:3])
+            base = f"I have already entered checkout and filled most of the information. However, this merchant still requires {labels}, so this step needs to be completed manually."
         else:
-            base = "这边已经帮你进入 checkout，但有些 Delivery、Billing 或支付信息还没能稳定补全，所以需要你手动继续一下。"
+            base = "I have already entered checkout, but some Delivery, Billing, or payment details could not be filled reliably, so you need to continue manually from here."
         return with_link(base)
     if phase in {"unsupported_provider", "needs_manual_verification"}:
-        base = "这边已经帮你推进到结账环节了，不过当前页面需要人工继续操作，暂时不能完全自动完成。"
+        base = "I have already progressed the flow to checkout, but the current page requires manual action and cannot be completed fully automatically right now."
         return with_link(base)
     if phase == "limit_exceeded":
-        return "这边先帮你停下来了，因为当前商品金额超过了这次允许的上限。"
+        return "I stopped here because the current item total exceeds the allowed limit for this run."
     if phase == "execute_fail":
-        base = "这边暂时没能帮你完成最终支付提交。你可以先检查 Delivery、Billing 和卡片信息，再继续结账。"
+        base = "I could not complete the final payment submission yet. Please check the Delivery, Billing, and card information before continuing the checkout."
         return with_link(base)
     if phase == "execute_success":
-        return "这边已经帮你提交成功了。"
+        return "The checkout submission completed successfully."
     if phase == "checkout_reached":
-        return with_link("这边已经帮你打开结账页了，不过还没能把信息完整填写到可支付状态。")
+        return with_link("I have opened the checkout page, but the information has not yet been filled completely to a payable state.")
     if phase == "product_selected":
-        return with_link("这边已经打开商品页了，但暂时没能稳定加入购物车。你可以稍后重试，或者把这个链接交给我继续排查。")
+        return with_link("I have opened the product page, but I could not add the item to the cart reliably yet. You can try again later, or send me this link so I can continue investigating.")
     if phase == "candidate_selected":
-        return with_link("这边已经打开商家页面了，但暂时还没能确认可直接推进的商品或结账入口。你可以把更具体的商品链接发我，我继续帮你处理。")
+        return with_link("I have opened the merchant page, but I could not yet identify a product or checkout entry that can be advanced directly. Send me a more specific product link and I can continue from there.")
     if phase == "no_shopify_candidate":
-        return "这边暂时没找到可继续自动结账的商品页面。你可以给我一个更具体的商品链接，我继续帮你推进。"
+        return "I could not find a product page that can continue through automated checkout yet. Give me a more specific product link and I can keep moving this forward."
     return ""
 
 
