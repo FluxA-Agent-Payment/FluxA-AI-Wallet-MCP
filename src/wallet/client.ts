@@ -89,14 +89,19 @@ export interface PayoutRequest {
   network: string; // e.g., 'base'
   assetAddress: string; // token contract address
   payoutId: string; // idempotency key provided by caller
+  mandateId?: string; // optional signed mandate for auto-approval
+  bizId?: string; // optional external business ID for dedup
+  description?: string; // optional human-readable description
 }
 
 export interface PayoutResponse {
   payoutId: string;
-  status: string; // e.g., 'pending_authorization' | 'succeeded' | 'failed' | ...
+  status: string; // e.g., 'pending_authorization' | 'authorized' | 'succeeded' | 'confirmed' | 'failed' | ...
   txHash: string | null;
-  approvalUrl?: string;
+  approvalUrl?: string | null;
   expiresAt?: number;
+  mandateId?: string | null;
+  bizId?: string | null;
   // allow unknown fields as well
   [key: string]: any;
 }

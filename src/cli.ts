@@ -106,6 +106,9 @@ OPTIONS FOR 'payout':
   --id <payout_id>          Unique payout ID (required)
   --network <network>       Network (default: base)
   --asset <address>         Asset contract address (default: USDC)
+  --mandate <mandate_id>    Signed mandate ID for auto-approval (optional)
+  --biz-id <biz_id>         External business ID for dedup (optional)
+  --description <text>      Human-readable description (optional)
 
 OPTIONS FOR 'card create':
   --amount <usd>            Card amount in USD, human-readable (required)
@@ -359,14 +362,28 @@ Example:
 Create a payout to send funds to a wallet address.
 
 Options:
-  --to <address>      Recipient address (required)
-  --amount <amount>   Amount in smallest units (required)
-  --id <payout_id>    Unique payout ID (required)
-  --network <network> Network (default: base)
-  --asset <address>   Asset contract address (default: USDC on Base)
+  --to <address>         Recipient address (required)
+  --amount <amount>      Amount in smallest units (required)
+  --id <payout_id>       Unique payout ID / idempotency key (required)
+  --network <network>    Network (default: base)
+  --asset <address>      Asset contract address (default: USDC on Base)
+  --mandate <mandate_id> Signed mandate ID for auto-approval (optional)
+                         When provided and budget is sufficient, skips user approval
+                         and payout goes directly to 'authorized' state.
+  --biz-id <biz_id>      External business ID for dedup (optional)
+                         Same biz-id cannot be reused while an active payout exists.
+  --description <text>   Human-readable description (optional)
 
-Example:
-  fluxa-wallet payout --to 0x1234...abcd --amount 1000000 --id pay_001`,
+Examples:
+  # Standard payout (requires user approval)
+  fluxa-wallet payout --to 0x1234...abcd --amount 1000000 --id pay_001
+
+  # Auto-approved payout via mandate
+  fluxa-wallet payout --to 0x1234...abcd --amount 1000000 --id pay_002 --mandate mand_xxxxx
+
+  # Payout with business dedup and description
+  fluxa-wallet payout --to 0x1234...abcd --amount 1000000 --id pay_003 \\
+    --biz-id order_20260416_001 --description "Refund for order #001"`,
 
   'payout-status': `Usage: fluxa-wallet payout-status --id <payout_id>
 
@@ -938,6 +955,9 @@ async function cmdPayout(options: Record<string, string>): Promise<CommandResult
   const payoutId = options.id;
   const network = options.network || DEFAULT_NETWORK;
   const assetAddress = options.asset || DEFAULT_ASSET;
+  const mandateId = options.mandate;
+  const bizId = options['biz-id'];
+  const description = options.description;
 
   if (!toAddress || !amount || !payoutId) {
     return {
@@ -982,6 +1002,9 @@ async function cmdPayout(options: Record<string, string>): Promise<CommandResult
         network,
         assetAddress,
         payoutId,
+        ...(mandateId ? { mandateId } : {}),
+        ...(bizId ? { bizId } : {}),
+        ...(description ? { description } : {}),
       },
       auth.jwt
     );
@@ -992,6 +1015,8 @@ async function cmdPayout(options: Record<string, string>): Promise<CommandResult
       to: toAddress,
       amount,
       status: result.status,
+      ...(mandateId ? { mandate_id: mandateId } : {}),
+      ...(bizId ? { biz_id: bizId } : {}),
     });
 
     return {
