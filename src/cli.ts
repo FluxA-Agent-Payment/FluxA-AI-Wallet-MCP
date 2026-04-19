@@ -1686,14 +1686,9 @@ async function cmdPaymentLinkRefundList(options: Record<string, string>): Promis
 }
 
 async function cmdPaymentLinkRefundGet(options: Record<string, string>): Promise<CommandResult> {
-  const refundIdStr = options.id;
-  if (!refundIdStr) {
+  const refundId = options.id;
+  if (!refundId) {
     return { success: false, error: 'Missing required parameter: --id' };
-  }
-
-  const refundId = parseInt(refundIdStr, 10);
-  if (isNaN(refundId)) {
-    return { success: false, error: 'Invalid refund ID: must be a number' };
   }
 
   const auth = await ensureValidJWT();
@@ -1713,14 +1708,9 @@ async function cmdPaymentLinkRefundGet(options: Record<string, string>): Promise
 }
 
 async function cmdPaymentLinkRefundCancel(options: Record<string, string>): Promise<CommandResult> {
-  const refundIdStr = options.id;
-  if (!refundIdStr) {
+  const refundId = options.id;
+  if (!refundId) {
     return { success: false, error: 'Missing required parameter: --id' };
-  }
-
-  const refundId = parseInt(refundIdStr, 10);
-  if (isNaN(refundId)) {
-    return { success: false, error: 'Invalid refund ID: must be a number' };
   }
 
   const auth = await ensureValidJWT();

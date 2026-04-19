@@ -1078,7 +1078,7 @@ export interface InitiateRefundRequest {
 }
 
 export interface RefundResponse {
-  refundId: number;
+  refundId: string;
   refundUrl: string;
   paymentId: number;
   linkId: string;
@@ -1168,7 +1168,7 @@ export async function listRefunds(
  * Get a single payment-link refund by ID
  */
 export async function getRefund(
-  refundId: number,
+  refundId: string,
   jwt: string
 ): Promise<RefundResponse> {
   const url = `${WALLET_API}/api/payment-links/refunds/${encodeURIComponent(refundId)}`;
@@ -1197,7 +1197,7 @@ export async function getRefund(
  * Cancel a pending payment-link refund
  */
 export async function cancelRefund(
-  refundId: number,
+  refundId: string,
   jwt: string
 ): Promise<RefundResponse> {
   const url = `${WALLET_API}/api/payment-links/refunds/${encodeURIComponent(refundId)}/cancel`;
