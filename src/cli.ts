@@ -38,6 +38,7 @@ import {
   listRefunds,
   getRefund,
   cancelRefund,
+  issueVC,
 } from './wallet/client.js';
 import {
   getEffectiveAgentId,
@@ -94,6 +95,7 @@ COMMANDS:
   received-record           Get a single received payment record detail
   check-wallet              Check if agent is linked to user's wallet
   link-wallet               Get wallet linking URL (or confirm already linked)
+  agent-vc                  Issue an agent verifiable credential (VC) for a third party
 
 OPTIONS FOR 'init':
   --name <name>             Agent name
@@ -194,6 +196,11 @@ OPTIONS FOR 'received-records':
 OPTIONS FOR 'received-record':
   --id <payment_id>         Payment record ID (required)
 
+OPTIONS FOR 'agent-vc':
+  --audience <url>          Third-party audience identifier (required)
+  --challenge <text>        Opaque challenge (e.g. user id / nonce), UTF-8 ≤ 4096 bytes (required)
+  --ttl <seconds>           Lifetime in seconds, 1..86400 (default: 3600)
+
 ENVIRONMENT VARIABLES:
   AGENT_ID                  Pre-configured agent ID
   AGENT_TOKEN               Pre-configured agent token
@@ -262,6 +269,12 @@ EXAMPLES:
 
   # Get a single received payment record
   fluxa-wallet received-record --id 1
+
+  # Issue an agent VC for a third-party service (default TTL 3600s)
+  fluxa-wallet agent-vc --audience "https://thirdparty.example.com" --challenge "user-42"
+
+  # VC with 10-minute TTL for a one-off SSO hand-off
+  fluxa-wallet agent-vc --audience "https://sso.example.com" --challenge "nonce-abc" --ttl 600
 `);
 }
 
@@ -610,6 +623,22 @@ No options required.
 
 Example:
   fluxa-wallet link-wallet`,
+
+  'agent-vc': `Usage: fluxa-wallet agent-vc --audience <url> --challenge <text> [--ttl <seconds>]
+
+Issue an agent verifiable credential (VC) scoped to a third-party audience.
+The VC is signed with the same RS256 key as the login JWT but carries
+header typ="agent-vc" and payload.aud=<audience>, so it cannot be used
+to call protected FluxA endpoints. Third parties verify locally via JWKS.
+
+Options:
+  --audience <url>     Third-party audience identifier (required)
+  --challenge <text>   Opaque challenge bound into the VC, UTF-8 ≤ 4096 bytes (required)
+  --ttl <seconds>      Lifetime in seconds, 1..86400 (default: 3600)
+
+Examples:
+  fluxa-wallet agent-vc --audience "https://thirdparty.example.com" --challenge "user-42"
+  fluxa-wallet agent-vc --audience "https://sso.example.com" --challenge "nonce-abc" --ttl 600`,
 };
 
 function output(result: CommandResult) {
@@ -1729,6 +1758,49 @@ async function cmdPaymentLinkRefundCancel(options: Record<string, string>): Prom
   }
 }
 
+async function cmdAgentVC(options: Record<string, string>): Promise<CommandResult> {
+  const audience = options.audience;
+  const challenge = options.challenge;
+  if (!audience) {
+    return { success: false, error: 'Missing required parameter: --audience' };
+  }
+  if (!challenge) {
+    return { success: false, error: 'Missing required parameter: --challenge' };
+  }
+  if (Buffer.byteLength(challenge, 'utf8') > 4096) {
+    return { success: false, error: 'challenge too large (max 4096 bytes)' };
+  }
+
+  const ttlRaw = options.ttl;
+  const ttlSeconds = ttlRaw === undefined ? 3600 : parseInt(ttlRaw, 10);
+  if (!Number.isInteger(ttlSeconds) || ttlSeconds < 1 || ttlSeconds > 86400) {
+    return { success: false, error: 'ttl must be an integer in [1, 86400]' };
+  }
+
+  const auth = await ensureValidJWT();
+  if (!auth) {
+    return { success: false, error: 'FluxA Agent ID not initialized. Run "init" first.' };
+  }
+
+  try {
+    const result = await issueVC(
+      { audience, challenge, ttl_seconds: ttlSeconds },
+      auth.jwt
+    );
+
+    await recordAudit({
+      event: 'agent_vc_issue',
+      audience,
+      ttl_seconds: ttlSeconds,
+      jti: result.jti,
+    });
+
+    return { success: true, data: result };
+  } catch (err: any) {
+    return { success: false, error: err.message || 'Issue VC failed' };
+  }
+}
+
 // Main entry point
 async function main() {
   const args = process.argv.slice(2);
@@ -1833,6 +1905,9 @@ async function main() {
       break;
     case 'link-wallet':
       result = await cmdLinkWallet();
+      break;
+    case 'agent-vc':
+      result = await cmdAgentVC(options);
       break;
     case 'help':
     case '--help':

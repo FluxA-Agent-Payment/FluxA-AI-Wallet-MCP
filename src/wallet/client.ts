@@ -470,6 +470,54 @@ export async function refreshJWT(
   return data.jwt;
 }
 
+// ==================== Agent VC APIs ====================
+
+export interface IssueVCRequest {
+  challenge: string;
+  audience: string;
+  ttl_seconds: number;
+}
+
+export interface IssueVCResponse {
+  vc: string;
+  jti: string;
+  issued_at: number;
+  expires_at: number;
+  kid: string;
+}
+
+/**
+ * Issue an agent verifiable credential (VC) scoped to a third-party audience.
+ * Authenticated with the login JWT; returns a short-lived VC (typ=agent-vc).
+ */
+export async function issueVC(
+  params: IssueVCRequest,
+  jwt: string
+): Promise<IssueVCResponse> {
+  const url = `${AGENT_ID_API}/agent/vc/issue`;
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${jwt}`,
+    },
+    body: JSON.stringify(params),
+  });
+
+  const text = await response.text();
+
+  if (!response.ok) {
+    throw new WalletApiError(text || `Issue VC failed (${response.status})`, response.status, text || null);
+  }
+
+  try {
+    return JSON.parse(text) as IssueVCResponse;
+  } catch {
+    throw new WalletApiError('Invalid issue VC response (not JSON)', response.status, text);
+  }
+}
+
 // ==================== Intent Mandate APIs ====================
 
 export interface IntentMandateIntent {
