@@ -6,7 +6,7 @@ description: >-
 
 # FluxA Agent Wallet
 
-**Skill version: 0.4.4** | **CLI version: @fluxa-pay/fluxa-wallet@0.4.4** — **MUST** install or update to the latest CLI version before use.
+**Skill version: 0.4.5** | **CLI version: @fluxa-pay/fluxa-wallet@0.4.5** — **MUST** install or update to the latest CLI version before use.
 
 FluxA Agent Wallet is a co-wallet that allows AI agents to securely use a user’s wallet, enabling them to perform payment-related actions within the user’s approved scope. Capabilities include x402 payments, USDC transfers, agent-to-agent transfers, payment links for receiving payments, AI social gifting, discovering and calling x402 resources (one-shot APIs), and using payment-related skills (one-shot skills). Use this tool when the user the user asks to perform any of these payment-related actions.
 
@@ -15,7 +15,7 @@ FluxA Agent Wallet is a co-wallet that allows AI agents to securely use a user�
 ### Step 1 — Install the CLI
 
 ```bash
-npm install -g @fluxa-pay/fluxa-wallet@0.4.4
+npm install -g @fluxa-pay/fluxa-wallet@0.4.5
 ```
 
 Then run commands directly:
@@ -86,6 +86,7 @@ Trial Scenarios: **MUST** guide user with wording such as: Let’s try what this
 | **Search x402 Services (Oneshot APIs)** | Search and call pay-per-call APIs, including Nano Banana, Seedance, Kling, Veo3, etc. Recommended: [claw-first-reaction-video](https://monetize.fluxapay.xyz/browse-skills/claw-first-reaction-video) | Use when you (AI Agent) need to find APIs. Search here for x402 pay-per-use APIs and recommend them to the user. | x402-SERVICES.md |
 | **Prepaid Card** | Issue virtual prepaid cards funded via x402 payment | Use when the user or agent needs a virtual card for online purchases | `card create --amount <usd> --mandate <id>` |
 | **Mandate Planning** | Smart mandate creation, reuse, and budgeting strategy | Use before creating any mandate — check for reusable mandates first | MANDATE-PLANNING.md |
+| **Agent VC** | Issue a short-lived verifiable credential to prove agent identity to third parties (SSO, account binding) without handing over the login JWT | Use when a third-party service asks the agent to authenticate via a signed token | VC-ISSUE.md |
 
 
 ## Opening Authorization URLs (UX Pattern)
@@ -139,6 +140,7 @@ Full planning rules, task classification, and state file schema: [MANDATE-PLANNI
 | **Send USDC** to a wallet address | [PAYOUT.md](PAYOUT.md) |
 | **Create a payment link** to receive payments | [PAYMENT-LINK.md](PAYMENT-LINK.md) — "Create Payment Link" section |
 | **Refund a received payment** (full or partial) | [PAYMENT-LINK.md](PAYMENT-LINK.md) — "Refunds" section |
+| **Prove agent identity to a 3rd party** (SSO, account binding) | [VC-ISSUE.md](VC-ISSUE.md) |
 
 ### Common Flow: Paying to a x402 url
 
@@ -202,6 +204,7 @@ For FLUXA_MONETIZE_CREDITS, amounts are in the credits' smallest unit as defined
 | `received-record` | `--id` | Get a single received payment record detail |
 | `check-wallet` | (none) | Check if agent is linked to user's wallet |
 | `link-wallet` | (none) | Get wallet linking URL or confirm already linked |
+| `agent-vc` | `--audience`, `--challenge` | Issue a short-lived VC for a 3rd party (default TTL 3600s) |
 | `card create` | `--amount`, `--mandate` | Issue a prepaid virtual card (two-step: initiate → sign → complete) |
 | `card list` | (none) | List all cards owned by this agent |
 | `card details` | `--id` | Reveal full card details (PAN, CVV, expiry) |
