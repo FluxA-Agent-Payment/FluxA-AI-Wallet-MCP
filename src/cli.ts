@@ -34,6 +34,10 @@ import {
   buildLinkWalletUrl,
   resolveCurrency,
   SUPPORTED_CURRENCIES,
+  initiateRefund,
+  listRefunds,
+  getRefund,
+  cancelRefund,
 } from './wallet/client.js';
 import {
   getEffectiveAgentId,
@@ -82,6 +86,10 @@ COMMANDS:
   paymentlink-update        Update a payment link
   paymentlink-delete        Delete a payment link
   paymentlink-payments      Get payment records for a payment link
+  paymentlink-refund-create Initiate a refund for a payment link payment
+  paymentlink-refund-list   List all payment link refunds
+  paymentlink-refund-get    Get payment link refund details
+  paymentlink-refund-cancel Cancel a pending payment link refund
   received-records          List all received payment records
   received-record           Get a single received payment record detail
   check-wallet              Check if agent is linked to user's wallet
@@ -98,6 +106,9 @@ OPTIONS FOR 'payout':
   --id <payout_id>          Unique payout ID (required)
   --network <network>       Network (default: base)
   --asset <address>         Asset contract address (default: USDC)
+  --mandate <mandate_id>    Signed mandate ID for auto-approval (optional)
+  --biz-id <biz_id>         External business ID for dedup (optional)
+  --description <text>      Human-readable description (optional)
 
 OPTIONS FOR 'card create':
   --amount <usd>            Card amount in USD, human-readable (required)
@@ -161,6 +172,21 @@ OPTIONS FOR 'paymentlink-payments':
   --id <link_id>            Payment link ID (required)
   --limit <number>          Max number of results
 
+OPTIONS FOR 'paymentlink-refund-create':
+  --payment-id <id>         Payment record ID to refund (required)
+  --amount <amount>         Amount in atomic units (omit for full refund)
+  --reason <text>           Reason for refund
+
+OPTIONS FOR 'paymentlink-refund-list':
+  --limit <number>          Max number of results (default: 20, max: 100)
+  --offset <number>         Pagination offset (default: 0)
+
+OPTIONS FOR 'paymentlink-refund-get':
+  --id <refund_id>          Refund ID (required)
+
+OPTIONS FOR 'paymentlink-refund-cancel':
+  --id <refund_id>          Refund ID (required)
+
 OPTIONS FOR 'received-records':
   --limit <number>          Max number of results (default: 20, max: 100)
   --offset <number>         Pagination offset (default: 0)
@@ -218,6 +244,21 @@ EXAMPLES:
 
   # List all received payment records
   fluxa-wallet received-records --limit 10
+
+  # Initiate a full refund for a payment link payment
+  fluxa-wallet paymentlink-refund-create --payment-id 42
+
+  # Initiate a partial refund with reason
+  fluxa-wallet paymentlink-refund-create --payment-id 42 --amount 500000 --reason "Partial refund"
+
+  # List payment link refunds
+  fluxa-wallet paymentlink-refund-list --limit 10
+
+  # Get refund details
+  fluxa-wallet paymentlink-refund-get --id 7
+
+  # Cancel a pending refund
+  fluxa-wallet paymentlink-refund-cancel --id 7
 
   # Get a single received payment record
   fluxa-wallet received-record --id 1
@@ -321,14 +362,28 @@ Example:
 Create a payout to send funds to a wallet address.
 
 Options:
-  --to <address>      Recipient address (required)
-  --amount <amount>   Amount in smallest units (required)
-  --id <payout_id>    Unique payout ID (required)
-  --network <network> Network (default: base)
-  --asset <address>   Asset contract address (default: USDC on Base)
+  --to <address>         Recipient address (required)
+  --amount <amount>      Amount in smallest units (required)
+  --id <payout_id>       Unique payout ID / idempotency key (required)
+  --network <network>    Network (default: base)
+  --asset <address>      Asset contract address (default: USDC on Base)
+  --mandate <mandate_id> Signed mandate ID for auto-approval (optional)
+                         When provided and budget is sufficient, skips user approval
+                         and payout goes directly to 'authorized' state.
+  --biz-id <biz_id>      External business ID for dedup (optional)
+                         Same biz-id cannot be reused while an active payout exists.
+  --description <text>   Human-readable description (optional)
 
-Example:
-  fluxa-wallet payout --to 0x1234...abcd --amount 1000000 --id pay_001`,
+Examples:
+  # Standard payout (requires user approval)
+  fluxa-wallet payout --to 0x1234...abcd --amount 1000000 --id pay_001
+
+  # Auto-approved payout via mandate
+  fluxa-wallet payout --to 0x1234...abcd --amount 1000000 --id pay_002 --mandate mand_xxxxx
+
+  # Payout with business dedup and description
+  fluxa-wallet payout --to 0x1234...abcd --amount 1000000 --id pay_003 \\
+    --biz-id order_20260416_001 --description "Refund for order #001"`,
 
   'payout-status': `Usage: fluxa-wallet payout-status --id <payout_id>
 
@@ -493,6 +548,50 @@ Options:
 
 Example:
   fluxa-wallet received-record --id 1`,
+
+  'paymentlink-refund-create': `Usage: fluxa-wallet paymentlink-refund-create --payment-id <id> [options]
+
+Initiate a refund for a settled payment link payment.
+
+Options:
+  --payment-id <id>     Payment record ID to refund (required)
+  --amount <amount>     Amount in atomic units (omit for full refund)
+  --reason <text>       Reason for refund
+
+Examples:
+  fluxa-wallet paymentlink-refund-create --payment-id 42
+  fluxa-wallet paymentlink-refund-create --payment-id 42 --amount 500000 --reason "Partial refund"`,
+
+  'paymentlink-refund-list': `Usage: fluxa-wallet paymentlink-refund-list [options]
+
+List all payment link refunds.
+
+Options:
+  --limit <number>    Max number of results (default: 20, max: 100)
+  --offset <number>   Pagination offset (default: 0)
+
+Example:
+  fluxa-wallet paymentlink-refund-list --limit 10`,
+
+  'paymentlink-refund-get': `Usage: fluxa-wallet paymentlink-refund-get --id <refund_id>
+
+Get details of a single payment link refund.
+
+Options:
+  --id <refund_id>    Refund ID (required)
+
+Example:
+  fluxa-wallet paymentlink-refund-get --id 7`,
+
+  'paymentlink-refund-cancel': `Usage: fluxa-wallet paymentlink-refund-cancel --id <refund_id>
+
+Cancel a pending payment link refund.
+
+Options:
+  --id <refund_id>    Refund ID (required)
+
+Example:
+  fluxa-wallet paymentlink-refund-cancel --id 7`,
 
   'check-wallet': `Usage: fluxa-wallet check-wallet
 
@@ -856,6 +955,9 @@ async function cmdPayout(options: Record<string, string>): Promise<CommandResult
   const payoutId = options.id;
   const network = options.network || DEFAULT_NETWORK;
   const assetAddress = options.asset || DEFAULT_ASSET;
+  const mandateId = options.mandate;
+  const bizId = options['biz-id'];
+  const description = options.description;
 
   if (!toAddress || !amount || !payoutId) {
     return {
@@ -900,6 +1002,9 @@ async function cmdPayout(options: Record<string, string>): Promise<CommandResult
         network,
         assetAddress,
         payoutId,
+        ...(mandateId ? { mandateId } : {}),
+        ...(bizId ? { bizId } : {}),
+        ...(description ? { description } : {}),
       },
       auth.jwt
     );
@@ -910,6 +1015,8 @@ async function cmdPayout(options: Record<string, string>): Promise<CommandResult
       to: toAddress,
       amount,
       status: result.status,
+      ...(mandateId ? { mandate_id: mandateId } : {}),
+      ...(bizId ? { biz_id: bizId } : {}),
     });
 
     return {
@@ -1521,6 +1628,117 @@ async function cmdReceivedRecord(options: Record<string, string>): Promise<Comma
   }
 }
 
+async function cmdPaymentLinkRefundCreate(options: Record<string, string>): Promise<CommandResult> {
+  const paymentIdStr = options['payment-id'];
+  if (!paymentIdStr) {
+    return { success: false, error: 'Missing required parameter: --payment-id' };
+  }
+
+  const paymentId = parseInt(paymentIdStr, 10);
+  if (isNaN(paymentId)) {
+    return { success: false, error: 'Invalid payment ID: must be a number' };
+  }
+
+  if (options.amount !== undefined && !/^\d+$/.test(options.amount)) {
+    return { success: false, error: 'Amount must be a positive integer (atomic units)' };
+  }
+
+  const auth = await ensureValidJWT();
+  if (!auth) {
+    return { success: false, error: 'FluxA Agent ID not initialized. Run "init" first.' };
+  }
+
+  try {
+    const result = await initiateRefund(
+      {
+        paymentId,
+        amount: options.amount,
+        reason: options.reason,
+      },
+      auth.jwt
+    );
+
+    await recordAudit({ event: 'paymentlink_refund_create', payment_id: paymentId, amount: options.amount, reason: options.reason });
+
+    return { success: true, data: result };
+  } catch (err: any) {
+    return { success: false, error: err.message || 'Initiate refund failed' };
+  }
+}
+
+async function cmdPaymentLinkRefundList(options: Record<string, string>): Promise<CommandResult> {
+  const auth = await ensureValidJWT();
+  if (!auth) {
+    return { success: false, error: 'FluxA Agent ID not initialized. Run "init" first.' };
+  }
+
+  try {
+    const limit = options.limit ? parseInt(options.limit, 10) : undefined;
+    const offset = options.offset ? parseInt(options.offset, 10) : undefined;
+    const result = await listRefunds(auth.jwt, limit, offset);
+
+    await recordAudit({ event: 'paymentlink_refund_list' });
+
+    return { success: true, data: result };
+  } catch (err: any) {
+    return { success: false, error: err.message || 'List refunds failed' };
+  }
+}
+
+async function cmdPaymentLinkRefundGet(options: Record<string, string>): Promise<CommandResult> {
+  const refundIdStr = options.id;
+  if (!refundIdStr) {
+    return { success: false, error: 'Missing required parameter: --id' };
+  }
+
+  const refundId = parseInt(refundIdStr, 10);
+  if (isNaN(refundId)) {
+    return { success: false, error: 'Invalid refund ID: must be a number' };
+  }
+
+  const auth = await ensureValidJWT();
+  if (!auth) {
+    return { success: false, error: 'FluxA Agent ID not initialized. Run "init" first.' };
+  }
+
+  try {
+    const result = await getRefund(refundId, auth.jwt);
+
+    await recordAudit({ event: 'paymentlink_refund_get', refund_id: refundId });
+
+    return { success: true, data: result };
+  } catch (err: any) {
+    return { success: false, error: err.message || 'Get refund failed' };
+  }
+}
+
+async function cmdPaymentLinkRefundCancel(options: Record<string, string>): Promise<CommandResult> {
+  const refundIdStr = options.id;
+  if (!refundIdStr) {
+    return { success: false, error: 'Missing required parameter: --id' };
+  }
+
+  const refundId = parseInt(refundIdStr, 10);
+  if (isNaN(refundId)) {
+    return { success: false, error: 'Invalid refund ID: must be a number' };
+  }
+
+  const auth = await ensureValidJWT();
+  if (!auth) {
+    return { success: false, error: 'FluxA Agent ID not initialized. Run "init" first.' };
+  }
+
+  try {
+    const result = await cancelRefund(refundId, auth.jwt);
+
+    await recordAudit({ event: 'paymentlink_refund_cancel', refund_id: refundId });
+
+    return { success: true, data: result };
+  } catch (err: any) {
+    return { success: false, error: err.message || 'Cancel refund failed' };
+  }
+}
+
 // Main entry point
 async function main() {
   const args = process.argv.slice(2);
@@ -1607,6 +1825,18 @@ async function main() {
       break;
     case 'received-record':
       result = await cmdReceivedRecord(options);
+      break;
+    case 'paymentlink-refund-create':
+      result = await cmdPaymentLinkRefundCreate(options);
+      break;
+    case 'paymentlink-refund-list':
+      result = await cmdPaymentLinkRefundList(options);
+      break;
+    case 'paymentlink-refund-get':
+      result = await cmdPaymentLinkRefundGet(options);
+      break;
+    case 'paymentlink-refund-cancel':
+      result = await cmdPaymentLinkRefundCancel(options);
       break;
     case 'check-wallet':
       result = await cmdCheckWallet();
