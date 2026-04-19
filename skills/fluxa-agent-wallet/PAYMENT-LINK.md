@@ -202,6 +202,111 @@ fluxa-wallet received-record --id 1
 
 **Output includes extra fields:** `network`, `payTo` (in addition to list fields).
 
+## Refunds
+
+Refund a previously received payment-link payment. Requires user approval via `refundUrl` (same UX as payout approval). Only the receiving agent can initiate a refund.
+
+### Refund status lifecycle
+
+```
+pending ─► settled    (user signed refundUrl, tx on-chain)
+        ├► cancelled  (agent cancelled before signing)
+        └► expired    (user didn't sign within 24h)
+```
+
+### Initiate a Refund
+
+```bash
+# Full refund
+fluxa-wallet paymentlink-refund-create --payment-id 49217
+
+# Partial refund with reason
+fluxa-wallet paymentlink-refund-create \
+  --payment-id 49217 \
+  --amount 500000 \
+  --reason "Partial refund — customer returned half"
+```
+
+**Options:**
+
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--payment-id` | Yes | Payment record ID (numeric, from `received-records` or `paymentlink-payments`) |
+| `--amount` | No | Amount in atomic units — omit for full refund |
+| `--reason` | No | Free-form text, stored with the refund |
+
+**Output:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "refundId": "plr_2UpZ54a6t2HTXsDTfiz_nZ-V",
+    "refundUrl": "https://walletapi.fluxapay.xyz/refundlink/plr_2UpZ54a6t2HTXsDTfiz_nZ-V",
+    "paymentId": 49217,
+    "amount": "10000",
+    "currency": "USDC",
+    "refundFrom": "0x...agent",
+    "refundTo": "0x...payer",
+    "refundType": "partial",
+    "status": "pending",
+    "expiresAt": "2026-04-20T14:36:34.082Z",
+    "createdAt": "2026-04-19T14:36:34.082Z"
+  }
+}
+```
+
+`refundId` is a string (e.g. `plr_xxx`) — pass it as-is to `paymentlink-refund-get` and `paymentlink-refund-cancel`.
+
+**Next step:** share `refundUrl` with the user so they can sign — use the "Opening Authorization URLs" pattern from `SKILL.md`. Without user signature the refund will expire in 24h.
+
+### List Refunds
+
+```bash
+fluxa-wallet paymentlink-refund-list --limit 20 --offset 0
+```
+
+| Option | Required | Default | Description |
+|--------|----------|---------|-------------|
+| `--limit` | No | 20 | Max results (max 100) |
+| `--offset` | No | 0 | Pagination offset |
+
+### Get Refund Detail
+
+```bash
+fluxa-wallet paymentlink-refund-get --id plr_2UpZ54a6t2HTXsDTfiz_nZ-V
+```
+
+Returns the full refund object including `status`, `refundTxHash` (once settled), `originalAmount`, `originalTxHash`.
+
+### Cancel a Pending Refund
+
+```bash
+fluxa-wallet paymentlink-refund-cancel --id plr_2UpZ54a6t2HTXsDTfiz_nZ-V
+```
+
+Only `pending` refunds can be cancelled. Settled refunds cannot be reversed (they're on-chain).
+
+### Scripted Example — Refund the latest payment
+
+```bash
+#!/bin/bash
+CLI="fluxa-wallet"
+
+# Find the most recent settled payment
+PAYMENT_ID=$($CLI received-records --limit 1 | jq -r '.data.payments[0].id')
+
+# Initiate full refund
+RESULT=$($CLI paymentlink-refund-create --payment-id "$PAYMENT_ID" --reason "Duplicate charge")
+REFUND_ID=$(echo "$RESULT" | jq -r '.data.refundId')
+REFUND_URL=$(echo "$RESULT" | jq -r '.data.refundUrl')
+
+echo "Refund $REFUND_ID created. Ask the user to sign: $REFUND_URL"
+
+# Poll status (after user signs)
+$CLI paymentlink-refund-get --id "$REFUND_ID" | jq '.data.status'
+```
+
 ## Paying TO a Payment Link
 
 To pay a payment link programmatically (agent-to-agent payments), use the x402 flow documented in [X402-PAYMENT.md](X402-PAYMENT.md).

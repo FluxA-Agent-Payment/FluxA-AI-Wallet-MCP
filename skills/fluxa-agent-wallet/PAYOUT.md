@@ -4,14 +4,15 @@
 
 Payout lets the agent send USDC to any wallet address on Base network.
 
-**Important**: Unlike x402 payments which can use pre-approved mandates for autonomous spending, every payout requires **individual user authorization** via the FluxA Wallet UI before the onchain transaction executes. There is no mandate-based autonomy for payouts.
+**Authorization model**: By default every payout requires **individual user authorization** via the FluxA Wallet UI before the onchain transaction executes. Since CLI 0.4.2, a payout can also carry a pre-signed intent mandate (`--mandate`) to skip the approval URL — same mechanism as x402. Without `--mandate`, user approval is always required.
 
 ## End-to-End Flow
 
 ```
 1. Agent runs `payout` with recipient, amount, and unique payout_id
 2. CLI returns status "pending_authorization" + approvalUrl
-3. User opens approvalUrl to authorize
+   (or status "authorized" with approvalUrl=null, if --mandate provided)
+3. User opens approvalUrl to authorize  (skip if --mandate)
 4. Agent polls `payout-status` until status is "succeeded"
 ```
 
@@ -35,6 +36,9 @@ fluxa-wallet payout \
 | `--id` | Yes | — | Unique payout ID (idempotency key) |
 | `--network` | No | `base` | Network name |
 | `--asset` | No | USDC address | Token contract address |
+| `--mandate` | No | — | Signed mandate ID for auto-approval (skips `approvalUrl`) |
+| `--biz-id` | No | — | External business ID for dedup, independent of `--id` |
+| `--description` | No | — | Human-readable description stored with the payout |
 
 **Output:**
 
@@ -85,10 +89,31 @@ fluxa-wallet payout-status --id "reward_20260204_001"
 | Status | Meaning |
 |--------|---------|
 | `pending_authorization` | Waiting for user approval |
+| `authorized` | Auto-approved via `--mandate`, onchain tx starting |
 | `processing` | Approved, onchain tx in progress |
 | `succeeded` | Done, `txHash` available |
 | `failed` | Transaction failed |
 | `expired` | User didn't approve in time |
+
+### Autonomous Payout via Mandate
+
+Pass a signed intent mandate to bypass the approval URL. Useful for scripted/scheduled payouts within a pre-approved budget. See [MANDATE-PLANNING.md](MANDATE-PLANNING.md) before creating a mandate.
+
+```bash
+# 1. Create mandate (user signs once)
+fluxa-wallet mandate-create --desc "Weekly payout budget" --amount 10000000
+
+# 2. Use the signed mandate on each payout
+fluxa-wallet payout \
+  --to "0x4eb5b229d43c30fc629d92bf7ed415d6d7f0cabe" \
+  --amount "1000000" \
+  --id "payroll_2026w16_001" \
+  --mandate "mand_xxx" \
+  --biz-id "payroll:2026-16:emp-42" \
+  --description "Week 16 payroll"
+```
+
+Response has `status: "authorized"` and `approvalUrl: null` — agent can poll `payout-status` directly without any user interaction.
 
 ## Scripted Example
 

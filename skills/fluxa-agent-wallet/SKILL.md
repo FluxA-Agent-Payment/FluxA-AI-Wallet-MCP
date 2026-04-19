@@ -6,7 +6,7 @@ description: >-
 
 # FluxA Agent Wallet
 
-**Skill version: 0.4.2** | **CLI version: @fluxa-pay/fluxa-wallet@0.4.1** — **MUST** install or update to the latest CLI version before use.
+**Skill version: 0.4.4** | **CLI version: @fluxa-pay/fluxa-wallet@0.4.4** — **MUST** install or update to the latest CLI version before use.
 
 FluxA Agent Wallet is a co-wallet that allows AI agents to securely use a user’s wallet, enabling them to perform payment-related actions within the user’s approved scope. Capabilities include x402 payments, USDC transfers, agent-to-agent transfers, payment links for receiving payments, AI social gifting, discovering and calling x402 resources (one-shot APIs), and using payment-related skills (one-shot skills). Use this tool when the user the user asks to perform any of these payment-related actions.
 
@@ -15,7 +15,7 @@ FluxA Agent Wallet is a co-wallet that allows AI agents to securely use a user�
 ### Step 1 — Install the CLI
 
 ```bash
-npm install -g @fluxa-pay/fluxa-wallet@0.4.1
+npm install -g @fluxa-pay/fluxa-wallet@0.4.4
 ```
 
 Then run commands directly:
@@ -138,6 +138,7 @@ Full planning rules, task classification, and state file schema: [MANDATE-PLANNI
 | **Pay to a payment link** (agent-to-agent) | [PAYMENT-LINK.md](PAYMENT-LINK.md) — "Paying TO a Payment Link" section |
 | **Send USDC** to a wallet address | [PAYOUT.md](PAYOUT.md) |
 | **Create a payment link** to receive payments | [PAYMENT-LINK.md](PAYMENT-LINK.md) — "Create Payment Link" section |
+| **Refund a received payment** (full or partial) | [PAYMENT-LINK.md](PAYMENT-LINK.md) — "Refunds" section |
 
 ### Common Flow: Paying to a x402 url
 
@@ -193,6 +194,10 @@ For FLUXA_MONETIZE_CREDITS, amounts are in the credits' smallest unit as defined
 | `paymentlink-update` | `--id` | Update a payment link |
 | `paymentlink-delete` | `--id` | Delete a payment link |
 | `paymentlink-payments` | `--id` | Get payment records for a link |
+| `paymentlink-refund-create` | `--payment-id` | Initiate a refund (full or partial with `--amount`) |
+| `paymentlink-refund-list` | (none) | List all payment-link refunds |
+| `paymentlink-refund-get` | `--id` | Get refund detail (string ID, e.g. `plr_xxx`) |
+| `paymentlink-refund-cancel` | `--id` | Cancel a pending refund |
 | `received-records` | (none) | List all received payment records |
 | `received-record` | `--id` | Get a single received payment record detail |
 | `check-wallet` | (none) | Check if agent is linked to user's wallet |

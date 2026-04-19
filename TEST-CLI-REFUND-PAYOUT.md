@@ -219,8 +219,10 @@ node dist/cli.js paymentlink-refund-list --limit 5 --offset 0
 
 ### 2.7 查询单笔退款详情
 
+> refundId 是字符串（形如 `plr_xxx`），直接原样透传给后端，CLI 不再做数字校验。
+
 ```bash
-node dist/cli.js paymentlink-refund-get --id <refundId>
+node dist/cli.js paymentlink-refund-get --id plr_xxxxxxxxxxxxxxxxx
 # 预期: success=true, data 包含完整退款信息
 #   refundId, refundUrl, paymentId, status, amount, currency, etc.
 ```
@@ -230,12 +232,8 @@ node dist/cli.js paymentlink-refund-get --id <refundId>
 node dist/cli.js paymentlink-refund-get
 # 预期: success=false, error="Missing required parameter: --id"
 
-# id 非数字
-node dist/cli.js paymentlink-refund-get --id abc
-# 预期: success=false, error="Invalid refund ID: must be a number"
-
 # 不存在的 refund id
-node dist/cli.js paymentlink-refund-get --id 999999
+node dist/cli.js paymentlink-refund-get --id plr_does_not_exist
 # 预期: success=false, 后端返回 404
 ```
 
@@ -244,10 +242,10 @@ node dist/cli.js paymentlink-refund-get --id 999999
 ```bash
 # 先创建一笔退款（状态为 pending）
 node dist/cli.js paymentlink-refund-create --payment-id <paymentId>
-# 记录 refundId
+# 记录 refundId（字符串，形如 plr_xxx）
 
 # 取消该退款
-node dist/cli.js paymentlink-refund-cancel --id <refundId>
+node dist/cli.js paymentlink-refund-cancel --id plr_xxxxxxxxxxxxxxxxx
 # 预期: success=true, status="cancelled"
 ```
 
@@ -257,7 +255,7 @@ node dist/cli.js paymentlink-refund-cancel
 # 预期: success=false, error="Missing required parameter: --id"
 
 # 取消已结算的退款（应失败）
-node dist/cli.js paymentlink-refund-cancel --id <settledRefundId>
+node dist/cli.js paymentlink-refund-cancel --id plr_already_settled
 # 预期: success=false, 后端返回 410
 ```
 
