@@ -1,0 +1,18 @@
+{
+  "name": "fluxa",
+  "description": "Supercharge your agent with pay-per-use APIs: image generation, video creation, web search, web scraping, and more",
+  "version": "0.5.0",
+  "author": {
+    "name": "FluxA"
+  },
+  "homepage": "https://github.com/fluxa-agent-payment/fluxa-ai-wallet-mcp",
+  "license": "MIT",
+  "keywords": [
+    "skills",
+    "x402",
+    "payments",
+    "apis",
+    "capabilities",
+    "wallet"
+  ]
+}

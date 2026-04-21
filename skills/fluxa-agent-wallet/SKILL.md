@@ -168,7 +168,9 @@ See [PAYMENT-LINK.md](PAYMENT-LINK.md) for the complete walkthrough with example
 
 ## Amount Format
 
-All amounts are in **smallest units** (atomic units). For USDC (6 decimals):
+All amounts are in **smallest units**.
+
+**USDC** (6 decimals):
 
 | Human-readable | Atomic units |
 |---------------|-------------|
@@ -177,7 +179,14 @@ All amounts are in **smallest units** (atomic units). For USDC (6 decimals):
 | 1.00 USDC | `1000000` |
 | 10.00 USDC | `10000000` |
 
-For FLUXA_MONETIZE_CREDITS, amounts are in the credits' smallest unit as defined by the service.
+**FLUXA_MONETIZE_CREDITS** (2 decimals):
+
+| Human-readable | Amount value |
+|---------------|-------------|
+| 0.01 credits | `1` |
+| 0.10 credits | `10` |
+| 1.00 credits | `100` |
+| 10.00 credits | `1000` |
 
 ## CLI Commands Quick Reference
 
