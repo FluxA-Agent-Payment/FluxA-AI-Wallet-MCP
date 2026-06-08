@@ -3,6 +3,14 @@
   "version": "0.3.0",
   "description": "MCP server for AI Wallet with x402 (EIP-3009 exact) support",
   "type": "module",
+  "homepage": "https://github.com/FluxA-Agent-Payment/FluxA-AI-Wallet-MCP#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/FluxA-Agent-Payment/FluxA-AI-Wallet-MCP.git"
+  },
+  "bugs": {
+    "url": "https://github.com/FluxA-Agent-Payment/FluxA-AI-Wallet-MCP/issues"
+  },
   "bin": {
     "fluxa-wallet-mcp": "dist/index.js"
   },
