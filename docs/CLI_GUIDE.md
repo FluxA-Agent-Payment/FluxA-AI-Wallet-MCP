@@ -14,19 +14,58 @@ fluxa-wallet <command> [options]
 
 ## Commands Overview
 
+Run `fluxa-wallet <command> --help` for the full option list of any command.
+
+**Account & status (read-only)**
+
 | Command | Description |
 |---------|-------------|
-| `status` | Check agent configuration status |
-| `init` | Initialize/register a new agent ID |
-| `refreshJWT` | Refresh expired JWT and print new token |
-| `payout` | Create a payout to a recipient address |
-| `payout-status` | Query the status of a payout |
-| `x402` | Generate x402 payment header for HTTP requests |
+| `status` | Local agent configuration status |
+| `wallet-address` | Linked user's wallet address (prints the address) |
+| `balance` | Linked wallet balances — USDC / XRP / credits |
+| `mandates` | List mandates with limit / spent / remaining |
+| `recent-transactions` | Recent transactions — USDC / XRP / credits spends (`--limit`, 1-100) |
+| `check-wallet` | Whether the agent is linked to a user's wallet |
+| `version` | Print the CLI version (also `--version`, `-v`) |
+
+**Setup**
+
+| Command | Description |
+|---------|-------------|
+| `init` | Register a new agent ID (`--name`, `--client`) |
+| `refreshJWT` | Refresh the JWT and print the new token |
+| `link-wallet` | Get the wallet-linking URL (or confirm already linked) |
+
+**Payments & payouts**
+
+| Command | Description |
+|---------|-------------|
+| `mandate-create` | Create an intent mandate (`--desc`, `--amount`) |
+| `mandate-status` | Query a mandate by id (`--id`) |
+| `x402` / `x402-v3` | Execute an x402 payment (`--mandate`, `--payload`) |
+| `payout` | Send USDC to a wallet address (`--to`, `--amount`, `--id`) |
+| `payout-status` | Query a payout (`--id`) |
+
+**Receiving — payment links, records & refunds**
+
+| Command | Description |
+|---------|-------------|
+| `paymentlink-create` / `-list` / `-get` / `-update` / `-delete` | Manage payment links |
+| `paymentlink-payments` | Payments received on a link (`--id`) |
+| `received-records` / `received-record` | List / get received payment records |
+| `paymentlink-refund-create` / `-list` / `-get` / `-cancel` | Manage refunds |
+
+**Prepaid cards & identity**
+
+| Command | Description |
+|---------|-------------|
+| `card create` / `list` / `details` / `balance` | Issue and inspect virtual cards |
+| `agent-vc` | Issue a short-lived agent VC for a third party (`--audience`, `--challenge`) |
 | `help` | Show usage information |
 
 ## Output Format
 
-All commands output JSON to stdout with the following structure:
+Most commands output a JSON envelope to stdout:
 
 ```json
 {
@@ -35,7 +74,11 @@ All commands output JSON to stdout with the following structure:
 }
 ```
 
-Or on error:
+The read commands `wallet-address`, `balance`, `mandates`, and `recent-transactions`
+print their value **directly** — a bare address string or bare JSON — without the
+`{success,data}` wrapper, so they pipe cleanly. `version` prints just the version string.
+
+On error, every command falls back to the envelope:
 
 ```json
 {
@@ -282,6 +325,38 @@ PAYMENT=$(fluxa-wallet x402 --payload '...' | jq -r '.data["X-PAYMENT"]')
 # Make the paid API request
 curl -H "X-PAYMENT: $PAYMENT" https://api.example.com/paid-endpoint
 ```
+
+---
+
+### 6. Account & Read Commands
+
+These read the agent's own account state. They print their value **directly** (no
+`{success,data}` wrapper) so they're easy to pipe.
+
+```bash
+# Linked user's wallet address — prints just the address
+fluxa-wallet wallet-address
+# 0xe63E151504DA0a1b07a31a72dbABda6240359893
+
+# Balances — bare JSON object (USDC / XRP / credits; only present currencies shown)
+fluxa-wallet balance
+# { "usdc": { "available": "4115834", "availableFormatted": "4.115834", ... },
+#   "credits": { "availableFormatted": "69.68", ... } }
+
+# Mandates — open/total counts plus per-mandate limit / spent / remaining
+fluxa-wallet mandates
+
+# Recent transactions — bare array; USDC / XRP and credits spends. Excludes credit
+# top-ups / grants / redeems and received payment-link payments.
+fluxa-wallet recent-transactions --limit 50
+
+# CLI version
+fluxa-wallet --version    # or: -v, or: fluxa-wallet version
+```
+
+> **Auth:** these call `GET /api/agent/self/status` with the agent JWT (auto-refreshed).
+> Amounts are atomic-unit strings paired with a `*Formatted` decimal (USDC/XRP: 6
+> decimals, credits: 2).
 
 ---
 

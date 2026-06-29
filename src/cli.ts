@@ -39,6 +39,7 @@ import {
   getRefund,
   cancelRefund,
   issueVC,
+  getAgentSelfStatus,
 } from './wallet/client.js';
 import {
   getEffectiveAgentId,
@@ -49,15 +50,35 @@ import {
   hasRegistrationInfo,
 } from './agent/agentId.js';
 import { ensureDataDirs, loadConfig, recordAudit } from './store/store.js';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 // Default asset configuration
 const DEFAULT_NETWORK = 'base';
 const DEFAULT_ASSET = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'; // USDC on Base
 
+// CLI version, read at runtime from the package.json shipped alongside this file
+// (packages/fluxa-wallet/package.json in the published bundle), so a single version
+// bump there keeps `fluxa-wallet --version` in sync — no second place to update.
+function resolveVersion(): string {
+  try {
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    const pkg = JSON.parse(fs.readFileSync(path.join(here, '..', 'package.json'), 'utf8'));
+    return pkg.version || 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+const CLI_VERSION = resolveVersion();
+
 interface CommandResult {
   success: boolean;
   data?: any;
   error?: string;
+  // When set on a successful result, print this string verbatim instead of the
+  // {success,data} JSON envelope — for human/agent-facing read commands.
+  raw?: string;
 }
 
 function printUsage() {
@@ -96,6 +117,11 @@ COMMANDS:
   check-wallet              Check if agent is linked to user's wallet
   link-wallet               Get wallet linking URL (or confirm already linked)
   agent-vc                  Issue an agent verifiable credential (VC) for a third party
+  wallet-address            Show the linked user's wallet address
+  balance                   Show the linked wallet's balances (USDC / XRP / credits)
+  mandates                  List the agent's mandates with limit / spent / remaining
+  recent-transactions       List recent transactions (USDC / XRP / credits spends)
+  version                   Print the CLI version (also --version, -v)
 
 OPTIONS FOR 'init':
   --name <name>             Agent name
@@ -196,6 +222,12 @@ OPTIONS FOR 'received-records':
 OPTIONS FOR 'received-record':
   --id <payment_id>         Payment record ID (required)
 
+OPTIONS FOR 'balance':
+  --network <network>       Network for the USDC balance (default: base)
+
+OPTIONS FOR 'recent-transactions':
+  --limit <n>               Number of transactions, 1-100 (default: 20)
+
 OPTIONS FOR 'agent-vc':
   --audience <url>          Third-party audience identifier (required)
   --challenge <text>        Opaque challenge (e.g. user id / nonce), UTF-8 ≤ 4096 bytes (required)
@@ -275,6 +307,18 @@ EXAMPLES:
 
   # VC with 10-minute TTL for a one-off SSO hand-off
   fluxa-wallet agent-vc --audience "https://sso.example.com" --challenge "nonce-abc" --ttl 600
+
+  # Show the linked user's wallet address
+  fluxa-wallet wallet-address
+
+  # Show balances (USDC / XRP / credits)
+  fluxa-wallet balance
+
+  # List mandates with limit / spent / remaining
+  fluxa-wallet mandates
+
+  # List recent transactions (USDC / XRP / credits spends)
+  fluxa-wallet recent-transactions --limit 50
 `);
 }
 
@@ -639,9 +683,57 @@ Options:
 Examples:
   fluxa-wallet agent-vc --audience "https://thirdparty.example.com" --challenge "user-42"
   fluxa-wallet agent-vc --audience "https://sso.example.com" --challenge "nonce-abc" --ttl 600`,
+
+  'wallet-address': `Usage: fluxa-wallet wallet-address
+
+Show the linked user's wallet address.
+
+No options required.
+
+Example:
+  fluxa-wallet wallet-address`,
+
+  balance: `Usage: fluxa-wallet balance [options]
+
+Show the linked wallet's balances (USDC / XRP / credits). Each amount is an
+atomic-unit string with a *Formatted decimal companion.
+
+Options:
+  --network <network>   Network for the USDC balance (default: base)
+
+Examples:
+  fluxa-wallet balance
+  fluxa-wallet balance --network base`,
+
+  mandates: `Usage: fluxa-wallet mandates
+
+List the agent's intent mandates with per-mandate limit / spent / remaining,
+plus open and total counts. Use this to check spending authority before paying.
+
+No options required.
+
+Example:
+  fluxa-wallet mandates`,
+
+  'recent-transactions': `Usage: fluxa-wallet recent-transactions [options]
+
+List the agent's recent transactions (most recent first): USDC / XRP and
+credits spends. Excludes credit top-ups / grants / redeems and received
+payment-link payments.
+
+Options:
+  --limit <n>   Number of transactions, 1-100 (default: 20)
+
+Examples:
+  fluxa-wallet recent-transactions
+  fluxa-wallet recent-transactions --limit 50`,
 };
 
 function output(result: CommandResult) {
+  if (result.success && result.raw !== undefined) {
+    console.log(result.raw);
+    return;
+  }
   console.log(JSON.stringify(result, null, 2));
 }
 
@@ -1801,10 +1893,90 @@ async function cmdAgentVC(options: Record<string, string>): Promise<CommandResul
   }
 }
 
+async function cmdWalletAddress(): Promise<CommandResult> {
+  const auth = await ensureValidJWT();
+  if (!auth) {
+    return { success: false, error: 'FluxA Agent ID not initialized. Run "init" first.' };
+  }
+
+  try {
+    const status = await getAgentSelfStatus(auth.jwt);
+
+    await recordAudit({ event: 'wallet_address' });
+
+    return { success: true, raw: status.agent.walletAddress };
+  } catch (err: any) {
+    return { success: false, error: err.message || 'Get wallet address failed' };
+  }
+}
+
+async function cmdBalance(options: Record<string, string>): Promise<CommandResult> {
+  const auth = await ensureValidJWT();
+  if (!auth) {
+    return { success: false, error: 'FluxA Agent ID not initialized. Run "init" first.' };
+  }
+
+  try {
+    const network = options.network;
+    const status = await getAgentSelfStatus(auth.jwt, network);
+
+    await recordAudit({ event: 'balance' });
+
+    return { success: true, raw: JSON.stringify(status.balances, null, 2) };
+  } catch (err: any) {
+    return { success: false, error: err.message || 'Get balance failed' };
+  }
+}
+
+async function cmdMandates(): Promise<CommandResult> {
+  const auth = await ensureValidJWT();
+  if (!auth) {
+    return { success: false, error: 'FluxA Agent ID not initialized. Run "init" first.' };
+  }
+
+  try {
+    const status = await getAgentSelfStatus(auth.jwt);
+
+    await recordAudit({ event: 'mandates_list' });
+
+    return { success: true, raw: JSON.stringify(status.mandates, null, 2) };
+  } catch (err: any) {
+    return { success: false, error: err.message || 'List mandates failed' };
+  }
+}
+
+async function cmdRecentTransactions(options: Record<string, string>): Promise<CommandResult> {
+  const auth = await ensureValidJWT();
+  if (!auth) {
+    return { success: false, error: 'FluxA Agent ID not initialized. Run "init" first.' };
+  }
+
+  const txLimit = options.limit ? parseInt(options.limit, 10) : undefined;
+  if (txLimit !== undefined && (isNaN(txLimit) || txLimit < 1 || txLimit > 100)) {
+    return { success: false, error: '--limit must be an integer in [1, 100]' };
+  }
+
+  try {
+    const status = await getAgentSelfStatus(auth.jwt, undefined, txLimit);
+
+    await recordAudit({ event: 'recent_transactions' });
+
+    return { success: true, raw: JSON.stringify(status.recentTransactions.items, null, 2) };
+  } catch (err: any) {
+    return { success: false, error: err.message || 'List recent transactions failed' };
+  }
+}
+
 // Main entry point
 async function main() {
   const args = process.argv.slice(2);
   const { command, options, helpRequested } = parseArgs(args);
+
+  // Version: `fluxa-wallet --version` / `-v` / `version`
+  if (command === '--version' || command === '-v' || command === 'version') {
+    console.log(CLI_VERSION);
+    process.exit(0);
+  }
 
   // Per-command help: `fluxa-wallet <command> --help`
   if (helpRequested && command !== 'help' && command !== '--help' && command !== '-h') {
@@ -1908,6 +2080,18 @@ async function main() {
       break;
     case 'agent-vc':
       result = await cmdAgentVC(options);
+      break;
+    case 'wallet-address':
+      result = await cmdWalletAddress();
+      break;
+    case 'balance':
+      result = await cmdBalance(options);
+      break;
+    case 'mandates':
+      result = await cmdMandates();
+      break;
+    case 'recent-transactions':
+      result = await cmdRecentTransactions(options);
       break;
     case 'help':
     case '--help':
