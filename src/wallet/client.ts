@@ -1269,3 +1269,73 @@ export async function cancelRefund(
     throw new WalletApiError('Invalid cancel refund response (not JSON)', response.status, text);
   }
 }
+
+/**
+ * Agent self-status response (GET /api/agent/self/status).
+ * All amounts are atomic-unit strings paired with a *Formatted decimal string
+ * (USDC/XRP: 6 decimals, credits: 2 decimals).
+ */
+export interface AgentSelfStatusResponse {
+  status: string;
+  agent: {
+    id: number;
+    externalAgentId: string;
+    name: string;
+    isAuthorized: boolean;
+    authorizationExpiry: string | null;
+    walletAddress: string;
+    monthly: Record<string, any>;
+  };
+  balances: {
+    usdc?: Record<string, any>;
+    credits?: Record<string, any>;
+    xrp?: Record<string, any>;
+  };
+  mandates: {
+    open: number;
+    total: number;
+    items: any[];
+    itemsTruncated: boolean;
+  };
+  recentTransactions: {
+    items: any[];
+    limit: number;
+    hasMore: boolean;
+  };
+}
+
+/**
+ * Get the agent's own status: the linked user's wallet address, balances
+ * (USDC / XRP / credits), monthly headroom, open mandates, and recent
+ * transactions. Requires the agent JWT.
+ */
+export async function getAgentSelfStatus(
+  jwt: string,
+  network?: string,
+  txLimit?: number
+): Promise<AgentSelfStatusResponse> {
+  const params = new URLSearchParams();
+  if (network) params.set('network', network);
+  if (txLimit !== undefined) params.set('txLimit', String(txLimit));
+  const qs = params.toString();
+  const url = `${WALLET_API}/api/agent/self/status${qs ? `?${qs}` : ''}`;
+
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: {
+      'Authorization': `Bearer ${jwt}`,
+    },
+  });
+
+  const text = await response.text();
+
+  if (!response.ok) {
+    throw new WalletApiError(text || `Get agent status failed (${response.status})`, response.status, text || null);
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new WalletApiError('Invalid agent status response (not JSON)', response.status, text);
+  }
+}

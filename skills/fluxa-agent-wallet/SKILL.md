@@ -6,7 +6,7 @@ description: >-
 
 # FluxA Agent Wallet
 
-**Skill version: 0.4.5** | **CLI version: @fluxa-pay/fluxa-wallet@0.4.5** — **MUST** install or update to the latest CLI version before use.
+**Skill version: 0.4.6** | **CLI version: @fluxa-pay/fluxa-wallet@0.4.6** — **MUST** install or update to the latest CLI version before use.
 
 FluxA Agent Wallet is a co-wallet that allows AI agents to securely use a user’s wallet, enabling them to perform payment-related actions within the user’s approved scope. Capabilities include x402 payments, USDC transfers, agent-to-agent transfers, payment links for receiving payments, AI social gifting, discovering and calling x402 resources (one-shot APIs), and using payment-related skills (one-shot skills). Use this tool when the user the user asks to perform any of these payment-related actions.
 
@@ -209,6 +209,10 @@ For FLUXA_MONETIZE_CREDITS, amounts are in the credits' smallest unit as defined
 | `card list` | (none) | List all cards owned by this agent |
 | `card details` | `--id` | Reveal full card details (PAN, CVV, expiry) |
 | `card balance` | `--id` | Refresh and show card balance |
+| `wallet-address` | (none) | Show the linked user's wallet address |
+| `balance` | (none) | Show the linked wallet's balances (USDC / XRP / credits) |
+| `mandates` | (none) | List the agent's mandates with limit / spent / remaining |
+| `recent-transactions` | (none) | List recent transactions — USDC / XRP / credits spends (`--limit`, 1-100); excludes credit top-ups/grants/redeems and received payments |
 
 **Common Mistakes to Avoid:**
 
