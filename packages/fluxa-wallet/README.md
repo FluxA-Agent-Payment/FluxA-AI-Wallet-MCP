@@ -76,9 +76,15 @@ fluxa-wallet <command> --help     # full options for any command
 | Command | Description |
 |---------|-------------|
 | `card create` | Issue a funded virtual card (`--amount`, `--mandate`) |
-| `card list` | List cards |
+| `card list` | List cards created by this agent (`--global` for the linked account) |
 | `card details` | Reveal PAN / CVV / expiry (`--id`) |
 | `card balance` | Refresh & show card balance (`--id`) |
+| `card holder create` | Set up the account cardholder once (`--first-name`, `--last-name`) |
+| `card holder me` | Show the account cardholder |
+| `card recharge` | Add funds to a card (`--id`, `--amount`, `--mandate`) |
+| `card withdraw` | Withdraw card balance (`--id`, optional `--amount`) |
+| `card withdrawals` | List card withdrawals (`--id`) |
+| `card withdrawal` | Get one card withdrawal (`--id`, `--withdrawal-id`) |
 
 ### Identity
 
@@ -97,10 +103,17 @@ fluxa-wallet init --name "My AI Agent" --client "Agent v1.0"
 # Check the linked wallet and balances
 fluxa-wallet wallet-address
 fluxa-wallet balance
+fluxa-wallet check-wallet
 
 # Create an intent mandate, then pay an x402 API
 fluxa-wallet mandate-create --desc "Spend up to 0.10 USDC" --amount 100000
 fluxa-wallet x402 --mandate mand_xxx --payload '{"accepts":[...]}'
+
+# AgentCard: one-time holder setup, then issue a card
+fluxa-wallet card holder create --first-name Alice --last-name Agent
+fluxa-wallet card create --amount 25.00 --mandate mand_xxx
+fluxa-wallet card list
+fluxa-wallet card list --global
 
 # Send a payout
 fluxa-wallet payout --to 0x... --amount 1000000 --id payout_001
@@ -117,10 +130,11 @@ Most commands print a JSON envelope:
 { "success": true, "data": { ... } }
 ```
 
-The read commands `wallet-address`, `balance`, `mandates`, and `recent-transactions`
-print their value **directly** — a bare address string or bare JSON — without the
-`{success,data}` wrapper, so they're easy to pipe. `version` prints just the version
-string. On error, every command falls back to:
+The read commands `wallet-address`, `balance`, `mandates`, `recent-transactions`,
+and successful `card ...` commands print their value **directly** — a bare
+address string or bare JSON — without the `{success,data}` wrapper, so they're
+easy to pipe. `card list` prints the cards array directly. `version` prints just
+the version string. On error, every command falls back to:
 
 ```json
 { "success": false, "error": "..." }
@@ -140,6 +154,7 @@ Exit code `0` = success, `1` = failure.
 | `FLUXA_DATA_DIR` | Custom data directory (default: `~/.fluxa-ai-wallet-mcp`) |
 | `WALLET_API` | Wallet API base URL |
 | `AGENT_ID_API` | Agent ID API base URL |
+| `CARD_SERVICE_API` | AgentCard API base URL (default: `https://agentcard.fluxapay.xyz`) |
 
 ## Related
 

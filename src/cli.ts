@@ -23,11 +23,19 @@ import {
   updatePaymentLink,
   deletePaymentLink,
   getPaymentLinkPayments,
+  getCardServiceVc,
   listCards,
   initiateCard,
   completeCard,
   getCardDetails,
   getCardBalance,
+  createCardholder,
+  getCardholder,
+  initiateCardRecharge,
+  completeCardRecharge,
+  requestCardWithdrawal,
+  listCardWithdrawals,
+  getCardWithdrawal,
   listReceivedPayments,
   getReceivedPayment,
   checkWalletLinked,
@@ -76,6 +84,8 @@ interface CommandResult {
   success: boolean;
   data?: any;
   error?: string;
+  code?: string;
+  details?: any;
   // When set on a successful result, print this string verbatim instead of the
   // {success,data} JSON envelope — for human/agent-facing read commands.
   raw?: string;
@@ -92,10 +102,16 @@ COMMANDS:
   status                    Check agent configuration status
   init                      Initialize/register agent ID
   refreshJWT                Refresh expired JWT and print new token
-  card list                 List issued cards
+  card list                 List cards created by this agent
   card create               Issue a funded card
   card details              Reveal full card details
   card balance              Refresh and query card balance
+  card holder create        Set up the account cardholder once
+  card holder me            Show the account cardholder
+  card recharge             Add funds to an existing card
+  card withdraw             Withdraw card balance back to the agent wallet
+  card withdrawals          List withdrawals for a card
+  card withdrawal           Get one withdrawal for a card
   payout                    Create a payout
   payout-status             Query payout status
   x402                      Generate x402 payment (delegates to x402-v3)
@@ -138,6 +154,9 @@ OPTIONS FOR 'payout':
   --biz-id <biz_id>         External business ID for dedup (optional)
   --description <text>      Human-readable description (optional)
 
+OPTIONS FOR 'card list':
+  --global                  Show all cards in the linked account, not just this agent's cards
+
 OPTIONS FOR 'card create':
   --amount <usd>            Card amount in USD, human-readable (required)
   --mandate <mandate_id>    Mandate ID for x402 payment (required)
@@ -147,6 +166,27 @@ OPTIONS FOR 'card details':
 
 OPTIONS FOR 'card balance':
   --id <card_id>            Card ID (required)
+
+OPTIONS FOR 'card holder create':
+  --first-name <name>       Cardholder first name (required, immutable after approval)
+  --last-name <name>        Cardholder last name (required, immutable after approval)
+  --country <country>       ISO 3166-1 alpha-2 country code (default: US)
+
+OPTIONS FOR 'card recharge':
+  --id <card_id>            Card ID (required)
+  --amount <usd>            Recharge amount in USD, human-readable (required)
+  --mandate <mandate_id>    Mandate ID for x402 payment (required)
+
+OPTIONS FOR 'card withdraw':
+  --id <card_id>            Card ID (required)
+  --amount <usd>            Withdrawal amount in USD (optional; defaults to full remaining balance)
+
+OPTIONS FOR 'card withdrawals':
+  --id <card_id>            Card ID (required)
+
+OPTIONS FOR 'card withdrawal':
+  --id <card_id>            Card ID (required)
+  --withdrawal-id <id>      Withdrawal ID (required)
 
 OPTIONS FOR 'payout-status':
   --id <payout_id>          Payout ID to query (required)
@@ -253,12 +293,21 @@ EXAMPLES:
 
   # List cards
   fluxa-wallet card list
+  fluxa-wallet card list --global
+
+  # Set up the account cardholder once
+  fluxa-wallet card holder create --first-name Alice --last-name Agent
+  fluxa-wallet card holder me
 
   # Issue a card (requires mandate for x402 payment)
   fluxa-wallet card create --amount 25.00 --mandate mand_xxxxx
 
   # Reveal card details
-  fluxa-wallet card details --id 12
+  fluxa-wallet card details --id card_xxx
+
+  # Recharge or withdraw a card
+  fluxa-wallet card recharge --id card_xxx --amount 10.00 --mandate mand_xxxxx
+  fluxa-wallet card withdraw --id card_xxx
 
   # Query payout status
   fluxa-wallet payout-status --id pay_001
@@ -331,8 +380,19 @@ function parseArgs(args: string[]): { command: string; options: Record<string, s
   if (command === 'card') {
     const subcommand = args[1];
     if (subcommand && !subcommand.startsWith('-')) {
-      command = `card ${subcommand}`;
-      optionStartIndex = 2;
+      if (subcommand === 'holder') {
+        const holderSubcommand = args[2];
+        if (holderSubcommand && !holderSubcommand.startsWith('-')) {
+          command = `card holder ${holderSubcommand}`;
+          optionStartIndex = 3;
+        } else {
+          command = 'card holder';
+          optionStartIndex = 2;
+        }
+      } else {
+        command = `card ${subcommand}`;
+        optionStartIndex = 2;
+      }
     }
   }
 
@@ -376,12 +436,16 @@ Options:
 Example:
   fluxa-wallet init --name "My Agent" --client "CLI v1.0"`,
 
-  'card list': `Usage: fluxa-wallet card list
+  'card list': `Usage: fluxa-wallet card list [--global]
 
-List cards owned by the current authorized agent.
+List cards created by the current authorized agent.
+
+Options:
+  --global            Show all cards in the linked account, including cards created by sibling agents.
 
 Example:
-  fluxa-wallet card list`,
+  fluxa-wallet card list
+  fluxa-wallet card list --global`,
 
   'card create': `Usage: fluxa-wallet card create --amount <usd> --mandate <mandate_id>
 
@@ -402,7 +466,7 @@ Options:
   --id <card_id>       Card ID (required)
 
 Example:
-  fluxa-wallet card details --id 12`,
+  fluxa-wallet card details --id card_xxx`,
 
   'card balance': `Usage: fluxa-wallet card balance --id <card_id>
 
@@ -412,7 +476,71 @@ Options:
   --id <card_id>       Card ID (required)
 
 Example:
-  fluxa-wallet card balance --id 12`,
+  fluxa-wallet card balance --id card_xxx`,
+
+  'card holder create': `Usage: fluxa-wallet card holder create --first-name <name> --last-name <name> [--country <country>]
+
+Set up the account cardholder once. The holder name is immutable after approval
+and shared by every agent linked to the same wallet account.
+
+Options:
+  --first-name <name>   Cardholder first name (required)
+  --last-name <name>    Cardholder last name (required)
+  --country <country>   ISO 3166-1 alpha-2 country code (default: US)
+
+Example:
+  fluxa-wallet card holder create --first-name Alice --last-name Agent`,
+
+  'card holder me': `Usage: fluxa-wallet card holder me
+
+Show the account cardholder and review status.
+
+Example:
+  fluxa-wallet card holder me`,
+
+  'card recharge': `Usage: fluxa-wallet card recharge --id <card_id> --amount <usd> --mandate <mandate_id>
+
+Add funds to an existing card using the same two-step x402 payment flow as card creation.
+
+Options:
+  --id <card_id>             Card ID (required)
+  --amount <usd>             Recharge amount in USD, human-readable (required)
+  --mandate <mandate_id>     Mandate ID for x402 payment (required)
+
+Example:
+  fluxa-wallet card recharge --id card_xxx --amount 10.00 --mandate mand_xxxxx`,
+
+  'card withdraw': `Usage: fluxa-wallet card withdraw --id <card_id> [--amount <usd>]
+
+Withdraw card balance back to the requesting agent's linked wallet.
+
+Options:
+  --id <card_id>       Card ID (required)
+  --amount <usd>       Amount in USD (optional; defaults to full remaining balance)
+
+Example:
+  fluxa-wallet card withdraw --id card_xxx`,
+
+  'card withdrawals': `Usage: fluxa-wallet card withdrawals --id <card_id>
+
+List withdrawal records for a card.
+
+Options:
+  --id <card_id>       Card ID (required)
+
+Example:
+  fluxa-wallet card withdrawals --id card_xxx`,
+
+  'card withdrawal': `Usage: fluxa-wallet card withdrawal --id <card_id> --withdrawal-id <withdrawal_id>
+
+Get one withdrawal record for a card.
+
+Options:
+  --id <card_id>              Card ID (required)
+  --withdrawal-id <id>        Withdrawal ID (required)
+
+Example:
+  fluxa-wallet card withdrawal --id card_xxx --withdrawal-id wdr_xxxxx`,
 
   payout: `Usage: fluxa-wallet payout [options]
 
@@ -737,6 +865,13 @@ function output(result: CommandResult) {
   console.log(JSON.stringify(result, null, 2));
 }
 
+function rawJson(data: any): CommandResult {
+  return {
+    success: true,
+    raw: JSON.stringify(data, null, 2),
+  };
+}
+
 /**
  * Ensure valid JWT, refreshing if needed
  */
@@ -762,6 +897,152 @@ async function ensureValidJWT(): Promise<{ agent_id: string; jwt: string } | nul
   }
 
   return { agent_id: agentConfig.agent_id, jwt };
+}
+
+async function ensureCardServiceAuth(): Promise<{ agent_id: string; jwt: string; cardToken: string } | null> {
+  const auth = await ensureValidJWT();
+  if (!auth) return null;
+  const cardToken = await getCardServiceVc(auth.jwt);
+  return { ...auth, cardToken };
+}
+
+function apiErrorCode(err: any): string | undefined {
+  const details = err?.details;
+  if (details && typeof details === 'object' && typeof details.code === 'string') return details.code;
+  return typeof err?.code === 'string' ? err.code : undefined;
+}
+
+function apiErrorDetails(err: any): any {
+  const details = err?.details;
+  if (details && typeof details === 'object' && 'details' in details) return details.details;
+  return undefined;
+}
+
+function cardErrorHint(code?: string): string | undefined {
+  switch (code) {
+    case 'agent_not_linked':
+      return 'Run "fluxa-wallet link-wallet", complete wallet linking, then retry.';
+    case 'cardholder_required':
+      return 'Run "fluxa-wallet card holder create --first-name <first> --last-name <last>" first.';
+    case 'cardholder_not_approved':
+      return 'Run "fluxa-wallet card holder me" to check the holder review status, then retry when approved.';
+    case 'recharge_in_progress':
+      return 'A recharge is already active for this card; wait for it to finish before starting another.';
+    case 'withdrawal_in_progress':
+      return 'A withdrawal is already active for this card; wait for it to finish before starting another.';
+    case 'payment_payer_mismatch':
+      return 'The payment was signed from a different wallet than this agent account; check the linked wallet and mandate.';
+    default:
+      return undefined;
+  }
+}
+
+function commandError(err: any, fallback: string): CommandResult {
+  const code = apiErrorCode(err);
+  const details = apiErrorDetails(err);
+  const hint = cardErrorHint(code);
+  const base = err?.message || fallback;
+  return {
+    success: false,
+    error: hint ? `${base} ${hint}` : base,
+    ...(code ? { code } : {}),
+    ...(details !== undefined ? { details } : {}),
+  };
+}
+
+function withoutSuccessField<T extends Record<string, any>>(value: T): Omit<T, 'success'> {
+  const { success: _success, ...rest } = value;
+  return rest;
+}
+
+function extractPaymentPayloadB64(result: any): string | null {
+  return (
+    result?.paymentPayloadB64 ||
+    result?.xPaymentB64 ||
+    result?.data?.paymentPayloadB64 ||
+    result?.data?.xPaymentB64 ||
+    null
+  );
+}
+
+async function signPaymentRequestWithMandate(
+  paymentRequest: any,
+  mandateId: string,
+  jwt: string
+): Promise<string> {
+  if (!paymentRequest || typeof paymentRequest !== 'object') {
+    throw new Error('Invalid payment request from card service');
+  }
+
+  if (paymentRequest.x402Version === 2) {
+    const signed = await requestX402V2Payment({ mandateId, paymentRequest }, jwt);
+    const payloadB64 = extractPaymentPayloadB64(signed);
+    if (signed.status && signed.status !== 'ok') {
+      throw new Error(signed.message || 'x402 v2 payment signing failed');
+    }
+    if (!payloadB64) {
+      throw new Error('x402 v2 payment signing returned no paymentPayloadB64');
+    }
+    return payloadB64;
+  }
+
+  const accepts = paymentRequest.accepts;
+  if (!Array.isArray(accepts) || accepts.length === 0) {
+    throw new Error('Invalid payment request: missing accepts array');
+  }
+
+  let mandateCurrency = 'USDC';
+  try {
+    const mandateInfo = await getMandateStatus(mandateId, jwt);
+    if (mandateInfo.mandate?.currency) {
+      mandateCurrency = mandateInfo.mandate.currency;
+    }
+  } catch (err: any) {
+    console.error('[cli] Could not fetch mandate currency, defaulting to USDC:', err?.message);
+  }
+
+  const accept = accepts.find((a: any) => {
+    if (a.scheme !== 'exact') return false;
+    const currency = getCurrencyFromAsset(a.asset || DEFAULT_ASSET, a.network || DEFAULT_NETWORK);
+    return currency === mandateCurrency;
+  });
+
+  if (!accept) {
+    const availableCurrencies = accepts.map((a: any) =>
+      getCurrencyFromAsset(a.asset || DEFAULT_ASSET, a.network || DEFAULT_NETWORK)
+    );
+    throw new Error(
+      `No accepts entry matches mandate currency "${mandateCurrency}". Available currencies in accepts: [${availableCurrencies.join(', ')}]`
+    );
+  }
+
+  const result = await requestX402V3Payment(
+    {
+      mandateId,
+      scheme: accept.scheme || 'exact',
+      network: accept.network || DEFAULT_NETWORK,
+      amount: accept.maxAmountRequired || '0',
+      currency: getCurrencyFromAsset(accept.asset || DEFAULT_ASSET, accept.network || DEFAULT_NETWORK),
+      assetAddress: accept.asset || DEFAULT_ASSET,
+      payTo: accept.payTo,
+      host: extractHost(accept.resource || ''),
+      resource: accept.resource || '',
+      description: accept.description || '',
+      tokenName: accept.extra?.name || 'USD Coin',
+      tokenVersion: accept.extra?.version || '2',
+      validityWindowSeconds: accept.maxTimeoutSeconds || 60,
+    },
+    jwt
+  );
+
+  const payloadB64 = extractPaymentPayloadB64(result);
+  if (result.status !== 'ok') {
+    throw new Error(result.message || 'x402 payment signing failed');
+  }
+  if (!payloadB64) {
+    throw new Error('x402 payment signing returned no payment payload');
+  }
+  return payloadB64;
 }
 
 // Command handlers
@@ -893,32 +1174,28 @@ async function cmdRefresh(): Promise<CommandResult> {
   }
 }
 
-async function cmdCardList(): Promise<CommandResult> {
-  const auth = await ensureValidJWT();
-  if (!auth) {
-    return {
-      success: false,
-      error: 'FluxA Agent ID not initialized. Run "init" first.',
-    };
-  }
-
+async function cmdCardList(options: Record<string, string> = {}): Promise<CommandResult> {
   try {
-    const result = await listCards(auth.jwt);
+    const auth = await ensureCardServiceAuth();
+    if (!auth) {
+      return {
+        success: false,
+        error: 'FluxA Agent ID not initialized. Run "init" first.',
+      };
+    }
+
+    const includeGlobal = options.global === 'true';
+    const result = await listCards(auth.cardToken, { global: includeGlobal });
 
     await recordAudit({
       event: 'card_list',
       count: result.cardCount,
+      scope: includeGlobal ? 'account' : 'agent',
     });
 
-    return {
-      success: true,
-      data: result,
-    };
+    return rawJson(result.cards || []);
   } catch (err: any) {
-    return {
-      success: false,
-      error: err.message || 'Card list failed',
-    };
+    return commandError(err, 'Card list failed');
   }
 }
 
@@ -940,56 +1217,45 @@ async function cmdCardCreate(options: Record<string, string>): Promise<CommandRe
     };
   }
 
-  const auth = await ensureValidJWT();
-  if (!auth) {
-    return {
-      success: false,
-      error: 'FluxA Agent ID not initialized. Run "init" first.',
-    };
-  }
-
   try {
-    // Step 1: Initiate card issuance → get payment request
-    const initiated = await initiateCard({ amountUsd }, auth.jwt);
-
-    // Step 2: Sign payment via wallet backend using agent's mandate
-    const signed = await requestX402V2Payment(
-      { mandateId, paymentRequest: initiated.paymentRequest },
-      auth.jwt
-    );
-
-    if (signed.status !== 'ok' || !signed.paymentPayloadB64) {
+    const auth = await ensureCardServiceAuth();
+    if (!auth) {
       return {
         success: false,
-        error: signed.message || 'x402 payment signing failed',
+        error: 'FluxA Agent ID not initialized. Run "init" first.',
       };
     }
+
+    // Step 1: Initiate card issuance → get payment request
+    const initiated = await initiateCard({ amountUsd }, auth.cardToken);
+
+    // Step 2: Sign payment via wallet backend using agent's mandate
+    const paymentPayloadB64 = await signPaymentRequestWithMandate(
+      initiated.paymentRequest,
+      mandateId,
+      auth.jwt
+    );
 
     // Step 3: Complete card issuance with signed payment
     const result = await completeCard(
       {
         pendingRequestId: initiated.pendingRequestId,
-        paymentPayloadB64: signed.paymentPayloadB64,
+        paymentPayloadB64,
       },
-      auth.jwt
+      auth.cardToken
     );
 
     await recordAudit({
       event: 'card_create',
       amount_usd: amountUsd,
       mandate_id: mandateId,
-      card_id: result.card?.id,
+      card_id: result.success ? result.card?.id : undefined,
+      status: result.success ? 'completed' : result.status,
     });
 
-    return {
-      success: true,
-      data: result,
-    };
+    return rawJson(result.success ? result.card : withoutSuccessField(result));
   } catch (err: any) {
-    return {
-      success: false,
-      error: err.message || 'Card creation failed',
-    };
+    return commandError(err, 'Card creation failed');
   }
 }
 
@@ -1003,31 +1269,25 @@ async function cmdCardDetails(options: Record<string, string>): Promise<CommandR
     };
   }
 
-  const auth = await ensureValidJWT();
-  if (!auth) {
-    return {
-      success: false,
-      error: 'FluxA Agent ID not initialized. Run "init" first.',
-    };
-  }
-
   try {
-    const result = await getCardDetails(cardId, auth.jwt);
+    const auth = await ensureCardServiceAuth();
+    if (!auth) {
+      return {
+        success: false,
+        error: 'FluxA Agent ID not initialized. Run "init" first.',
+      };
+    }
+
+    const result = await getCardDetails(cardId, auth.cardToken);
 
     await recordAudit({
       event: 'card_details',
       card_id: cardId,
     });
 
-    return {
-      success: true,
-      data: result,
-    };
+    return rawJson(result.details);
   } catch (err: any) {
-    return {
-      success: false,
-      error: err.message || 'Card details request failed',
-    };
+    return commandError(err, 'Card details request failed');
   }
 }
 
@@ -1041,16 +1301,16 @@ async function cmdCardBalance(options: Record<string, string>): Promise<CommandR
     };
   }
 
-  const auth = await ensureValidJWT();
-  if (!auth) {
-    return {
-      success: false,
-      error: 'FluxA Agent ID not initialized. Run "init" first.',
-    };
-  }
-
   try {
-    const result = await getCardBalance(cardId, auth.jwt);
+    const auth = await ensureCardServiceAuth();
+    if (!auth) {
+      return {
+        success: false,
+        error: 'FluxA Agent ID not initialized. Run "init" first.',
+      };
+    }
+
+    const result = await getCardBalance(cardId, auth.cardToken);
 
     await recordAudit({
       event: 'card_balance',
@@ -1058,15 +1318,234 @@ async function cmdCardBalance(options: Record<string, string>): Promise<CommandR
       remaining_amount_usd: result.balance?.remainingAmountUsd,
     });
 
-    return {
-      success: true,
-      data: result,
-    };
+    return rawJson(result.balance);
   } catch (err: any) {
+    return commandError(err, 'Card balance request failed');
+  }
+}
+
+async function cmdCardHolderCreate(options: Record<string, string>): Promise<CommandResult> {
+  const firstName = options['first-name'] || options.firstName;
+  const lastName = options['last-name'] || options.lastName;
+  const country = options.country;
+
+  if (!firstName || !lastName) {
     return {
       success: false,
-      error: err.message || 'Card balance request failed',
+      error: 'Missing required parameters: --first-name, --last-name',
     };
+  }
+
+  try {
+    const auth = await ensureCardServiceAuth();
+    if (!auth) {
+      return {
+        success: false,
+        error: 'FluxA Agent ID not initialized. Run "init" first.',
+      };
+    }
+
+    const result = await createCardholder(
+      {
+        firstName,
+        lastName,
+        ...(country ? { country } : {}),
+      },
+      auth.cardToken
+    );
+
+    await recordAudit({
+      event: 'card_holder_create',
+      holder_status: result.cardholder?.status,
+    });
+
+    return rawJson(result.cardholder);
+  } catch (err: any) {
+    const details = apiErrorDetails(err);
+    if (apiErrorCode(err) === 'cardholder_exists' && details?.cardholder) {
+      return rawJson(details.cardholder);
+    }
+    return commandError(err, 'Card holder creation failed');
+  }
+}
+
+async function cmdCardHolderMe(): Promise<CommandResult> {
+  try {
+    const auth = await ensureCardServiceAuth();
+    if (!auth) {
+      return {
+        success: false,
+        error: 'FluxA Agent ID not initialized. Run "init" first.',
+      };
+    }
+
+    const result = await getCardholder(auth.cardToken);
+
+    await recordAudit({
+      event: 'card_holder_me',
+      holder_status: result.cardholder?.status,
+    });
+
+    return rawJson(result.cardholder);
+  } catch (err: any) {
+    return commandError(err, 'Card holder lookup failed');
+  }
+}
+
+async function cmdCardRecharge(options: Record<string, string>): Promise<CommandResult> {
+  const cardId = options.id;
+  const amountUsd = options.amount;
+  const mandateId = options.mandate;
+
+  if (!cardId || !amountUsd || !mandateId) {
+    return {
+      success: false,
+      error: 'Missing required parameters: --id, --amount, --mandate',
+    };
+  }
+
+  try {
+    const auth = await ensureCardServiceAuth();
+    if (!auth) {
+      return {
+        success: false,
+        error: 'FluxA Agent ID not initialized. Run "init" first.',
+      };
+    }
+
+    const initiated = await initiateCardRecharge(cardId, { amountUsd }, auth.cardToken);
+    const paymentPayloadB64 = await signPaymentRequestWithMandate(
+      initiated.paymentRequest,
+      mandateId,
+      auth.jwt
+    );
+    const result = await completeCardRecharge(
+      cardId,
+      {
+        pendingRequestId: initiated.pendingRequestId,
+        paymentPayloadB64,
+      },
+      auth.cardToken
+    );
+
+    await recordAudit({
+      event: 'card_recharge',
+      card_id: cardId,
+      amount_usd: amountUsd,
+      mandate_id: mandateId,
+      status: result.success ? 'completed' : result.status,
+    });
+
+    return rawJson(result.success ? { card: result.card, recharge: result.recharge } : withoutSuccessField(result));
+  } catch (err: any) {
+    return commandError(err, 'Card recharge failed');
+  }
+}
+
+async function cmdCardWithdraw(options: Record<string, string>): Promise<CommandResult> {
+  const cardId = options.id;
+  const amountUsd = options.amount;
+
+  if (!cardId) {
+    return {
+      success: false,
+      error: 'Missing required parameter: --id',
+    };
+  }
+
+  try {
+    const auth = await ensureCardServiceAuth();
+    if (!auth) {
+      return {
+        success: false,
+        error: 'FluxA Agent ID not initialized. Run "init" first.',
+      };
+    }
+
+    const result = await requestCardWithdrawal(
+      cardId,
+      amountUsd ? { amountUsd } : {},
+      auth.cardToken
+    );
+
+    await recordAudit({
+      event: 'card_withdraw',
+      card_id: cardId,
+      amount_usd: amountUsd || null,
+      withdrawal_id: result.withdrawalId,
+    });
+
+    return rawJson(result);
+  } catch (err: any) {
+    return commandError(err, 'Card withdrawal request failed');
+  }
+}
+
+async function cmdCardWithdrawals(options: Record<string, string>): Promise<CommandResult> {
+  const cardId = options.id;
+
+  if (!cardId) {
+    return {
+      success: false,
+      error: 'Missing required parameter: --id',
+    };
+  }
+
+  try {
+    const auth = await ensureCardServiceAuth();
+    if (!auth) {
+      return {
+        success: false,
+        error: 'FluxA Agent ID not initialized. Run "init" first.',
+      };
+    }
+
+    const result = await listCardWithdrawals(cardId, auth.cardToken);
+
+    await recordAudit({
+      event: 'card_withdrawals',
+      card_id: cardId,
+      count: result.withdrawals?.length || 0,
+    });
+
+    return rawJson(result.withdrawals || []);
+  } catch (err: any) {
+    return commandError(err, 'Card withdrawals lookup failed');
+  }
+}
+
+async function cmdCardWithdrawal(options: Record<string, string>): Promise<CommandResult> {
+  const cardId = options.id;
+  const withdrawalId = options['withdrawal-id'] || options.withdrawalId;
+
+  if (!cardId || !withdrawalId) {
+    return {
+      success: false,
+      error: 'Missing required parameters: --id, --withdrawal-id',
+    };
+  }
+
+  try {
+    const auth = await ensureCardServiceAuth();
+    if (!auth) {
+      return {
+        success: false,
+        error: 'FluxA Agent ID not initialized. Run "init" first.',
+      };
+    }
+
+    const result = await getCardWithdrawal(cardId, withdrawalId, auth.cardToken);
+
+    await recordAudit({
+      event: 'card_withdrawal',
+      card_id: cardId,
+      withdrawal_id: withdrawalId,
+      status: result.withdrawal?.status,
+    });
+
+    return rawJson(result.withdrawal);
+  } catch (err: any) {
+    return commandError(err, 'Card withdrawal lookup failed');
   }
 }
 
@@ -2007,7 +2486,7 @@ async function main() {
       result = await cmdRefresh();
       break;
     case 'card list':
-      result = await cmdCardList();
+      result = await cmdCardList(options);
       break;
     case 'card create':
       result = await cmdCardCreate(options);
@@ -2017,6 +2496,24 @@ async function main() {
       break;
     case 'card balance':
       result = await cmdCardBalance(options);
+      break;
+    case 'card holder create':
+      result = await cmdCardHolderCreate(options);
+      break;
+    case 'card holder me':
+      result = await cmdCardHolderMe();
+      break;
+    case 'card recharge':
+      result = await cmdCardRecharge(options);
+      break;
+    case 'card withdraw':
+      result = await cmdCardWithdraw(options);
+      break;
+    case 'card withdrawals':
+      result = await cmdCardWithdrawals(options);
+      break;
+    case 'card withdrawal':
+      result = await cmdCardWithdrawal(options);
       break;
     case 'payout':
       result = await cmdPayout(options);

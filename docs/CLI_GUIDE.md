@@ -59,7 +59,9 @@ Run `fluxa-wallet <command> --help` for the full option list of any command.
 
 | Command | Description |
 |---------|-------------|
+| `card holder create` / `me` | Set up and inspect the account cardholder |
 | `card create` / `list` / `details` / `balance` | Issue and inspect virtual cards |
+| `card recharge` / `withdraw` / `withdrawals` / `withdrawal` | Add funds and withdraw card balance |
 | `agent-vc` | Issue a short-lived agent VC for a third party (`--audience`, `--challenge`) |
 | `help` | Show usage information |
 
@@ -74,9 +76,11 @@ Most commands output a JSON envelope to stdout:
 }
 ```
 
-The read commands `wallet-address`, `balance`, `mandates`, and `recent-transactions`
-print their value **directly** — a bare address string or bare JSON — without the
-`{success,data}` wrapper, so they pipe cleanly. `version` prints just the version string.
+The read commands `wallet-address`, `balance`, `mandates`, `recent-transactions`,
+and successful `card ...` commands print their value **directly** — a bare
+address string or bare JSON — without the `{success,data}` wrapper, so they pipe
+cleanly. `card list` prints the cards array directly. `version` prints just the
+version string.
 
 On error, every command falls back to the envelope:
 
@@ -360,6 +364,45 @@ fluxa-wallet --version    # or: -v, or: fluxa-wallet version
 
 ---
 
+### 7. AgentCard Commands
+
+Card-service requests use a short-lived Agent VC automatically. The CLI first
+fetches a card-service challenge, issues a VC with `agent-vc`, then calls the
+card API. The linked wallet must be present; otherwise card commands return
+`agent_not_linked` and you should run `fluxa-wallet link-wallet`.
+
+```bash
+# One-time immutable cardholder setup for the linked account
+fluxa-wallet card holder create --first-name Alice --last-name Agent
+fluxa-wallet card holder me
+
+# Cards: default list is current-agent only; --global shows all cards in the linked account
+fluxa-wallet card list
+fluxa-wallet card list --global
+fluxa-wallet card create --amount 25.00 --mandate mand_xxx
+fluxa-wallet card details --id card_xxx
+fluxa-wallet card balance --id card_xxx
+
+# Add or withdraw funds
+fluxa-wallet card recharge --id card_xxx --amount 10.00 --mandate mand_xxx
+fluxa-wallet card withdraw --id card_xxx
+fluxa-wallet card withdraw --id card_xxx --amount 5.00
+fluxa-wallet card withdrawals --id card_xxx
+fluxa-wallet card withdrawal --id card_xxx --withdrawal-id wdr_xxx
+```
+
+`card create` and `card recharge` use the same mandate-backed x402 signing
+flow as `x402-v3`. A `payment_submitted` result means the payment was accepted
+and card service will finish issuance/recharge asynchronously; poll `card list`
+or `card balance`.
+
+Successful `card ...` commands print card-service business data directly, not a
+CLI envelope. For example, `card list` prints the cards array, `card holder me`
+prints the cardholder object, and `card withdrawals` prints the withdrawals
+array. Error output remains `{ "success": false, "error": "..." }`.
+
+---
+
 ## Environment Variables
 
 The CLI supports the following environment variables:
@@ -372,6 +415,7 @@ The CLI supports the following environment variables:
 | `AGENT_NAME` | Agent name for auto-registration |
 | `CLIENT_INFO` | Client info for auto-registration |
 | `FLUXA_DATA_DIR` | Custom data directory (default: `~/.fluxa-ai-wallet-mcp`) |
+| `CARD_SERVICE_API` | AgentCard API base URL (default: `https://agentcard.fluxapay.xyz`) |
 
 **Using pre-configured credentials:**
 ```bash
