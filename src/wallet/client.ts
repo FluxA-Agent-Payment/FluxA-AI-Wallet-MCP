@@ -107,32 +107,160 @@ export interface PayoutResponse {
 }
 
 export interface CardRecord {
-  id: number;
-  provider: string;
-  externalCardId: string;
-  ownerUserId: number;
-  ownerAgentId: number | null;
-  ownerExternalAgentId: string | null;
-  maskedPan: string | null;
-  lastFour: string | null;
+  id: string;
+  status: string;
   brand: string | null;
+  lastFour: string | null;
   expiryMonth: string | null;
   expiryYear: string | null;
-  fundedAmountUsd: string;
   remainingAmountUsd: string;
+  fundedAmountUsd: string;
   currency: string;
-  status: string;
   lastBalanceSyncedAt: string | null;
-  lastRevealedAt: string | null;
-  metadata?: any;
+  limits: {
+    perTransactionMaxUsd?: string;
+    [key: string]: any;
+  } | null;
+  cardholder: {
+    name: string;
+    billingAddress?: {
+      line1?: string | null;
+      city?: string | null;
+      state?: string | null;
+      postalCode?: string | null;
+      country?: string | null;
+      [key: string]: any;
+    } | null;
+    [key: string]: any;
+  } | null;
+  policy: string | null;
   createdAt: string;
-  updatedAt: string;
+  [key: string]: any;
+}
+
+export interface CardholderRecord {
+  id?: number;
+  provider?: string;
+  externalHolderId?: string | null;
+  status?: string;
+  statusDescription?: string | null;
+  holderName?: string | null;
+  holderModel?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  [key: string]: any;
+}
+
+export interface WithdrawalRecord {
+  withdrawalId: string;
+  status: string;
+  amountUsd: string;
+  feeUsd: string;
+  payoutTarget: string;
+  payoutTxHash?: string | null;
+  providerStatus?: string | null;
+  failureStep?: string | null;
+  failureReason?: string | null;
+  retryCount?: number;
+  createdAt?: string;
+  updatedAt?: string;
+  [key: string]: any;
+}
+
+export interface CardChallengeResponse {
+  challenge: string;
+  expiresAt: string;
+  audience: string;
+}
+
+export interface CardChargeInitiateResponse {
+  pendingRequestId: string;
+  paymentRequest: any;
+  amountUsd?: string;
+  feeUsd?: string;
+  totalUsd?: string;
+  expiresAt: string;
+  status: string;
+}
+
+export interface CardPendingSettlementResponse {
+  success: false;
+  status: 'payment_submitted';
+  pendingRequestId: string;
+  message?: string;
+}
+
+export type CompleteCardResponse =
+  | { success: true; card: CardRecord }
+  | CardPendingSettlementResponse;
+
+export type CompleteRechargeResponse =
+  | { success: true; card: CardRecord; recharge: { amountUsd: string; feeUsd: string } }
+  | CardPendingSettlementResponse;
+
+export interface CardListOptions {
+  global?: boolean;
+}
+
+export interface CardTransactionListOptions {
+  type?: string;
+  pageNum?: string;
+  pageSize?: string;
+  startTime?: string;
+  endTime?: string;
+}
+
+export interface CardTransactionRecord {
+  transactionId: string;
+  relatedTransactionId?: string | null;
+  type: string;
+  status: string;
+  amount: string;
+  currency: string;
+  merchantAmount?: string | null;
+  merchantCurrency?: string | null;
+  fee?: string | null;
+  crossBorderFee?: string | null;
+  merchant?: {
+    name?: string | null;
+    category?: string | null;
+    country?: string | null;
+    city?: string | null;
+    [key: string]: any;
+  } | null;
+  description?: string | null;
+  time: string;
+  [key: string]: any;
+}
+
+export interface CardTransactionsResponse {
+  transactions: CardTransactionRecord[];
+  pageNum: number;
+  pageSize: number;
+  total: number;
+}
+
+export interface Card3dsRecord {
+  type: string;
+  value: string;
+  expiresAt: string | null;
+  time: string;
+  [key: string]: any;
+}
+
+export interface CardLatest3dsResponse {
+  threeDS: Card3dsRecord | null;
+}
+
+export interface Card3dsListResponse {
+  threeDS: Card3dsRecord[];
+  windowMinutes: number;
 }
 
 export interface CardDetailsResponse {
   success: boolean;
   details: {
-    cardId: number;
+    cardId: string;
     pan: string;
     cvv: string;
     expiryMonth: string;
@@ -213,7 +341,7 @@ export async function requestX402Payment(
 
 async function requestCardService<T>(
   path: string,
-  jwt: string,
+  cardServiceToken: string,
   options: {
     method?: string;
     body?: Record<string, unknown>;
@@ -223,7 +351,7 @@ async function requestCardService<T>(
     method: options.method || 'GET',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${jwt}`,
+      'Authorization': `Bearer ${cardServiceToken}`,
     },
     body: options.body ? JSON.stringify(options.body) : undefined,
   });
@@ -246,6 +374,53 @@ async function requestCardService<T>(
   }
 
   return data as T;
+}
+
+export async function requestCardChallenge(): Promise<CardChallengeResponse> {
+  const response = await fetch(`${CARD_SERVICE_API}/api/auth/challenge`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+  });
+
+  const text = await response.text();
+  let data: any = null;
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    data = text;
+  }
+
+  if (!response.ok) {
+    const message =
+      typeof data === 'object' && data?.error
+        ? data.error
+        : text || `Card service challenge failed (${response.status})`;
+    throw new WalletApiError(message, response.status, data);
+  }
+
+  if (!data?.challenge || !data?.audience) {
+    throw new WalletApiError('Invalid card service challenge response', response.status, data);
+  }
+
+  return data as CardChallengeResponse;
+}
+
+export async function getCardServiceVc(jwt: string): Promise<string> {
+  const challenge = await requestCardChallenge();
+  const issued = await issueVC(
+    {
+      audience: challenge.audience,
+      challenge: challenge.challenge,
+      ttl_seconds: 600,
+    },
+    jwt
+  );
+  if (!issued.vc) {
+    throw new WalletApiError('Agent ID did not return a card service VC', 500, issued);
+  }
+  return issued.vc;
 }
 
 /**
@@ -280,15 +455,19 @@ export async function createPayout(
   }
 }
 
-export async function listCards(jwt: string): Promise<{ cards: CardRecord[]; cardCount: number }> {
-  return requestCardService('/api/cards', jwt);
+export async function listCards(
+  cardServiceToken: string,
+  options: CardListOptions = {}
+): Promise<{ cards: CardRecord[]; cardCount: number }> {
+  const path = options.global ? '/api/cards' : '/api/cards?issuedBy=me';
+  return requestCardService(path, cardServiceToken);
 }
 
 export async function initiateCard(
   params: { amountUsd: string },
-  jwt: string
-): Promise<{ pendingRequestId: string; paymentRequest: any; expiresAt: string; status: string }> {
-  return requestCardService('/api/cards/initiate', jwt, {
+  cardServiceToken: string
+): Promise<CardChargeInitiateResponse> {
+  return requestCardService('/api/cards/initiate', cardServiceToken, {
     method: 'POST',
     body: params,
   });
@@ -296,23 +475,23 @@ export async function initiateCard(
 
 export async function completeCard(
   params: { pendingRequestId: string; paymentPayloadB64: string },
-  jwt: string
-): Promise<{ success: boolean; card: CardRecord }> {
-  return requestCardService('/api/cards/complete', jwt, {
+  cardServiceToken: string
+): Promise<CompleteCardResponse> {
+  return requestCardService('/api/cards/complete', cardServiceToken, {
     method: 'POST',
     body: params,
   });
 }
 
-export async function getCardDetails(cardId: string, jwt: string): Promise<CardDetailsResponse> {
-  return requestCardService(`/api/cards/${encodeURIComponent(cardId)}/details`, jwt, {
+export async function getCardDetails(cardId: string, cardServiceToken: string): Promise<CardDetailsResponse> {
+  return requestCardService(`/api/cards/${encodeURIComponent(cardId)}/details`, cardServiceToken, {
     method: 'POST',
   });
 }
 
 export async function getCardBalance(
   cardId: string,
-  jwt: string
+  cardServiceToken: string
 ): Promise<{
   card: CardRecord;
   balance: {
@@ -323,7 +502,107 @@ export async function getCardBalance(
     lastBalanceSyncedAt: string | null;
   };
 }> {
-  return requestCardService(`/api/cards/${encodeURIComponent(cardId)}/balance`, jwt);
+  return requestCardService(`/api/cards/${encodeURIComponent(cardId)}/balance`, cardServiceToken);
+}
+
+export async function listCardTransactions(
+  cardId: string,
+  cardServiceToken: string,
+  options: CardTransactionListOptions = {}
+): Promise<CardTransactionsResponse> {
+  const query = new URLSearchParams();
+  if (options.type) query.set('type', options.type);
+  if (options.pageNum) query.set('pageNum', options.pageNum);
+  if (options.pageSize) query.set('pageSize', options.pageSize);
+  if (options.startTime) query.set('startTime', options.startTime);
+  if (options.endTime) query.set('endTime', options.endTime);
+
+  const suffix = query.toString() ? `?${query.toString()}` : '';
+  return requestCardService(
+    `/api/cards/${encodeURIComponent(cardId)}/transactions${suffix}`,
+    cardServiceToken
+  );
+}
+
+export async function getLatestCard3ds(
+  cardId: string,
+  cardServiceToken: string
+): Promise<CardLatest3dsResponse> {
+  return requestCardService(`/api/cards/${encodeURIComponent(cardId)}/3ds/latest`, cardServiceToken);
+}
+
+export async function listLatestHourCard3ds(
+  cardId: string,
+  cardServiceToken: string
+): Promise<Card3dsListResponse> {
+  return requestCardService(`/api/cards/${encodeURIComponent(cardId)}/3ds`, cardServiceToken);
+}
+
+export async function createCardholder(
+  params: { firstName: string; lastName: string; country?: string },
+  cardServiceToken: string
+): Promise<{ success: boolean; cardholder: CardholderRecord }> {
+  return requestCardService('/api/cardholders', cardServiceToken, {
+    method: 'POST',
+    body: params,
+  });
+}
+
+export async function getCardholder(
+  cardServiceToken: string
+): Promise<{ cardholder: CardholderRecord }> {
+  return requestCardService('/api/cardholders/me', cardServiceToken);
+}
+
+export async function initiateCardRecharge(
+  cardId: string,
+  params: { amountUsd: string },
+  cardServiceToken: string
+): Promise<CardChargeInitiateResponse> {
+  return requestCardService(`/api/cards/${encodeURIComponent(cardId)}/recharge/initiate`, cardServiceToken, {
+    method: 'POST',
+    body: params,
+  });
+}
+
+export async function completeCardRecharge(
+  cardId: string,
+  params: { pendingRequestId: string; paymentPayloadB64: string },
+  cardServiceToken: string
+): Promise<CompleteRechargeResponse> {
+  return requestCardService(`/api/cards/${encodeURIComponent(cardId)}/recharge/complete`, cardServiceToken, {
+    method: 'POST',
+    body: params,
+  });
+}
+
+export async function requestCardWithdrawal(
+  cardId: string,
+  params: { amountUsd?: string },
+  cardServiceToken: string
+): Promise<WithdrawalRecord> {
+  return requestCardService(`/api/cards/${encodeURIComponent(cardId)}/withdraw`, cardServiceToken, {
+    method: 'POST',
+    body: params,
+  });
+}
+
+export async function listCardWithdrawals(
+  cardId: string,
+  cardServiceToken: string
+): Promise<{ withdrawals: WithdrawalRecord[] }> {
+  return requestCardService(`/api/cards/${encodeURIComponent(cardId)}/withdrawals`, cardServiceToken);
+}
+
+export async function getCardWithdrawal(
+  cardId: string,
+  withdrawalId: string,
+  cardServiceToken: string
+): Promise<{ withdrawal: WithdrawalRecord }> {
+  return requestCardService(
+    `/api/cards/${encodeURIComponent(cardId)}/withdrawals/${encodeURIComponent(withdrawalId)}`,
+    cardServiceToken
+  );
 }
 
 /**
