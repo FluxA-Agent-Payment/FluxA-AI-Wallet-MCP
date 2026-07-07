@@ -202,6 +202,61 @@ export interface CardListOptions {
   global?: boolean;
 }
 
+export interface CardTransactionListOptions {
+  type?: string;
+  pageNum?: string;
+  pageSize?: string;
+  startTime?: string;
+  endTime?: string;
+}
+
+export interface CardTransactionRecord {
+  transactionId: string;
+  relatedTransactionId?: string | null;
+  type: string;
+  status: string;
+  amount: string;
+  currency: string;
+  merchantAmount?: string | null;
+  merchantCurrency?: string | null;
+  fee?: string | null;
+  crossBorderFee?: string | null;
+  merchant?: {
+    name?: string | null;
+    category?: string | null;
+    country?: string | null;
+    city?: string | null;
+    [key: string]: any;
+  } | null;
+  description?: string | null;
+  time: string;
+  [key: string]: any;
+}
+
+export interface CardTransactionsResponse {
+  transactions: CardTransactionRecord[];
+  pageNum: number;
+  pageSize: number;
+  total: number;
+}
+
+export interface Card3dsRecord {
+  type: string;
+  value: string;
+  expiresAt: string | null;
+  time: string;
+  [key: string]: any;
+}
+
+export interface CardLatest3dsResponse {
+  threeDS: Card3dsRecord | null;
+}
+
+export interface Card3dsListResponse {
+  threeDS: Card3dsRecord[];
+  windowMinutes: number;
+}
+
 export interface CardDetailsResponse {
   success: boolean;
   details: {
@@ -448,6 +503,39 @@ export async function getCardBalance(
   };
 }> {
   return requestCardService(`/api/cards/${encodeURIComponent(cardId)}/balance`, cardServiceToken);
+}
+
+export async function listCardTransactions(
+  cardId: string,
+  cardServiceToken: string,
+  options: CardTransactionListOptions = {}
+): Promise<CardTransactionsResponse> {
+  const query = new URLSearchParams();
+  if (options.type) query.set('type', options.type);
+  if (options.pageNum) query.set('pageNum', options.pageNum);
+  if (options.pageSize) query.set('pageSize', options.pageSize);
+  if (options.startTime) query.set('startTime', options.startTime);
+  if (options.endTime) query.set('endTime', options.endTime);
+
+  const suffix = query.toString() ? `?${query.toString()}` : '';
+  return requestCardService(
+    `/api/cards/${encodeURIComponent(cardId)}/transactions${suffix}`,
+    cardServiceToken
+  );
+}
+
+export async function getLatestCard3ds(
+  cardId: string,
+  cardServiceToken: string
+): Promise<CardLatest3dsResponse> {
+  return requestCardService(`/api/cards/${encodeURIComponent(cardId)}/3ds/latest`, cardServiceToken);
+}
+
+export async function listLatestHourCard3ds(
+  cardId: string,
+  cardServiceToken: string
+): Promise<Card3dsListResponse> {
+  return requestCardService(`/api/cards/${encodeURIComponent(cardId)}/3ds`, cardServiceToken);
 }
 
 export async function createCardholder(

@@ -79,6 +79,9 @@ fluxa-wallet <command> --help     # full options for any command
 | `card list` | List cards created by this agent (`--global` for the linked account) |
 | `card details` | Reveal PAN / CVV / expiry (`--id`) |
 | `card balance` | Refresh & show card balance (`--id`) |
+| `card transactions` | List card transaction history (`--id`, optional filters) |
+| `card 3ds latest` | Show the latest 3DS challenge (`--id`) |
+| `card 3ds latest_1h` | Show 3DS challenges from the last hour (`--id`) |
 | `card holder create` | Set up the account cardholder once (`--first-name`, `--last-name`) |
 | `card holder me` | Show the account cardholder |
 | `card recharge` | Add funds to a card (`--id`, `--amount`, `--mandate`) |
@@ -114,6 +117,9 @@ fluxa-wallet card holder create --first-name Alice --last-name Agent
 fluxa-wallet card create --amount 25.00 --mandate mand_xxx
 fluxa-wallet card list
 fluxa-wallet card list --global
+fluxa-wallet card transactions --id card_xxx
+fluxa-wallet card 3ds latest --id card_xxx
+fluxa-wallet card 3ds latest_1h --id card_xxx
 
 # Send a payout
 fluxa-wallet payout --to 0x... --amount 1000000 --id payout_001

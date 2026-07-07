@@ -61,6 +61,7 @@ Run `fluxa-wallet <command> --help` for the full option list of any command.
 |---------|-------------|
 | `card holder create` / `me` | Set up and inspect the account cardholder |
 | `card create` / `list` / `details` / `balance` | Issue and inspect virtual cards |
+| `card transactions` / `card 3ds latest` / `card 3ds latest_1h` | Inspect card transactions and 3DS challenges |
 | `card recharge` / `withdraw` / `withdrawals` / `withdrawal` | Add funds and withdraw card balance |
 | `agent-vc` | Issue a short-lived agent VC for a third party (`--audience`, `--challenge`) |
 | `help` | Show usage information |
@@ -382,6 +383,10 @@ fluxa-wallet card list --global
 fluxa-wallet card create --amount 25.00 --mandate mand_xxx
 fluxa-wallet card details --id card_xxx
 fluxa-wallet card balance --id card_xxx
+fluxa-wallet card transactions --id card_xxx
+fluxa-wallet card transactions --id card_xxx --type purchase --limit 10
+fluxa-wallet card 3ds latest --id card_xxx
+fluxa-wallet card 3ds latest_1h --id card_xxx
 
 # Add or withdraw funds
 fluxa-wallet card recharge --id card_xxx --amount 10.00 --mandate mand_xxx
@@ -399,7 +404,9 @@ or `card balance`.
 Successful `card ...` commands print card-service business data directly, not a
 CLI envelope. For example, `card list` prints the cards array, `card holder me`
 prints the cardholder object, and `card withdrawals` prints the withdrawals
-array. Error output remains `{ "success": false, "error": "..." }`.
+array. `card 3ds latest` prints the latest challenge object or `null`, while
+`card 3ds latest_1h` prints the one-hour challenge array. Error output remains
+`{ "success": false, "error": "..." }`.
 
 ---
 

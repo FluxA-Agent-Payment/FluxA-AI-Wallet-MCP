@@ -29,6 +29,9 @@ import {
   completeCard,
   getCardDetails,
   getCardBalance,
+  listCardTransactions,
+  getLatestCard3ds,
+  listLatestHourCard3ds,
   createCardholder,
   getCardholder,
   initiateCardRecharge,
@@ -106,6 +109,9 @@ COMMANDS:
   card create               Issue a funded card
   card details              Reveal full card details
   card balance              Refresh and query card balance
+  card transactions         List card transaction history
+  card 3ds latest           Show the latest 3DS challenge from the last 24 hours
+  card 3ds latest_1h        Show 3DS challenges from the last hour
   card holder create        Set up the account cardholder once
   card holder me            Show the account cardholder
   card recharge             Add funds to an existing card
@@ -165,6 +171,20 @@ OPTIONS FOR 'card details':
   --id <card_id>            Card ID (required)
 
 OPTIONS FOR 'card balance':
+  --id <card_id>            Card ID (required)
+
+OPTIONS FOR 'card transactions':
+  --id <card_id>            Card ID (required)
+  --type <type>             purchase | refund | verification | reversal | fee
+  --page <n>                Page number (alias: --page-num)
+  --limit <n>               Page size, max 50 (alias: --page-size)
+  --start-time <ms>         Start timestamp in milliseconds
+  --end-time <ms>           End timestamp in milliseconds
+
+OPTIONS FOR 'card 3ds latest':
+  --id <card_id>            Card ID (required)
+
+OPTIONS FOR 'card 3ds latest_1h':
   --id <card_id>            Card ID (required)
 
 OPTIONS FOR 'card holder create':
@@ -304,6 +324,9 @@ EXAMPLES:
 
   # Reveal card details
   fluxa-wallet card details --id card_xxx
+  fluxa-wallet card transactions --id card_xxx
+  fluxa-wallet card 3ds latest --id card_xxx
+  fluxa-wallet card 3ds latest_1h --id card_xxx
 
   # Recharge or withdraw a card
   fluxa-wallet card recharge --id card_xxx --amount 10.00 --mandate mand_xxxxx
@@ -380,13 +403,13 @@ function parseArgs(args: string[]): { command: string; options: Record<string, s
   if (command === 'card') {
     const subcommand = args[1];
     if (subcommand && !subcommand.startsWith('-')) {
-      if (subcommand === 'holder') {
-        const holderSubcommand = args[2];
-        if (holderSubcommand && !holderSubcommand.startsWith('-')) {
-          command = `card holder ${holderSubcommand}`;
+      if (subcommand === 'holder' || subcommand === '3ds') {
+        const nestedSubcommand = args[2];
+        if (nestedSubcommand && !nestedSubcommand.startsWith('-')) {
+          command = `card ${subcommand} ${nestedSubcommand}`;
           optionStartIndex = 3;
         } else {
-          command = 'card holder';
+          command = `card ${subcommand}`;
           optionStartIndex = 2;
         }
       } else {
@@ -477,6 +500,42 @@ Options:
 
 Example:
   fluxa-wallet card balance --id card_xxx`,
+
+  'card transactions': `Usage: fluxa-wallet card transactions --id <card_id> [options]
+
+List card transaction history from the card service.
+
+Options:
+  --id <card_id>           Card ID (required)
+  --type <type>            purchase | refund | verification | reversal | fee
+  --page <n>               Page number (alias: --page-num)
+  --limit <n>              Page size, max 50 (alias: --page-size)
+  --start-time <ms>        Start timestamp in milliseconds
+  --end-time <ms>          End timestamp in milliseconds
+
+Examples:
+  fluxa-wallet card transactions --id card_xxx
+  fluxa-wallet card transactions --id card_xxx --type purchase --limit 10`,
+
+  'card 3ds latest': `Usage: fluxa-wallet card 3ds latest --id <card_id>
+
+Show the newest 3DS challenge from the last 24 hours.
+
+Options:
+  --id <card_id>       Card ID (required)
+
+Example:
+  fluxa-wallet card 3ds latest --id card_xxx`,
+
+  'card 3ds latest_1h': `Usage: fluxa-wallet card 3ds latest_1h --id <card_id>
+
+Show all 3DS challenges from the last hour.
+
+Options:
+  --id <card_id>       Card ID (required)
+
+Example:
+  fluxa-wallet card 3ds latest_1h --id card_xxx`,
 
   'card holder create': `Usage: fluxa-wallet card holder create --first-name <name> --last-name <name> [--country <country>]
 
@@ -1321,6 +1380,121 @@ async function cmdCardBalance(options: Record<string, string>): Promise<CommandR
     return rawJson(result.balance);
   } catch (err: any) {
     return commandError(err, 'Card balance request failed');
+  }
+}
+
+async function cmdCardTransactions(options: Record<string, string>): Promise<CommandResult> {
+  const cardId = options.id;
+
+  if (!cardId) {
+    return {
+      success: false,
+      error: 'Missing required parameter: --id',
+    };
+  }
+
+  try {
+    const auth = await ensureCardServiceAuth();
+    if (!auth) {
+      return {
+        success: false,
+        error: 'FluxA Agent ID not initialized. Run "init" first.',
+      };
+    }
+
+    const result = await listCardTransactions(cardId, auth.cardToken, {
+      ...(options.type ? { type: options.type } : {}),
+      ...(options.page || options['page-num'] || options.pageNum
+        ? { pageNum: options.page || options['page-num'] || options.pageNum }
+        : {}),
+      ...(options.limit || options['page-size'] || options.pageSize
+        ? { pageSize: options.limit || options['page-size'] || options.pageSize }
+        : {}),
+      ...(options['start-time'] || options.startTime
+        ? { startTime: options['start-time'] || options.startTime }
+        : {}),
+      ...(options['end-time'] || options.endTime
+        ? { endTime: options['end-time'] || options.endTime }
+        : {}),
+    });
+
+    await recordAudit({
+      event: 'card_transactions',
+      card_id: cardId,
+      count: result.transactions?.length || 0,
+      total: result.total,
+    });
+
+    return rawJson(result);
+  } catch (err: any) {
+    return commandError(err, 'Card transactions lookup failed');
+  }
+}
+
+async function cmdCard3dsLatest(options: Record<string, string>): Promise<CommandResult> {
+  const cardId = options.id;
+
+  if (!cardId) {
+    return {
+      success: false,
+      error: 'Missing required parameter: --id',
+    };
+  }
+
+  try {
+    const auth = await ensureCardServiceAuth();
+    if (!auth) {
+      return {
+        success: false,
+        error: 'FluxA Agent ID not initialized. Run "init" first.',
+      };
+    }
+
+    const result = await getLatestCard3ds(cardId, auth.cardToken);
+
+    await recordAudit({
+      event: 'card_3ds_latest',
+      card_id: cardId,
+      found: result.threeDS ? true : false,
+    });
+
+    return rawJson(result.threeDS ?? null);
+  } catch (err: any) {
+    return commandError(err, 'Card 3DS latest lookup failed');
+  }
+}
+
+async function cmdCard3dsLatest1h(options: Record<string, string>): Promise<CommandResult> {
+  const cardId = options.id;
+
+  if (!cardId) {
+    return {
+      success: false,
+      error: 'Missing required parameter: --id',
+    };
+  }
+
+  try {
+    const auth = await ensureCardServiceAuth();
+    if (!auth) {
+      return {
+        success: false,
+        error: 'FluxA Agent ID not initialized. Run "init" first.',
+      };
+    }
+
+    const result = await listLatestHourCard3ds(cardId, auth.cardToken);
+
+    await recordAudit({
+      event: 'card_3ds_latest_1h',
+      card_id: cardId,
+      count: result.threeDS?.length || 0,
+      window_minutes: result.windowMinutes,
+    });
+
+    return rawJson(result.threeDS || []);
+  } catch (err: any) {
+    return commandError(err, 'Card 3DS latest_1h lookup failed');
   }
 }
 
@@ -2496,6 +2670,15 @@ async function main() {
       break;
     case 'card balance':
       result = await cmdCardBalance(options);
+      break;
+    case 'card transactions':
+      result = await cmdCardTransactions(options);
+      break;
+    case 'card 3ds latest':
+      result = await cmdCard3dsLatest(options);
+      break;
+    case 'card 3ds latest_1h':
+      result = await cmdCard3dsLatest1h(options);
       break;
     case 'card holder create':
       result = await cmdCardHolderCreate(options);
