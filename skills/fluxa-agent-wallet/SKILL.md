@@ -129,6 +129,31 @@ This pattern applies to:
 
 Full planning rules, task classification, and state file schema: [MANDATE-PLANNING.md](MANDATE-PLANNING.md)
 
+## Fund Management
+
+User adds and manages funds at the FluxA Agent Wallet web app:
+→ https://agentwallet.fluxapay.xyz/
+
+### USDC deposit (3 ways)
+| Method | Best for |
+|--------|----------|
+| Credit card | Quick, small amounts |
+| On-chain transfer | Send USDC on Base directly to wallet address |
+| Cross-chain transfer | Bridge USDC from other chains |
+
+→ Agent can get the wallet address via `fluxa-wallet wallet-address`
+→ Agent should direct the user to the web app for card/cross-chain deposit flows
+
+### Credits (FluxA Monetize Credits)
+- Purchased with credit card only
+- Used exclusively for Monetize platform x402 resource consumption
+- NOT transferable, NOT usable as general USDC
+
+### When user asks "how to add funds"
+1. Show `fluxa-wallet wallet-address` → for on-chain deposit
+2. Direct to https://agentwallet.fluxapay.xyz/ → for credit card / cross-chain / credits
+3. Run `fluxa-wallet balance` to confirm after deposit
+4. 
 ## Quick Decision Guide
 
 | I want to... | Document |
