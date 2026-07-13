@@ -52,7 +52,8 @@ Treat this URL as a payment link and follow the x402 flow in [X402-PAYMENT.md](X
 Quick reference:
 
 ```
-1. curl -s "$UPL_URL"                                    → Get 402 payload
+0. curl -s "$UPL_URL"                                    → Get 402 payload
+1. execute payment mandate planning and estimate the required budget. refer to MANDATE-PLANNING.md
 2. mandate-create --desc "..." --amount <amount>         → Create mandate
 3. User signs at authorizationUrl                        → Mandate becomes "signed"
 4. mandate-status --id <mandate_id>                      → Verify signed

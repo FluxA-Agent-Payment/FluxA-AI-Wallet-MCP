@@ -14,7 +14,8 @@ api_response.json
 dist/
 packages/fluxa-wallet/bin/
 .data/
-
+.agents/
+.vscode/
 # next.js
 /.next/
 /out/
