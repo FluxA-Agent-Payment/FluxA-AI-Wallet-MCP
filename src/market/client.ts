@@ -403,6 +403,55 @@ function cmdInfo(topic?: string): string {
   return render();
 }
 
+// --- topup proxy legs --------------------------------------------------------
+// The two marketplace-proxy calls of the topup flow. The money-moving middle
+// (mandate signing + x402-v3) is orchestrated by the wallet CLI in-process
+// using its own proven primitives; these helpers only talk to the proxy.
+export interface TopupChallenge {
+  orderId: string;
+  resource: string;
+  costCredits: number;
+  creditsToGrant: number;
+  rawBody: string;
+}
+
+// POST /llm/topup/initiate (authed). On success it answers HTTP 402 with the
+// x402 challenge — so unlike http(), we tolerate 402 instead of throwing.
+export async function topupInitiate(vendor: string, opts: { credits?: string; bundle?: string } = {}): Promise<TopupChallenge> {
+  if (!vendor) die('usage: fluxa-wallet market model topup <vendor> [--credits <N> | --bundle <slug>]');
+  const body: any = { vendorSlug: vendor };
+  if (opts.bundle) body.packageSlug = opts.bundle;
+  else body.costCredits = opts.credits ? Number(opts.credits) : 5; // min 5 MC ($5)
+  let res: Response;
+  try {
+    res = await fetch(`${PROXY}/llm/topup/initiate`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json', authorization: `Bearer ${await authToken()}` },
+      body: JSON.stringify(body),
+    });
+  } catch (e: any) {
+    die(`network error reaching ${new URL(PROXY).host}: ${e?.message}`);
+  }
+  const text = await res.text();
+  if (res.status !== 402) die(`topup initiate ${res.status} — ${text.slice(0, 200)}`);
+  let ch: any; try { ch = JSON.parse(text); } catch { die('topup initiate did not return JSON'); }
+  if (!ch.resource || !ch.orderId) die('topup initiate missing orderId/resource');
+  return { orderId: ch.orderId, resource: ch.resource, costCredits: ch.costCredits, creditsToGrant: ch.creditsToGrant, rawBody: text };
+}
+
+// POST the finalize resource URL with the signed X-Payment token (no bearer).
+export async function topupFinalize(resourceUrl: string, xPayment: string): Promise<{ creditsAdded?: number; balance?: number }> {
+  let res: Response;
+  try {
+    res = await fetch(resourceUrl, { method: 'POST', headers: { accept: 'application/json', 'X-Payment': xPayment } });
+  } catch (e: any) {
+    die(`network error reaching ${new URL(resourceUrl).host}: ${e?.message}`);
+  }
+  const text = await res.text();
+  if (res.status >= 400) die(`finalize ${res.status} — ${text.slice(0, 200)}`);
+  try { return JSON.parse(text); } catch { return {}; }
+}
+
 // --- dispatch ----------------------------------------------------------------
 // Single entry point called from cli.ts. `command` is the resolved multi-word
 // command string; `positionals` are the non-flag tokens after it.
@@ -428,9 +477,8 @@ export async function runMarketCommand(
       case 'market model usageHistory':
         raw = await cmdUsageHistory(positionals[0]);
         break;
-      case 'market model topup':
-        die('`market model topup` is not wired yet — coming in a follow-up. Use `fluxa-wallet mandate-create` + `x402-v3` for now (see `market info pay`).');
-      // eslint-disable-next-line no-fallthrough
+      // 'market model topup' is orchestrated in cli.ts (it needs the wallet's
+      // in-process mandate + x402-v3 primitives); it never reaches here.
       case 'market keys':
       case 'market keys list':
         raw = await keysList();

@@ -5,7 +5,7 @@
  * Can be bundled into a single file with esbuild for distribution
  */
 
-import { runMarketCommand } from './market/client.js';
+import { runMarketCommand, topupInitiate, topupFinalize } from './market/client.js';
 import {
   registerAgent,
   createPayout,
@@ -2173,6 +2173,76 @@ async function cmdX402V3(options: Record<string, string>): Promise<CommandResult
   }
 }
 
+// Prepay Units to a merchant. Orchestrates the marketplace proxy legs
+// (initiate/finalize in src/market/client) around the wallet's own proven
+// mandate + x402-v3 primitives — the in-process replacement for the planner's
+// shell-out to `fluxa-wallet`.
+async function cmdMarketTopup(positionals: string[], options: Record<string, string>): Promise<CommandResult> {
+  const vendor = positionals[0];
+  if (!vendor) {
+    return { success: false, error: 'usage: fluxa-wallet market model topup <vendor> [--credits <N> | --bundle <slug>]' };
+  }
+  const auth = await ensureValidJWT();
+  if (!auth) {
+    return { success: false, error: 'FluxA Agent ID not initialized. Run "init" first.' };
+  }
+
+  try {
+    // 1. initiate — answers HTTP 402 with the x402 challenge on success
+    const init = await topupInitiate(vendor, { credits: options.credits, bundle: options.bundle });
+    console.error(`· order ${init.orderId}: ${init.costCredits} Monetize Credits -> ${Number(init.creditsToGrant).toLocaleString()} Units to ${vendor}`);
+
+    // 2. mandate (Monetize Credits) — budget must cover the cost (credits unit = MC x 100)
+    const budget = options.budget ? Number(options.budget) : Math.max(500, Math.ceil(Number(init.costCredits) * 100));
+    const seconds = options.seconds ? Number(options.seconds) : 28800;
+    const mc = await cmdMandateCreate({
+      desc: `Prepay ${init.costCredits} MC of Units for ${vendor}`,
+      amount: String(budget),
+      seconds: String(seconds),
+      currency: 'FLUXA_MONETIZE_CREDITS',
+    });
+    if (!mc.success) return mc;
+    const mandateId: string = mc.data.mandateId;
+    const authUrl: string | undefined = mc.data.authorizationUrl;
+
+    // 3. sign — the human approves the mandate URL; we poll until it's signed
+    console.error(`\n  Sign the spending mandate (budget ${budget} FLUXA_MONETIZE_CREDITS, valid ${seconds}s)`);
+    if (authUrl) console.error(`  ${authUrl}`);
+    console.error('  open the link, approve, then this continues automatically...\n');
+    const READY = new Set(['signed', 'active', 'authorized', 'approved']);
+    let signed = false;
+    for (let i = 0; i < 60; i++) {
+      await new Promise((r) => setTimeout(r, 2000));
+      try {
+        const s = await getMandateStatus(mandateId, auth.jwt);
+        const st = s.mandate?.status;
+        if (st && READY.has(st)) { signed = true; break; }
+      } catch { /* transient — keep polling */ }
+    }
+    if (!signed) {
+      return { success: false, error: 'mandate not signed in time — re-run once you have approved the link.' };
+    }
+    console.error('  mandate signed');
+
+    // 4. sign the payment over the FULL 402 body via the wallet's proven x402-v3
+    const paid = await cmdX402V3({ mandate: mandateId, payload: init.rawBody });
+    if (!paid.success) return paid;
+    const xPayment: string | undefined = paid.data?.xPaymentB64;
+    if (!xPayment) return { success: false, error: 'x402-v3 did not return a payment token (xPaymentB64).' };
+
+    // 5. finalize — POST the resource URL with the payment token (no bearer)
+    const fin = await topupFinalize(init.resource, xPayment);
+    const added = Number(fin.creditsAdded ?? init.creditsToGrant);
+    await recordAudit({ event: 'market_topup', vendor, order_id: init.orderId, mandate_id: mandateId, units_added: added });
+    return {
+      success: true,
+      raw: `topped up ${vendor} · +${added.toLocaleString()} Units · balance ${Number(fin.balance ?? 0).toLocaleString()} Units`,
+    };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'topup failed' };
+  }
+}
+
 async function cmdX402V2(mandateId: string, payload: any, rawB64?: string): Promise<CommandResult> {
   const auth = await ensureValidJWT();
   if (!auth) {
@@ -2738,7 +2808,6 @@ async function main() {
     case 'market search':
     case 'market model remainingUsage':
     case 'market model usageHistory':
-    case 'market model topup':
     case 'market keys':
     case 'market keys list':
     case 'market keys create':
@@ -2746,6 +2815,9 @@ async function main() {
     case 'market keys revoke':
     case 'market info':
       result = await runMarketCommand(command, positionals, options);
+      break;
+    case 'market model topup':
+      result = await cmdMarketTopup(positionals, options);
       break;
     case 'market':
     case 'market model':
