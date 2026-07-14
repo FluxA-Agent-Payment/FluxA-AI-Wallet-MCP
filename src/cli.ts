@@ -5,6 +5,7 @@
  * Can be bundled into a single file with esbuild for distribution
  */
 
+import { runMarketCommand } from './market/client.js';
 import {
   registerAgent,
   createPayout,
@@ -144,6 +145,15 @@ COMMANDS:
   mandates                  List the agent's mandates with limit / spent / remaining
   recent-transactions       List recent transactions (USDC / XRP / credits spends)
   version                   Print the CLI version (also --version, -v)
+
+MARKETPLACE COMMANDS:
+  plan-tool-use "<task>"    Recommend the models, APIs and skills for a task
+  market search "<q>"       Discover resources (add --models or --vendors to scope)
+  market model remainingUsage [vendor]   Prepaid Units balance per merchant
+  market model topup <vendor>            Prepay Units to a merchant (x402)
+  market model usageHistory <vendor>     Spend and topup history
+  market keys [create|update <id>|revoke <id>]   Manage fxa_live_ API keys (Agent VC only)
+  market info [topic]       Explain how the marketplace works
 
 OPTIONS FOR 'init':
   --name <name>             Agent name
@@ -394,9 +404,10 @@ EXAMPLES:
 `);
 }
 
-function parseArgs(args: string[]): { command: string; options: Record<string, string>; helpRequested: boolean } {
+function parseArgs(args: string[]): { command: string; options: Record<string, string>; positionals: string[]; helpRequested: boolean } {
   let command = args[0] || 'help';
   const options: Record<string, string> = {};
+  const positionals: string[] = [];
   let helpRequested = false;
   let optionStartIndex = 1;
 
@@ -417,6 +428,26 @@ function parseArgs(args: string[]): { command: string; options: Record<string, s
         optionStartIndex = 2;
       }
     }
+  } else if (command === 'market') {
+    // `market model <verb>` and `market keys <verb>` resolve to three-word
+    // commands (like `card holder <verb>`); `market search` / `market info`
+    // stay two-word. Everything after is captured as positionals.
+    const sub = args[1];
+    if (sub && !sub.startsWith('-')) {
+      if (sub === 'model' || sub === 'keys') {
+        const nested = args[2];
+        if (nested && !nested.startsWith('-')) {
+          command = `market ${sub} ${nested}`;
+          optionStartIndex = 3;
+        } else {
+          command = `market ${sub}`;
+          optionStartIndex = 2;
+        }
+      } else {
+        command = `market ${sub}`;
+        optionStartIndex = 2;
+      }
+    }
   }
 
   for (let i = optionStartIndex; i < args.length; i++) {
@@ -434,13 +465,64 @@ function parseArgs(args: string[]): { command: string; options: Record<string, s
       } else {
         options[key] = 'true';
       }
+    } else {
+      positionals.push(arg);
     }
   }
 
-  return { command, options, helpRequested };
+  return { command, options, positionals, helpRequested };
 }
 
 const COMMAND_USAGE: Record<string, string> = {
+  'plan-tool-use': `Usage: fluxa-wallet plan-tool-use "<task>"
+
+Recommend the models, APIs and skills for a task. Prints a plan; run the
+recommended calls yourself and settle any 402s via the wallet.
+
+Example:
+  fluxa-wallet plan-tool-use "scrape a site and summarize it"`,
+
+  'market search': `Usage: fluxa-wallet market search "<query>" [--models | --vendors]
+
+Discover marketplace resources. With no flag, searches APIs, skills and models.
+
+Options:
+  --models            Scope to models (with optional query as a vendor filter)
+  --vendors           List fundable vendors instead of searching
+
+Examples:
+  fluxa-wallet market search "video"
+  fluxa-wallet market search --models
+  fluxa-wallet market search --vendors`,
+
+  'market model remainingUsage': `Usage: fluxa-wallet market model remainingUsage [vendor]
+
+Prepaid Units balance per merchant. Pass a vendor to scope to one.`,
+
+  'market model topup': `Usage: fluxa-wallet market model topup <vendor> [--credits <N> | --bundle <slug>]
+
+Prepay Units to a merchant via x402. Signs a Monetize Credits mandate.`,
+
+  'market model usageHistory': `Usage: fluxa-wallet market model usageHistory <vendor>
+
+Spend and topup history for a merchant.`,
+
+  'market keys': `Usage: fluxa-wallet market keys [list | create | update <id> | revoke <id>]
+
+Manage your fxa_live_ API keys (requires an Agent VC, not a metered key).
+
+Options (create/update):
+  --name <name>       Key name
+  --cap <MC>          Spend cap in Monetize Credits (--cap 0 clears it)
+
+Examples:
+  fluxa-wallet market keys create --name ci --cap 50
+  fluxa-wallet market keys revoke <id>`,
+
+  'market info': `Usage: fluxa-wallet market info [topic]
+
+Explain how the marketplace works. Topics: units, auth, pay, keys, models, skills.`,
+
   status: `Usage: fluxa-wallet status
 
 Check agent configuration status. No options required.
@@ -2623,7 +2705,7 @@ async function cmdRecentTransactions(options: Record<string, string>): Promise<C
 // Main entry point
 async function main() {
   const args = process.argv.slice(2);
-  const { command, options, helpRequested } = parseArgs(args);
+  const { command, options, positionals, helpRequested } = parseArgs(args);
 
   // Version: `fluxa-wallet --version` / `-v` / `version`
   if (command === '--version' || command === '-v' || command === 'version') {
@@ -2650,6 +2732,25 @@ async function main() {
   let result: CommandResult;
 
   switch (command) {
+    // FluxA marketplace commands (ported from the planner CLI). All resolved
+    // multi-word command strings route through one handler in src/market/client.
+    case 'plan-tool-use':
+    case 'market search':
+    case 'market model remainingUsage':
+    case 'market model usageHistory':
+    case 'market model topup':
+    case 'market keys':
+    case 'market keys list':
+    case 'market keys create':
+    case 'market keys update':
+    case 'market keys revoke':
+    case 'market info':
+      result = await runMarketCommand(command, positionals, options);
+      break;
+    case 'market':
+    case 'market model':
+      result = { success: false, error: `incomplete command: ${command}. See \`fluxa-wallet market info\`.` };
+      break;
     case 'status':
       result = await cmdStatus();
       break;
