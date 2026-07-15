@@ -95,6 +95,9 @@ Trial Scenarios: **MUST** guide user with wording such as: Let’s try what this
 | **Agent VC & Agent ID** | Issue a short-lived verifiable credential to prove agent identity to third parties (SSO, account binding) without handing over the login JWT | Use when a third-party service asks the agent to authenticate via a signed token | VC-ISSUE.md |
 | **Publish a paid API** | List and monetize your own oneshot API so other agents can pay to call it | Use when the user wants to sell or expose an API for agents to pay for | `curl https://monetize.fluxapay.xyz/console/apis/skills.md` |
 | **Create a paid skill** | Build and publish a payment-enabled skill on FluxA Monetize | Use when the user wants to package and sell a skill | `curl https://monetize.fluxapay.xyz/create-skill.md` |
+| **Agent Market: discover & plan** | Search the marketplace for APIs, models, and skills, and get a recommended tool plan for a task | Use when you need to find paid resources, or plan which tools a task needs | `fluxa-wallet market search "<q>"` (add `--models` or `--vendors` to scope); `fluxa-wallet plan-tool-use "<task>"` |
+| **Prepaid LLM Units** | Call LLMs through prepaid per-merchant Units, and manage those balances | Use when calling models via `/llm/{merchant}`, or funding a merchant's Units balance | `fluxa-wallet market model remainingUsage`; `fluxa-wallet market model topup <vendor>` (confirm the spend first); `fluxa-wallet market model usageHistory <vendor>` |
+| **Market API keys** | Mint and rotate `fxa_live_` keys for metered API and LLM access | Use when an agent needs a capped key to hand to a sub-process | `fluxa-wallet market keys create --name <n> --cap <MC>` |
 
 ## Opening Authorization URLs (UX Pattern)
 
@@ -248,6 +251,16 @@ For FLUXA_MONETIZE_CREDITS, amounts are in the credits' smallest unit as defined
 | `balance` | (none) | Show the linked wallet's balances (USDC / XRP / credits) |
 | `mandates` | (none) | List the agent's mandates with limit / spent / remaining |
 | `recent-transactions` | (none) | List recent transactions — USDC / XRP / credits spends (`--limit`, 1-100); excludes credit top-ups/grants/redeems and received payments |
+| `plan-tool-use` | (task arg) | Recommend the models, APIs, and skills for a task |
+| `market search` | (query arg) | Discover APIs, models, and skills (`--models` or `--vendors` to scope) |
+| `market model remainingUsage` | (vendor optional) | Prepaid Units balance per merchant |
+| `market model topup` | (vendor arg) | Prepay Units to a merchant via x402 (confirm the spend first) |
+| `market model usageHistory` | (vendor arg) | Spend and topup history for a merchant |
+| `market keys create` | (none) | Mint an `fxa_live_` API key (`--name`, `--cap` optional) |
+| `market keys list` | (none) | List your `fxa_live_` keys |
+| `market keys update` | (id arg) | Update a key (`--name`, `--cap`; `--cap 0` clears the cap) |
+| `market keys revoke` | (id arg) | Revoke a key |
+| `market info` | (topic optional) | Explain the marketplace (topics: units, auth, pay, keys, models, skills) |
 
 **Common Mistakes to Avoid:**
 
@@ -267,6 +280,7 @@ For FLUXA_MONETIZE_CREDITS, amounts are in the credits' smallest unit as defined
 | `WALLET_API` | Wallet API base URL (default: `https://walletapi.fluxapay.xyz`) |
 | `AGENT_ID_API` | Agent ID API base URL (default: `https://agentid.fluxapay.xyz`) |
 | `CARD_SERVICE_API` | Card service API base URL (default: production URL) |
+| `FLUXA_KEY` | Optional `fxa_live_` API key for `market` commands (else an Agent VC is auto-minted from the wallet identity) |
 
 ## Developer Integration Guides
 
