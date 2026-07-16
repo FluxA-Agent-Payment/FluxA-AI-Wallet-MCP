@@ -71,14 +71,14 @@ Returns a `models[]` array. Each entry:
 
 | Field | Meaning |
 |-------|---------|
-| `provider` | Merchant that serves the model (e.g. `unify-llm`, `baidu-ai-cloud`) |
+| `provider` | The provider that serves the model; use it in the call URL path |
 | `id` | Model ID to pass as `"model"` (e.g. `anthropic/claude-opus-4.6`, `openai/gpt-5.5`, `deepseek-v4-flash`) |
 | `displayName` | Human-readable name |
 | `categories` | `text`, `thinking` |
 | `inputUnitsPer1M` / `outputUnitsPer1M` | Price in **Units per 1M tokens** |
 | `urls.merchantGuide` | Per-provider integration guide (`.../models/<provider>/skills.md`) |
 
-`unify-llm` is the unified endpoint fronting all major models (Claude, GPT, Gemini, DeepSeek, MiniMax, and more).
+Some providers front many models behind one endpoint, so a single `provider` can serve models from several vendors (Claude, GPT, Gemini, DeepSeek, and more).
 
 ## Pricing Units
 
@@ -87,14 +87,14 @@ Model pricing is denominated in **Units** (a.k.a. FLUXA_MONETIZE_CREDITS), **not
 - `1 Unit = $0.00001` → `100,000 Units = $1`
 - Example: Claude Sonnet 4.6 at `300,000` input / `1,500,000` output Units per 1M tokens = **$3 in / $15 out** per 1M tokens.
 
-## Calling a Model (UnifyLLM)
+## Calling a Model
 
 OpenAI Chat Completions wire format — drop-in for any OpenAI client, just swap the `baseURL`.
 
-**Base URL:** `https://proxy-monetize.fluxapay.xyz/llm/unify-llm/v1`
+**Base URL:** `https://proxy-monetize.fluxapay.xyz/llm/<provider>/v1` (`<provider>` from discovery)
 
 ```bash
-curl -X POST https://proxy-monetize.fluxapay.xyz/llm/unify-llm/v1/chat/completions \
+curl -X POST https://proxy-monetize.fluxapay.xyz/llm/<provider>/v1/chat/completions \
   -H "Authorization: Bearer <credential>" \
   -H "Content-Type: application/json" \
   -d '{"model":"anthropic/claude-sonnet-4.6","messages":[{"role":"user","content":"..."}]}'
@@ -105,7 +105,7 @@ curl -X POST https://proxy-monetize.fluxapay.xyz/llm/unify-llm/v1/chat/completio
 
 ## Billing Model (prepaid Units, not per-call x402)
 
-Unlike a Bazaar endpoint (one x402 signature per call), UnifyLLM meters against a **prepaid Units balance**. Calls succeed until unsettled debt crosses a threshold, at which point the **next call returns HTTP 402** — then settle or top up.
+Unlike a Bazaar endpoint (one x402 signature per call), the model endpoint meters against a **prepaid Units balance**. Calls succeed until unsettled debt crosses a threshold, at which point the **next call returns HTTP 402** — then settle or top up.
 
 ```bash
 # Balance
