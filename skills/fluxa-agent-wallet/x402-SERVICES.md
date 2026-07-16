@@ -9,7 +9,15 @@ If nothing in the catalog fits, the discovery response ends with a `more` block 
 
 # 1. Discover x402 resources (APIs, skills, models)
 
-Everything starts at one endpoint. Curl it to find a tool for the task:
+Search from the wallet CLI (recommended):
+
+```bash
+fluxa-wallet market search "<keywords>"           # APIs, skills, and models
+fluxa-wallet market search "<keywords>" --models  # scope to models
+fluxa-wallet market search --vendors              # list fundable vendors
+```
+
+Or hit the discovery endpoint directly:
 
 ```bash
 curl "https://monetize.fluxapay.xyz/api/discover?type=api,skill,model"
@@ -92,7 +100,7 @@ curl -X POST https://proxy-monetize.fluxapay.xyz/llm/unify-llm/v1/chat/completio
   -d '{"model":"anthropic/claude-sonnet-4.6","messages":[{"role":"user","content":"..."}]}'
 ```
 
-- `<credential>` = a human key `fxa_live_...`, or an **Agent VC** for agents (see [VC-ISSUE.md](VC-ISSUE.md)).
+- `<credential>` = an `fxa_live_` key (mint one with `fluxa-wallet market keys create`), or an **Agent VC** for agents (see [VC-ISSUE.md](VC-ISSUE.md)).
 - Non-streaming responses return `X-LLM-Cost-Credits` (Units charged) and `X-LLM-Balance` (Units remaining) headers. Streaming calls are metered after the stream closes (no headers).
 
 ## Billing Model (prepaid Units, not per-call x402)
@@ -101,20 +109,16 @@ Unlike a Bazaar endpoint (one x402 signature per call), UnifyLLM meters against 
 
 ```bash
 # Balance
-curl -H "Authorization: Bearer <credential>" \
-  https://proxy-monetize.fluxapay.xyz/llm/wallet/balances/unify-llm
+fluxa-wallet market model remainingUsage <vendor>
 
 # Spending history
-curl -H "Authorization: Bearer <credential>" \
-  "https://proxy-monetize.fluxapay.xyz/llm/wallet/ledger/unify-llm?kind=spend&limit=20"
+fluxa-wallet market model usageHistory <vendor>
 
 # Top up (ONLY after explicit user confirmation)
-curl -X POST -H "Authorization: Bearer <credential>" -H "Content-Type: application/json" \
-  -d '{"vendorSlug":"unify-llm","packageSlug":"<bundle-slug>"}' \
-  https://proxy-monetize.fluxapay.xyz/llm/topup/initiate
+fluxa-wallet market model topup <vendor>
 ```
 
-Top-up bundles: `starter` (5 MC / $5 → 500,000 Units), `mid` ($10 → 1,000,000), `pro` ($25 → 2,500,000). **Always confirm a top-up with the user first.**
+Optionally scope the amount with `--bundle <slug>` or `--credits <N>`. **Always confirm a top-up with the user first.**
 
 Full credential setup, operations, top-up protocol, and error handling:
 
