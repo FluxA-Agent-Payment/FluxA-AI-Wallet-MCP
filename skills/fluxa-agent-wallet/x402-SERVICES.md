@@ -1,89 +1,63 @@
 # Overview
 
-There are three sources for searching x402 resource
+Two ways to find x402 resources you can pay for with `fluxa-wallet`:
 
-# 1. Searching FluxA Oneshot API
+1. The FluxA Monetize catalog (verified first-party APIs/skills plus a curated external x402 set) through one discovery endpoint.
+2. The FluxA Monetize Models catalog (LLMs) with named models and per-token pricing.
 
-Public x402 services published by FluxA Monetize product.
+If nothing in the catalog fits, the discovery response ends with a `more` block pointing at broader external catalogs.
 
-https://monetize.fluxapay.xyz/api/discover?type=api
+# 1. Discover x402 resources (APIs, skills, models)
 
-# 2. Searching the x402 Bazaar
-
-Use the `npx awal@2.0.3 x402` commands to discover and inspect paid API endpoints available on the x402 bazaar marketplace. No authentication or balance is required for searching.
-
-## Commands
-
-### Search the Bazaar
-
-Find paid services by keyword using BM25 relevance search:
+Search from the wallet CLI (recommended):
 
 ```bash
-npx awal@2.0.3 x402 bazaar search <query> [-k <n>] [--force-refresh] [--json]
+fluxa-wallet market search "<keywords>"           # APIs, skills, and models
+fluxa-wallet market search "<keywords>" --models  # scope to models
+fluxa-wallet market search --vendors              # list fundable vendors
 ```
 
-| Option            | Description                          |
-| ----------------- | ------------------------------------ |
-| `-k, --top <n>`   | Number of results (default: 5)       |
-| `--force-refresh` | Re-fetch resource index from CDP API |
-| `--json`          | Output as JSON                       |
-
-Results are cached locally at `~/.config/awal/bazaar/` and auto-refresh after 12 hours.
-
-### List Bazaar Resources
-
-Browse all available resources:
+Or hit the discovery endpoint directly:
 
 ```bash
-npx awal@2.0.3 x402 bazaar list [--network <network>] [--full] [--json]
+curl "https://monetize.fluxapay.xyz/api/discover?type=api,skill,model"
 ```
 
-| Option             | Description                             |
-| ------------------ | --------------------------------------- |
-| `--network <name>` | Filter by network (base, base-sepolia)  |
-| `--full`           | Show complete details including schemas |
-| `--json`           | Output as JSON                          |
+- Fuzzy search: `?search=<keywords>` (matches name, description, tags).
+- Exact lookup: `?query=<slug|tag|provider>`.
+- Filter by kind: `?type=api`, `?type=skill`, `?type=model` (comma-combine to mix).
+- Each result carries `source: fluxa` (verified) or `source: bazaar` (curated external x402). Verified are listed first.
 
-### Discover Payment Requirements
+To use an **API** result, call its endpoint. The first unpaid call returns HTTP 402; settle it with `fluxa-wallet` and retry. See [X402-PAYMENT.md](X402-PAYMENT.md).
 
-Inspect an endpoint's x402 payment requirements without paying:
+To use a **skill** result, install it directly:
 
 ```bash
-npx awal@2.0.3 x402 details <url> [--json]
+npx -y skills add https://monetize.fluxapay.xyz -s <slug>
 ```
 
-Auto-detects the correct HTTP method (GET, POST, PUT, DELETE, PATCH) by trying each until it gets a 402 response, then displays price, accepted payment schemes, network, and input/output schemas.
+## Fallback: broader external catalogs (`more`)
 
-## Examples
+The discovery response ends with a `more` block. Use it only when nothing in the FluxA catalog above fits the task. Payment differs per source, so read each note:
 
-```bash
-# Search for weather-related paid APIs
-npx awal@2.0.3 x402 bazaar search "weather"
+- **x402 Bazaar (Coinbase)** - live semantic search across the ecosystem.
+  ```bash
+  curl "https://api.cdp.coinbase.com/platform/v2/x402/discovery/search?q=<keywords>"
+  ```
+  Pay: x402 per call. FluxA-curated Bazaar entries (`source: bazaar` above) are verified to settle with `fluxa-wallet`; raw CDP-facilitator listings may reject the wallet's payment, so prefer the curated entries.
 
-# Search with more results
-npx awal@2.0.3 x402 bazaar search "sentiment analysis" -k 10
+- **Apify Store** - web-scraping and data-extraction Actors.
+  ```bash
+  curl "https://api.apify.com/v2/store?search=<keywords>"
+  ```
+  Pay: prepaid model. Buy a 14-day bearer token once via x402 (settles with `fluxa-wallet`), then Actor calls draw it down. Docs: https://docs.apify.com/integrations/x402
 
-# Browse all bazaar resources with full details
-npx awal@2.0.3 x402 bazaar list --full
+## Discovery pitfalls
 
-# Check what an endpoint costs
-npx awal@2.0.3 x402 details https://example.com/api/weather
-```
+- A **failed topup order is dead**: retrying its finalize returns 409. Create a new topup instead.
+- The **creator UID path segment** on proxy URLs (`.../api/<slug>/<uid>`) is optional referral attribution. Drop it if you do not have one.
 
-## Prerequisites
-
-- No authentication needed for search, list, or details commands
-
-## Next Steps
-
-Once you've found a service you want to use, use the `pay-for-service` skill to make a paid request to the endpoint.
-
-## Error Handling
-
-- "CDP API returned 429" - Rate limited; cached data will be used if available
-- "No X402 payment requirements found" - URL may not be an x402 endpoint
-
-# 3. Searching FluxA Monetize Models (LLMs)
+# 2. FluxA Monetize Models (LLMs)
 
 First-party LLM catalog published by FluxA Monetize. Use this when you need to **call an LLM/AI model** (Claude, GPT, Gemini, DeepSeek, Kimi, GLM, MiniMax, ERNIE, etc.) through the wallet with **named models and per-token pricing** — instead of an opaque per-call x402 endpoint from the Bazaar.
 
@@ -97,14 +71,14 @@ Returns a `models[]` array. Each entry:
 
 | Field | Meaning |
 |-------|---------|
-| `provider` | Merchant that serves the model (e.g. `unify-llm`, `baidu-ai-cloud`) |
+| `provider` | The provider that serves the model; use it in the call URL path |
 | `id` | Model ID to pass as `"model"` (e.g. `anthropic/claude-opus-4.6`, `openai/gpt-5.5`, `deepseek-v4-flash`) |
 | `displayName` | Human-readable name |
 | `categories` | `text`, `thinking` |
 | `inputUnitsPer1M` / `outputUnitsPer1M` | Price in **Units per 1M tokens** |
 | `urls.merchantGuide` | Per-provider integration guide (`.../models/<provider>/skills.md`) |
 
-`unify-llm` is the unified endpoint fronting all major models (Claude, GPT, Gemini, DeepSeek, MiniMax, and more).
+Some providers front many models behind one endpoint, so a single `provider` can serve models from several vendors (Claude, GPT, Gemini, DeepSeek, and more).
 
 ## Pricing Units
 
@@ -113,42 +87,38 @@ Model pricing is denominated in **Units** (a.k.a. FLUXA_MONETIZE_CREDITS), **not
 - `1 Unit = $0.00001` → `100,000 Units = $1`
 - Example: Claude Sonnet 4.6 at `300,000` input / `1,500,000` output Units per 1M tokens = **$3 in / $15 out** per 1M tokens.
 
-## Calling a Model (UnifyLLM)
+## Calling a Model
 
 OpenAI Chat Completions wire format — drop-in for any OpenAI client, just swap the `baseURL`.
 
-**Base URL:** `https://proxy-monetize.fluxapay.xyz/llm/unify-llm/v1`
+**Base URL:** `https://proxy-monetize.fluxapay.xyz/llm/<provider>/v1` (`<provider>` from discovery)
 
 ```bash
-curl -X POST https://proxy-monetize.fluxapay.xyz/llm/unify-llm/v1/chat/completions \
+curl -X POST https://proxy-monetize.fluxapay.xyz/llm/<provider>/v1/chat/completions \
   -H "Authorization: Bearer <credential>" \
   -H "Content-Type: application/json" \
   -d '{"model":"anthropic/claude-sonnet-4.6","messages":[{"role":"user","content":"..."}]}'
 ```
 
-- `<credential>` = a human key `fxa_live_...`, or an **Agent VC** for agents (see [VC-ISSUE.md](VC-ISSUE.md)).
+- `<credential>` = an `fxa_live_` key (mint one with `fluxa-wallet market keys create`), or an **Agent VC** for agents (see [VC-ISSUE.md](VC-ISSUE.md)).
 - Non-streaming responses return `X-LLM-Cost-Credits` (Units charged) and `X-LLM-Balance` (Units remaining) headers. Streaming calls are metered after the stream closes (no headers).
 
 ## Billing Model (prepaid Units, not per-call x402)
 
-Unlike a Bazaar endpoint (one x402 signature per call), UnifyLLM meters against a **prepaid Units balance**. Calls succeed until unsettled debt crosses a threshold, at which point the **next call returns HTTP 402** — then settle or top up.
+Unlike a Bazaar endpoint (one x402 signature per call), the model endpoint meters against a **prepaid Units balance**. Calls succeed until unsettled debt crosses a threshold, at which point the **next call returns HTTP 402** — then settle or top up.
 
 ```bash
 # Balance
-curl -H "Authorization: Bearer <credential>" \
-  https://proxy-monetize.fluxapay.xyz/llm/wallet/balances/unify-llm
+fluxa-wallet market model remainingUsage <vendor>
 
 # Spending history
-curl -H "Authorization: Bearer <credential>" \
-  "https://proxy-monetize.fluxapay.xyz/llm/wallet/ledger/unify-llm?kind=spend&limit=20"
+fluxa-wallet market model usageHistory <vendor>
 
 # Top up (ONLY after explicit user confirmation)
-curl -X POST -H "Authorization: Bearer <credential>" -H "Content-Type: application/json" \
-  -d '{"vendorSlug":"unify-llm","packageSlug":"<bundle-slug>"}' \
-  https://proxy-monetize.fluxapay.xyz/llm/topup/initiate
+fluxa-wallet market model topup <vendor>
 ```
 
-Top-up bundles: `starter` (5 MC / $5 → 500,000 Units), `mid` ($10 → 1,000,000), `pro` ($25 → 2,500,000). **Always confirm a top-up with the user first.**
+Optionally scope the amount with `--bundle <slug>` or `--credits <N>`. **Always confirm a top-up with the user first.**
 
 Full credential setup, operations, top-up protocol, and error handling:
 
