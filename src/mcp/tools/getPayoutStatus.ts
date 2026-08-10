@@ -1,7 +1,10 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { getPayoutStatus as fetchPayoutStatus, WalletApiError } from '../../wallet/client.js';
+import { getEffectiveAgentId, updateJWT } from '../../agent/agentId.js';
+import { getPayoutStatus as fetchPayoutStatus, isJWTExpired, refreshJWT, WalletApiError } from '../../wallet/client.js';
 import { recordAudit } from '../../store/store.js';
+
+const PMC_PRIMER = 'Please read and follow pmc.instructions to guide the user through the next steps.';
 
 const RequestSchema = z
   .object({
@@ -12,7 +15,7 @@ const RequestSchema = z
 export type GetPayoutStatusInput = z.infer<typeof RequestSchema>;
 
 export function registerGetPayoutStatusTool(server: McpServer) {
-  const description = 'Query payout status from Wallet App public endpoint. Optionally override base URL via wallet_app_base.';
+  const description = 'Query payout status from Wallet Service using the session Agent JWT.';
 
   server.registerTool(
     'get_payout_status',
@@ -22,8 +25,55 @@ export function registerGetPayoutStatusTool(server: McpServer) {
     },
     async (rawArgs) => {
       const args = RequestSchema.parse(rawArgs) as GetPayoutStatusInput;
+
+      let agentId = getEffectiveAgentId();
+      if (!agentId?.jwt) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({
+                status: 'error',
+                code: 'invalid_agent_config',
+                message: 'Agent ID configuration is incomplete (missing JWT)',
+                pmc: {
+                  primer: PMC_PRIMER,
+                  instructions: 'Please re-register using init_agent_id to obtain a valid JWT.',
+                },
+              }),
+            },
+          ],
+        };
+      }
+
+      // Refresh JWT if needed
+      if (isJWTExpired(agentId.jwt)) {
+        try {
+          const newJWT = await refreshJWT(agentId.agent_id, agentId.token);
+          updateJWT(newJWT);
+          agentId = getEffectiveAgentId()!;
+        } catch (err: any) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify({
+                  status: 'error',
+                  code: 'jwt_refresh_failed',
+                  message: `JWT refresh failed: ${err?.message || 'Unknown error'}`,
+                  pmc: {
+                    primer: PMC_PRIMER,
+                    instructions: 'JWT expired and automatic refresh failed. Please re-register using init_agent_id.',
+                  },
+                }),
+              },
+            ],
+          };
+        }
+      }
+
       try {
-        const resp = await fetchPayoutStatus(args.payout_id);
+        const resp = await fetchPayoutStatus(args.payout_id, agentId.jwt);
 
         await recordAudit({
           kind: 'payout_status',

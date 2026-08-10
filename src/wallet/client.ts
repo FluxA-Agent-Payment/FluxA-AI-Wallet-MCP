@@ -606,14 +606,18 @@ export async function getCardWithdrawal(
 }
 
 /**
- * Query payout status from Wallet App public endpoint
+ * Query payout status from Wallet App (requires Agent JWT)
  */
 export async function getPayoutStatus(
-  payoutId: string
+  payoutId: string,
+  jwt: string
 ): Promise<PayoutResponse> {
   const url = `${WALLET_API}/api/payouts/${encodeURIComponent(payoutId)}`;
 
-  const response = await fetch(url, { method: 'GET' });
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: { 'Authorization': `Bearer ${jwt}` },
+  });
   const text = await response.text();
 
   if (!response.ok) {

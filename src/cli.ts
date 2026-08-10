@@ -1897,8 +1897,16 @@ async function cmdPayoutStatus(options: Record<string, string>): Promise<Command
     };
   }
 
+  const auth = await ensureValidJWT();
+  if (!auth) {
+    return {
+      success: false,
+      error: 'FluxA Agent ID not initialized. Run "init" first.',
+    };
+  }
+
   try {
-    const result = await getPayoutStatus(payoutId);
+    const result = await getPayoutStatus(payoutId, auth.jwt);
 
     await recordAudit({
       event: 'payout_status_query',
