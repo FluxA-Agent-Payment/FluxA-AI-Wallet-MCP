@@ -6,7 +6,7 @@ description: >-
 
 # FluxA Agent Wallet
 
-**Skill version: 0.4.12** | **CLI version: @fluxa-pay/fluxa-wallet@0.4.12** — **MUST** install or update to the latest CLI version before use.
+**Skill version: 0.5.0** | **CLI version: @fluxa-pay/fluxa-wallet@0.5.0** — **MUST** install or update to the latest CLI version before use.
 
 FluxA Agent Wallet is a co-wallet that allows AI agents to securely use a user’s wallet, enabling them to perform payment-related actions within the user’s approved scope. Capabilities include x402 payments, USDC transfers, agent-to-agent transfers, payment links for receiving payments, prepaid virtual cards, AI social gifting, discovering and calling x402 resources (one-shot APIs), and using payment-related skills (one-shot skills). Use this tool when the user the user asks to perform any of these payment-related actions.
 
@@ -21,7 +21,7 @@ FluxA Agent Wallet is a co-wallet that allows AI agents to securely use a user�
 ### Step 1 — Install the CLI
 
 ```bash
-npm install -g @fluxa-pay/fluxa-wallet@0.4.12
+npm install -g @fluxa-pay/fluxa-wallet@0.5.0
 ```
 
 Then run commands directly:
@@ -85,6 +85,7 @@ Trial Scenarios: **MUST** guide user with wording such as: Let’s try what this
 |------------|-------------|-------------|-------------|
 | **x402 Payment** | Pay for APIs using the x402 protocol with intent mandates | Use when an API request returns HTTP 402 and requires payment | X402-PAYMENT.md |
 | **Agent Card** | Issue virtual prepaid agent cards, inspect card spend history, and retrieve 3DS challenges | Use when the user or agent needs a virtual card for online purchases or checkout verification | Use cli: `fluxa-wallet card` |
+| **Linked Card (VIC)** | Pay a merchant checkout with the user's own linked card through a merchant-scoped `CARD_USD` mandate; list linked cards and their mandates | Use when a merchant checkout hands you a WPE payment attempt id (`wpa_...`) and the user wants to pay with their linked card | LINKED-CARD.md |
 | **Transfer to Agent** | Send USDC to another AI agent by Agent ID | Use when you (AI Agent) need to transfer funds to another agent and you know their Agent ID | TRANSFER-TO-AGENT.md |
 | **Payout** | Send USDC to any wallet address | Use when the you (AI Agent) needs to transfer funds to a recipient, or user asks to send or transfer USDC to a wallet| PAYOUT.md |
 | **Payment Link** | Create shareable URLs to receive payments | Use when you (AI Agent) or user needs to charge users or ai agents, create invoices, sell something | PAYMENT-LINK.md |
@@ -246,8 +247,12 @@ For FLUXA_MONETIZE_CREDITS, amounts are in the credits' smallest unit as defined
 |---------|----------------|-------------|
 | `status` | (none) | Check agent configuration |
 | `init` | `--name`, `--client` | Register agent ID |
-| `mandate-create` | `--desc`, `--amount` | Create an intent mandate |
+| `mandate-create` | `--desc`, `--amount` | Create an intent mandate (`--currency CARD_USD` + merchant flags for a linked-card mandate, see LINKED-CARD.md) |
 | `mandate-status` | `--id` | Query mandate status (NOT `--mandate`) |
+| `linked-card list` | (none) | List the linked (source) cards in the user's wallet |
+| `linked-card mandates` | (none) | List `CARD_USD` mandates; `--card <id>` per card, `--host <host> --amount <cents>` for eligibility |
+| `linked-card subcard` | `--mandate` | Show the credential issued under one `CARD_USD` mandate (status, source card, CardVault canTransact) |
+| `headless-checkout` | `--mandate`, `--attempt` | Pay a WPE payment attempt with a signed `CARD_USD` mandate (`--billing` optional) |
 | `x402` | `--mandate`, `--payload` | Execute x402 payment (v1/v2 auto-detected) |
 | `payout` | `--to`, `--amount`, `--id` | Create a payout |
 | `payout-status` | `--id` | Query payout status |

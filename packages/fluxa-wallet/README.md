@@ -44,8 +44,20 @@ fluxa-wallet <command> --help     # full options for any command
 |---------|-------------|
 | `x402` | Execute an x402 payment (delegates to v3; `--mandate`, `--payload`) |
 | `x402-v3` | Execute an x402 v2/v3 payment (`--mandate`, `--payload`) |
-| `mandate-create` | Create an intent mandate (`--desc`, `--amount`) |
+| `mandate-create` | Create an intent mandate (`--desc`, `--amount`; `--currency CARD_USD` plus merchant flags for a linked-card mandate) |
 | `mandate-status` | Query a mandate by id (`--id`) |
+
+### Linked cards (VIC)
+
+The user links their own card in the wallet UI; the agent reads it and pays
+with a signed `CARD_USD` mandate.
+
+| Command | Description |
+|---------|-------------|
+| `linked-card list` | List the linked (source) cards in the user's wallet (`--limit`, `--cursor`) |
+| `linked-card mandates` | List `CARD_USD` mandates: all, per card (`--card`), or eligible for an amount (`--host`, `--amount`) |
+| `linked-card subcard` | Show the credential issued under one `CARD_USD` mandate (`--mandate`) |
+| `headless-checkout` | Pay a WPE payment attempt with a signed `CARD_USD` mandate (`--mandate`, `--attempt`, `--billing`) |
 
 ### Payouts
 
@@ -111,6 +123,15 @@ fluxa-wallet check-wallet
 # Create an intent mandate, then pay an x402 API
 fluxa-wallet mandate-create --desc "Spend up to 0.10 USDC" --amount 100000
 fluxa-wallet x402 --mandate mand_xxx --payload '{"accepts":[...]}'
+
+# Linked card: CARD_USD mandate for one merchant, user approves in the wallet, then pay
+fluxa-wallet mandate-create --currency CARD_USD --desc "Buy one gift card" --amount 2000 \
+  --merchant-name "Shop" --merchant-url https://shop.example.com --merchant-country US \
+  --merchant-id shop-123 --merchant-category "Gift cards" --mcc 5947 --product gift-card-25:1
+fluxa-wallet linked-card list
+fluxa-wallet linked-card mandates --host shop.example.com --amount 2000
+fluxa-wallet linked-card subcard --mandate mand_xxx
+fluxa-wallet headless-checkout --mandate mand_xxx --attempt wpa_xxx --billing @billing.json
 
 # AgentCard: one-time holder setup, then issue a card
 fluxa-wallet card holder create --first-name Alice --last-name Agent
