@@ -2209,11 +2209,25 @@ function linkedCardErrorMessage(code: string | undefined, fallback: string): str
 }
 
 function linkedCardError(err: any, fallback: string): CommandResult {
-  const code = apiErrorCode(err);
-  const details = err?.details && typeof err.details === 'object' ? err.details : undefined;
+  let code = apiErrorCode(err);
+  let details = err?.details && typeof err.details === 'object' ? err.details : undefined;
+  let message = err?.message || fallback;
+  // Some wallet client calls surface the raw error body as the message.
+  if (!details && typeof err?.details === 'string') {
+    try {
+      const parsed = JSON.parse(err.details);
+      if (parsed && typeof parsed === 'object') {
+        details = parsed;
+        code = code || parsed.error?.code || parsed.code;
+        message = parsed.error?.message || parsed.message || message;
+      }
+    } catch {
+      // not JSON; keep the original message
+    }
+  }
   return {
     success: false,
-    error: linkedCardErrorMessage(code, err?.message || fallback),
+    error: linkedCardErrorMessage(code, message),
     ...(code ? { code } : {}),
     ...(details?.mandateStatus ? { details: { mandateStatus: details.mandateStatus, approvalUrl: details.approvalUrl || null } } : {}),
   };
