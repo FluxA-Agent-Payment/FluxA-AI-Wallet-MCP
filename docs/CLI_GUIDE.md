@@ -40,9 +40,13 @@ Run `fluxa-wallet <command> --help` for the full option list of any command.
 
 | Command | Description |
 |---------|-------------|
-| `mandate-create` | Create an intent mandate (`--desc`, `--amount`) |
+| `mandate-create` | Create an intent mandate (`--desc`, `--amount`; `--currency CARD_USD` plus merchant flags for a linked-card mandate) |
 | `mandate-status` | Query a mandate by id (`--id`) |
 | `x402` / `x402-v3` | Execute an x402 payment (`--mandate`, `--payload`) |
+| `linked-card list` | List the linked (source) cards in the user's wallet (`--limit`, `--cursor`) |
+| `linked-card mandates` | List `CARD_USD` mandates: all, per card (`--card`), or eligible for an amount (`--host`, `--amount`) |
+| `linked-card subcard` | Show the credential issued under one `CARD_USD` mandate (`--mandate`) |
+| `headless-checkout` | Pay a WPE payment attempt with a signed `CARD_USD` mandate (`--mandate`, `--attempt`, `--billing`) |
 | `payout` | Send USDC to a wallet address (`--to`, `--amount`, `--id`) |
 | `payout-status` | Query a payout (`--id`) |
 
@@ -395,6 +399,40 @@ fluxa-wallet card withdraw --id card_xxx --amount 5.00
 fluxa-wallet card withdrawals --id card_xxx
 fluxa-wallet card withdrawal --id card_xxx --withdrawal-id wdr_xxx
 ```
+
+### Linked cards (VIC)
+
+Linked cards are the user's own cards, linked once in the wallet UI. The agent
+never sees card numbers: it creates a `CARD_USD` mandate scoped to one
+merchant, the user approves it on a linked card, and the agent pays a WPE
+payment attempt (`wpa_...`, issued by the merchant / Monetize checkout) with
+`headless-checkout`. Amounts are in cents (`2000` = $20.00). Read commands
+print the wallet's data object directly; `mandate-create` and
+`headless-checkout` use the CLI envelope.
+
+```bash
+# 1. Create the mandate (8h validity by default), then send approvalUrl to the user.
+#    --merchant-name must match the merchant profile approved on the CardVault side.
+fluxa-wallet mandate-create --currency CARD_USD --desc "Buy a USB-C cable on Amazon, up to $30" --amount 3000 \
+  --merchant-name Amazon --merchant-url https://www.amazon.com --merchant-country US
+# optional: --transaction-ref <order ref>   or   --ext @ext.json  ({ "merchant": {...}, "transaction_reference_id": "..." })
+
+# 2. Wait until isReady=true (status=signed and cardvault.canTransact=true)
+fluxa-wallet linked-card subcard --mandate mand_xxx
+
+# 3. Pay the attempt; open attempt.actionUrl with the user if 3-D Secure is required
+fluxa-wallet headless-checkout --mandate mand_xxx --attempt wpa_xxx --billing @billing.json
+
+# Reads
+fluxa-wallet linked-card list
+fluxa-wallet linked-card mandates
+fluxa-wallet linked-card mandates --card <card_id>
+fluxa-wallet linked-card mandates --host www.amazon.com --amount 3000
+```
+
+If the wallet answers that linked cards are not available, the user's wallet
+is not enabled for linked cards yet; ask them to check the Cards page in the
+FluxA wallet.
 
 `card create` and `card recharge` use the same mandate-backed x402 signing
 flow as `x402-v3`. A `payment_submitted` result means the payment was accepted

@@ -52,7 +52,20 @@ import {
   cancelRefund,
   issueVC,
   getAgentSelfStatus,
+  listLinkedCards,
+  listLinkedCardMandates,
+  getEligibleMandates,
+  getCardMandate,
+  submitHeadlessCheckout,
 } from './wallet/client.js';
+import {
+  CARD_USD_CURRENCY,
+  CardMandateExtError,
+  buildCardMandateExtFromFlags,
+  hasAnyCardMandateFlag,
+  validateCardMandateExt,
+  validateCardMandatePurpose,
+} from './wallet/cardMandateExt.js';
 import {
   getEffectiveAgentId,
   hasAgentId,
@@ -122,8 +135,12 @@ COMMANDS:
   payout                    Create a payout
   payout-status             Query payout status
   x402                      Generate x402 payment (delegates to x402-v3)
-  mandate-create            Create an intent mandate for x402 v3
+  mandate-create            Create an intent mandate (USDC / XRP / credits / CARD_USD linked card)
   mandate-status            Query mandate status
+  linked-card list          List the linked (source) cards in the user's wallet
+  linked-card mandates      List CARD_USD mandates (all, per card, or eligible for an amount)
+  linked-card subcard       Show the credential issued under one CARD_USD mandate
+  headless-checkout         Pay a WPE attempt with a signed CARD_USD mandate
   x402-v3                   Generate x402 v2/v3 payment with mandate
   paymentlink-create        Create a payment link
   paymentlink-list          List payment links
@@ -351,6 +368,19 @@ EXAMPLES:
   # Query mandate status
   fluxa-wallet mandate-status --id mand_xxxxx
 
+  # Create a linked-card (CARD_USD) mandate: up to $30.00 at Amazon
+  fluxa-wallet mandate-create --currency CARD_USD --desc "Buy a USB-C cable on Amazon, up to $30" --amount 3000 \\
+    --merchant-name Amazon --merchant-url https://www.amazon.com --merchant-country US
+
+  # Linked cards, their mandates, and the credential under one mandate
+  fluxa-wallet linked-card list
+  fluxa-wallet linked-card mandates --card <card_id>
+  fluxa-wallet linked-card mandates --host www.amazon.com --amount 3000
+  fluxa-wallet linked-card subcard --mandate mand_xxxxx
+
+  # Pay a WPE attempt with a signed CARD_USD mandate
+  fluxa-wallet headless-checkout --mandate mand_xxxxx --attempt wpa_xxxxx --billing @billing.json
+
   # Create a payment link
   fluxa-wallet paymentlink-create --amount 1000000 --desc "Test payment"
 
@@ -427,6 +457,12 @@ function parseArgs(args: string[]): { command: string; options: Record<string, s
         command = `card ${subcommand}`;
         optionStartIndex = 2;
       }
+    }
+  } else if (command === 'linked-card') {
+    const subcommand = args[1];
+    if (subcommand && !subcommand.startsWith('-')) {
+      command = `linked-card ${subcommand}`;
+      optionStartIndex = 2;
     }
   } else if (command === 'market') {
     // `market model <verb>` and `market keys <verb>` resolve to three-word
@@ -736,21 +772,94 @@ Example:
 
   'mandate-create': `Usage: fluxa-wallet mandate-create [options]
 
-Create an intent mandate for x402 v3 payments.
+Create an intent mandate. USDC / XRP / credits mandates are used for x402 v3
+payments; CARD_USD mandates authorize a linked (source) card in the user's
+wallet for one merchant and are paid with "headless-checkout".
 
 Options:
   --desc <text>           Natural language description (required)
-  --amount <amount>       Budget limit in atomic units (required)
+  --amount <amount>       Budget limit in atomic units (required; CARD_USD uses cents: 2000 = $20.00)
   --seconds <duration>    Validity duration in seconds (default: 28800 = 8h)
   --category <category>   Category (default: general)
   --currency <currency>   Currency (default: USDC)
 
-Supported currencies: USDC, XRP, FLUXA_MONETIZE_CREDITS
-  Aliases accepted: credits, fluxa-monetize-credits, fluxa-monetize-credit
+Supported currencies: USDC, XRP, FLUXA_MONETIZE_CREDITS, CARD_USD
+  Aliases accepted: credits, fluxa-monetize-credits, fluxa-monetize-credit, card, card-usd
+
+CARD_USD options (linked card, VIC rail). Either the three merchant flags or --ext:
+  --merchant-name <text>      Merchant name, max 40 bytes; must match the merchant profile
+                              approved on the CardVault side (e.g. Amazon)
+  --merchant-url <https url>  Merchant site, full HTTPS URL (e.g. https://www.amazon.com)
+  --merchant-country <CC>     Merchant country, 2-letter code (e.g. US)
+  --transaction-ref <text>    Optional order / transaction reference, max 50 bytes
+  --ext <json | @file>        Full intent.ext JSON ({ "merchant": {...}, "transaction_reference_id": "..." })
+                              instead of the flags above
+  --desc for CARD_USD is sent to CardVault as the purpose: max 255 bytes, no line breaks.
+
+After creation the user must open approvalUrl in the wallet to pick a linked
+card and approve; poll "linked-card subcard --mandate <id>" until isReady=true.
 
 Examples:
   fluxa-wallet mandate-create --desc "Spend up to 0.1 USDC" --amount 100000
-  fluxa-wallet mandate-create --desc "Spend credits" --amount 500 --currency FLUXA_MONETIZE_CREDITS`,
+  fluxa-wallet mandate-create --desc "Spend credits" --amount 500 --currency FLUXA_MONETIZE_CREDITS
+  fluxa-wallet mandate-create --currency CARD_USD --desc "Buy a USB-C cable on Amazon, up to $30" --amount 3000 \\\\
+    --merchant-name Amazon --merchant-url https://www.amazon.com --merchant-country US
+  fluxa-wallet mandate-create --currency CARD_USD --desc "..." --amount 3000 --ext @ext.json`,
+
+  'linked-card list': `Usage: fluxa-wallet linked-card list [--limit <n>] [--cursor <cursor>]
+
+List the linked (source) cards in the user's wallet: id, brand, last4, expiry,
+status. Cards are linked by the user in the wallet UI; the agent only reads them.
+
+Options:
+  --limit <n>         Page size
+  --cursor <cursor>   Continue from a previous page's nextCursor
+
+Example:
+  fluxa-wallet linked-card list`,
+
+  'linked-card mandates': `Usage: fluxa-wallet linked-card mandates [--card <card_id>] [--host <host> --amount <cents>]
+
+List CARD_USD mandates held by this agent.
+
+  (no flags)                All CARD_USD mandates with status and remaining budget
+  --card <card_id>          Only mandates approved on that linked card
+  --host <host> --amount <n> Only signed mandates that can pay <n> cents right now (eligibility check)
+
+Examples:
+  fluxa-wallet linked-card mandates
+  fluxa-wallet linked-card mandates --card 550e8400-e29b-41d4-a716-446655440003
+  fluxa-wallet linked-card mandates --host www.amazon.com --amount 3000`,
+
+  'linked-card subcard': `Usage: fluxa-wallet linked-card subcard --mandate <mandate_id>
+
+Show the credential (sub-card) issued under one CARD_USD mandate: the wallet
+mandate status, the linked source card it was approved on, when the credential
+was activated, and the live CardVault state (canTransact).
+
+Options:
+  --mandate <mandate_id>   CARD_USD mandate id (required)
+
+Example:
+  fluxa-wallet linked-card subcard --mandate mand_xxxxxxxxxxxxx`,
+
+  'headless-checkout': `Usage: fluxa-wallet headless-checkout --mandate <mandate_id> --attempt <attempt_id> [--billing <json | @file>]
+
+Pay a WPE payment attempt with a signed CARD_USD (linked card) mandate. The
+attempt id (wpa_...) comes from the merchant / Monetize checkout; the mandate
+must be signed, enabled, and inside its validity window.
+
+Options:
+  --mandate <mandate_id>   CARD_USD mandate id (required)
+  --attempt <attempt_id>   WPE payment attempt id, wpa_... (required)
+  --billing <json | @file> Billing contact: firstName, lastName, address1, city, state, country, zip, phone
+
+Output: attempt.status and attempt.actionUrl. When actionUrl is present, show
+it to the user so they can complete 3-D Secure; then re-check the order on the
+merchant side.
+
+Example:
+  fluxa-wallet headless-checkout --mandate mand_xxxxx --attempt wpa_xxxxx --billing @billing.json`,
 
   'mandate-status': `Usage: fluxa-wallet mandate-status --id <mandate_id>
 
@@ -1977,6 +2086,31 @@ async function cmdMandateCreate(options: Record<string, string>): Promise<Comman
     }
   }
 
+  // CARD_USD (linked card) mandates need the merchant / VIC scope. Validate it
+  // locally so a bad flag fails with a field-level message before any call.
+  let ext;
+  const isCardMandate = currency === CARD_USD_CURRENCY;
+  if (isCardMandate) {
+    try {
+      if (options.ext !== undefined) {
+        if (hasAnyCardMandateFlag(options)) {
+          return { success: false, error: 'Use either --ext or the --merchant-* / --transaction-ref flags, not both' };
+        }
+        ext = validateCardMandateExt(readJsonOption(options.ext, '--ext'));
+      } else {
+        ext = buildCardMandateExtFromFlags(options);
+      }
+      validateCardMandatePurpose(description);
+    } catch (err: any) {
+      if (err instanceof CardMandateExtError || err instanceof JsonOptionError) {
+        return { success: false, error: `Invalid CARD_USD mandate: ${err.message}` };
+      }
+      throw err;
+    }
+  } else if (options.ext !== undefined || hasAnyCardMandateFlag(options)) {
+    return { success: false, error: 'Merchant flags are only valid with --currency CARD_USD' };
+  }
+
   const auth = await ensureValidJWT();
   if (!auth) {
     return {
@@ -1995,6 +2129,7 @@ async function cmdMandateCreate(options: Record<string, string>): Promise<Comman
           limitAmount: limitAmount,
           validForSeconds: seconds,
           hostAllowlist: [],
+          ...(ext ? { ext } : {}),
         },
       },
       auth.jwt
@@ -2003,9 +2138,19 @@ async function cmdMandateCreate(options: Record<string, string>): Promise<Comman
     await recordAudit({
       event: 'mandate_create',
       mandate_id: result.mandateId,
+      currency,
       limit: limitAmount,
       seconds: seconds,
     });
+
+    if (result.status !== 'ok' && isCardMandate) {
+      return {
+        success: false,
+        error: linkedCardErrorMessage(result.code, result.message || 'Mandate creation failed'),
+        ...(result.code ? { code: result.code } : {}),
+        data: result,
+      };
+    }
 
     return {
       success: result.status === 'ok',
@@ -2017,6 +2162,208 @@ async function cmdMandateCreate(options: Record<string, string>): Promise<Comman
       success: false,
       error: err.message || 'Mandate creation failed',
     };
+  }
+}
+
+class JsonOptionError extends Error {}
+
+// `--flag '<json>'` or `--flag @path/to/file.json`
+function readJsonOption(value: string, label: string): unknown {
+  let text = String(value ?? '').trim();
+  if (!text) throw new JsonOptionError(`${label} is empty`);
+  if (text.startsWith('@')) {
+    const file = text.slice(1);
+    try {
+      text = fs.readFileSync(path.resolve(file), 'utf8');
+    } catch (err: any) {
+      throw new JsonOptionError(`${label}: cannot read ${file} (${err?.code || err?.message || 'error'})`);
+    }
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new JsonOptionError(`${label} must be JSON or @file.json`);
+  }
+}
+
+// Wallet-side codes for linked-card surfaces, translated for the agent. The
+// wallet answers 404 both for a missing mandate and for a wallet that cannot
+// use linked cards; we say so without guessing which.
+function linkedCardErrorMessage(code: string | undefined, fallback: string): string {
+  switch (code) {
+    case 'card_payment_mode_not_enabled':
+    case 'not_found':
+    case 'NOT_FOUND':
+      return 'Linked cards are not available for this wallet (or the resource was not found). Ask the user to check the Cards page in the FluxA wallet.';
+    case 'mandate_not_found':
+      return 'Mandate not found, or linked cards are not available for this wallet. Check the mandate id with "linked-card mandates".';
+    case 'card_mandate_not_active':
+      return `${fallback} Ask the user to approve the mandate in the wallet (see approvalUrl), then retry.`;
+    case 'card_execution_mode_mismatch':
+      return `${fallback} Only CARD_USD linked-card mandates can be paid with headless-checkout.`;
+    case 'invalid_attempt_id':
+      return 'attemptId is invalid. Pass the WPE payment attempt id (wpa_...) from the merchant checkout.';
+    default:
+      return fallback;
+  }
+}
+
+function linkedCardError(err: any, fallback: string): CommandResult {
+  const code = apiErrorCode(err);
+  const details = err?.details && typeof err.details === 'object' ? err.details : undefined;
+  return {
+    success: false,
+    error: linkedCardErrorMessage(code, err?.message || fallback),
+    ...(code ? { code } : {}),
+    ...(details?.mandateStatus ? { details: { mandateStatus: details.mandateStatus, approvalUrl: details.approvalUrl || null } } : {}),
+  };
+}
+
+async function cmdLinkedCardList(options: Record<string, string>): Promise<CommandResult> {
+  const auth = await ensureValidJWT();
+  if (!auth) return { success: false, error: 'FluxA Agent ID not initialized. Run "init" first.' };
+
+  let limit: number | undefined;
+  if (options.limit !== undefined) {
+    limit = parseInt(options.limit, 10);
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+      return { success: false, error: '--limit must be an integer in [1, 100]' };
+    }
+  }
+
+  try {
+    const result = await listLinkedCards(auth.jwt, { limit, cursor: options.cursor });
+    await recordAudit({ event: 'linked_card_list', count: result.cards.length });
+    return rawJson(result);
+  } catch (err: any) {
+    return linkedCardError(err, 'Linked card list failed');
+  }
+}
+
+async function cmdLinkedCardMandates(options: Record<string, string>): Promise<CommandResult> {
+  const auth = await ensureValidJWT();
+  if (!auth) return { success: false, error: 'FluxA Agent ID not initialized. Run "init" first.' };
+
+  const cardId = options.card;
+  const host = options.host;
+  const amount = options.amount;
+  if ((host && !amount) || (!host && amount)) {
+    return { success: false, error: '--host and --amount must be given together' };
+  }
+  if (cardId && host) {
+    return { success: false, error: 'Use either --card or --host/--amount, not both' };
+  }
+  if (amount !== undefined && !/^\d+$/.test(amount)) {
+    return { success: false, error: '--amount must be a positive integer in cents (2000 = $20.00)' };
+  }
+
+  try {
+    if (cardId) {
+      const result = await listLinkedCardMandates(auth.jwt, cardId);
+      await recordAudit({ event: 'linked_card_mandates', scope: 'card', count: result.mandates.length });
+      return rawJson(result);
+    }
+    if (host) {
+      const mandates = await getEligibleMandates(auth.jwt, {
+        host: String(host).trim().toLowerCase(),
+        amount: String(amount),
+        currency: CARD_USD_CURRENCY,
+      });
+      await recordAudit({ event: 'linked_card_mandates', scope: 'eligible', count: mandates.length });
+      return rawJson({ host, amount, currency: CARD_USD_CURRENCY, eligibleMandates: mandates });
+    }
+    const status = await getAgentSelfStatus(auth.jwt);
+    const mandates = (status.mandates?.items || []).filter(
+      (m: any) => String(m.currency || '').toUpperCase() === CARD_USD_CURRENCY
+    );
+    await recordAudit({ event: 'linked_card_mandates', scope: 'all', count: mandates.length });
+    return rawJson({ currency: CARD_USD_CURRENCY, mandates });
+  } catch (err: any) {
+    return linkedCardError(err, 'Linked card mandate list failed');
+  }
+}
+
+async function cmdLinkedCardSubcard(options: Record<string, string>): Promise<CommandResult> {
+  const mandateId = options.mandate;
+  if (!mandateId) return { success: false, error: 'Missing required parameter: --mandate' };
+
+  const auth = await ensureValidJWT();
+  if (!auth) return { success: false, error: 'FluxA Agent ID not initialized. Run "init" first.' };
+
+  try {
+    const mandate = await getCardMandate(auth.jwt, mandateId);
+    if (String(mandate.currency || '').toUpperCase() !== CARD_USD_CURRENCY) {
+      return { success: false, error: `Mandate ${mandateId} is a ${mandate.currency} mandate, not a linked-card (CARD_USD) mandate` };
+    }
+    await recordAudit({ event: 'linked_card_subcard', mandate_id: mandateId, status: mandate.status });
+    return rawJson({
+      mandateId: mandate.mandateId,
+      status: mandate.status,
+      isReady: mandate.status === 'signed' && mandate.cardvault?.canTransact === true,
+      approvalUrl: mandate.approvalUrl,
+      sourceCardId: mandate.sourceCardId,
+      cardActivatedAt: mandate.cardActivatedAt,
+      lastErrorCode: mandate.lastErrorCode,
+      limitAmount: mandate.limitAmount,
+      spentAmount: mandate.spentAmount ?? null,
+      pendingSpentAmount: mandate.pendingSpentAmount ?? null,
+      remainingAmount: mandate.remainingAmount ?? null,
+      validFrom: mandate.validFrom,
+      validUntil: mandate.validUntil,
+      signedAt: mandate.signedAt,
+      merchant: mandate.ext?.merchant ?? null,
+      purpose: mandate.ext?.purpose ?? null,
+      cardvault: mandate.cardvault ?? null,
+    });
+  } catch (err: any) {
+    return linkedCardError(err, 'Linked card subcard query failed');
+  }
+}
+
+async function cmdHeadlessCheckout(options: Record<string, string>): Promise<CommandResult> {
+  const mandateId = options.mandate;
+  const attemptId = options.attempt;
+  if (!mandateId || !attemptId) {
+    return { success: false, error: 'Missing required parameters: --mandate, --attempt' };
+  }
+
+  let billing: Record<string, unknown> | undefined;
+  if (options.billing !== undefined) {
+    try {
+      const parsed = readJsonOption(options.billing, '--billing');
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return { success: false, error: '--billing must be a JSON object' };
+      }
+      billing = parsed as Record<string, unknown>;
+    } catch (err: any) {
+      if (err instanceof JsonOptionError) return { success: false, error: err.message };
+      throw err;
+    }
+  }
+
+  const auth = await ensureValidJWT();
+  if (!auth) return { success: false, error: 'FluxA Agent ID not initialized. Run "init" first.' };
+
+  try {
+    const result = await submitHeadlessCheckout(auth.jwt, mandateId, { attemptId, billing });
+    await recordAudit({
+      event: 'headless_checkout',
+      mandate_id: mandateId,
+      attempt_id: attemptId,
+      status: result.attempt?.status,
+    });
+    return {
+      success: true,
+      data: {
+        mandateId: result.mandateId,
+        attempt: result.attempt,
+        ...(result.attempt?.actionUrl
+          ? { nextStep: 'Open attempt.actionUrl with the user to complete 3-D Secure, then check the order on the merchant side.' }
+          : { nextStep: 'Check the order status on the merchant side.' }),
+      },
+    };
+  } catch (err: any) {
+    return linkedCardError(err, 'Headless checkout failed');
   }
 }
 
@@ -2893,6 +3240,21 @@ async function main() {
       break;
     case 'mandate-status':
       result = await cmdMandateStatus(options);
+      break;
+    case 'linked-card list':
+      result = await cmdLinkedCardList(options);
+      break;
+    case 'linked-card mandates':
+      result = await cmdLinkedCardMandates(options);
+      break;
+    case 'linked-card subcard':
+      result = await cmdLinkedCardSubcard(options);
+      break;
+    case 'linked-card':
+      result = { success: false, error: 'Usage: fluxa-wallet linked-card <list | mandates | subcard> [options]' };
+      break;
+    case 'headless-checkout':
+      result = await cmdHeadlessCheckout(options);
       break;
     case 'x402-v3':
       result = await cmdX402V3(options);

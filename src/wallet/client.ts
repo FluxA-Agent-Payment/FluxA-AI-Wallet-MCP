@@ -13,7 +13,9 @@ const AGENT_WALLET_APP = process.env.AGENT_WALLET_APP || 'https://agentwallet.fl
 const JWT_EXPIRY_BUFFER_SECONDS = 300;
 
 // Supported currencies
-export const SUPPORTED_CURRENCIES = ['USDC', 'XRP', 'FLUXA_MONETIZE_CREDITS'] as const;
+import type { CardMandateExt } from './cardMandateExt.js';
+
+export const SUPPORTED_CURRENCIES = ['USDC', 'XRP', 'FLUXA_MONETIZE_CREDITS', 'CARD_USD'] as const;
 export type SupportedCurrency = typeof SUPPORTED_CURRENCIES[number];
 
 const CURRENCY_ALIASES: Record<string, SupportedCurrency> = {
@@ -24,6 +26,9 @@ const CURRENCY_ALIASES: Record<string, SupportedCurrency> = {
   'fluxa-monetize-credit': 'FLUXA_MONETIZE_CREDITS',
   'fluxa_monetize_credit': 'FLUXA_MONETIZE_CREDITS',
   'credits': 'FLUXA_MONETIZE_CREDITS',
+  'card_usd': 'CARD_USD',
+  'card-usd': 'CARD_USD',
+  'card': 'CARD_USD',
 };
 
 /**
@@ -810,6 +815,8 @@ export interface IntentMandateIntent {
   limitAmount: string;
   validForSeconds: number;
   hostAllowlist?: string[];
+  // CARD_USD (linked card) mandates carry the merchant / VIC scope here.
+  ext?: CardMandateExt;
 }
 
 export interface CreateIntentMandateRequest {
@@ -1621,4 +1628,207 @@ export async function getAgentSelfStatus(
   } catch {
     throw new WalletApiError('Invalid agent status response (not JSON)', response.status, text);
   }
+}
+
+// ==================== Linked card (VIC) agent-side APIs ====================
+
+// Wallet endpoints answer with two envelopes: `{ success, data | error }` on
+// /api/vic/* and `{ status: 'ok' | 'error', code, message, ... }` on
+// /api/mandates/*. This helper parses either, and on failure throws a
+// WalletApiError whose `details.code` carries the machine-readable code.
+async function walletJsonRequest<T>(
+  path: string,
+  jwt: string,
+  init: { method?: string; body?: unknown } = {}
+): Promise<{ status: number; body: T }> {
+  const headers: Record<string, string> = { Authorization: `Bearer ${jwt}` };
+  if (init.body !== undefined) headers['Content-Type'] = 'application/json';
+  const response = await fetch(`${WALLET_API}${path}`, {
+    method: init.method || 'GET',
+    headers,
+    body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
+  });
+  const text = await response.text();
+  let body: any = null;
+  try {
+    body = text ? JSON.parse(text) : null;
+  } catch {
+    throw new WalletApiError(`Invalid wallet response (not JSON): ${text}`, response.status, text);
+  }
+  const failed = !response.ok || body?.success === false || body?.status === 'error';
+  if (failed) {
+    const code = body?.error?.code || body?.code || (response.status === 404 ? 'not_found' : undefined);
+    const message = body?.error?.message || body?.message || `Wallet request failed (${response.status})`;
+    const { error: _ignored, ...rest } = body && typeof body === 'object' ? body : {};
+    throw new WalletApiError(message, response.status, { ...rest, code, message });
+  }
+  return { status: response.status, body: body as T };
+}
+
+export interface LinkedCard {
+  id: string;
+  status: string;
+  brand: string | null;
+  last4: string | null;
+  expMonth: number | null;
+  expYear: number | null;
+}
+
+export interface LinkedCardMandate {
+  mandateId: string;
+  status: string;
+  currency: string;
+  decimals: number;
+  limitAmount: string;
+  spentAmount: string;
+  pendingSpentAmount: string;
+  remainingAmount: string;
+  isEnabled: boolean;
+  naturalLanguage: string;
+  purpose: string | null;
+  sourceCardId: string | null;
+  cardActivatedAt: string | null;
+  lastErrorCode: string | null;
+  validFrom: string;
+  validUntil: string;
+  signedAt: string | null;
+  createdAt: string;
+  approvalUrl: string | null;
+}
+
+export interface CardVaultMandateView {
+  status: string;
+  canTransact: boolean;
+  validUntil: string | null;
+}
+
+export interface CardMandateDetail {
+  mandateId: string;
+  status: string;
+  currency: string;
+  decimals: number;
+  limitAmount: string;
+  spentAmount?: string;
+  pendingSpentAmount?: string;
+  remainingAmount?: string;
+  naturalLanguage: string;
+  category: string | null;
+  cardExecutionMode: string;
+  ext: {
+    merchant: { name: string; url: string; country_code: string } | null;
+    purpose: string | null;
+  };
+  sourceCardId: string | null;
+  lastErrorCode: string | null;
+  validFrom: string;
+  validUntil: string;
+  signedAt: string | null;
+  cardActivatedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  approvalUrl: string | null;
+  cardvault?: CardVaultMandateView | null;
+}
+
+export async function listLinkedCards(
+  jwt: string,
+  options: { limit?: number; cursor?: string } = {}
+): Promise<{ cards: LinkedCard[]; nextCursor: string | null }> {
+  const params = new URLSearchParams();
+  if (options.limit !== undefined) params.set('limit', String(options.limit));
+  if (options.cursor) params.set('cursor', options.cursor);
+  const qs = params.toString();
+  const { body } = await walletJsonRequest<{ success: true; data: { cards: LinkedCard[]; nextCursor: string | null } }>(
+    `/api/vic/agent/cards${qs ? `?${qs}` : ''}`,
+    jwt
+  );
+  return body.data;
+}
+
+export async function listLinkedCardMandates(
+  jwt: string,
+  cardId: string
+): Promise<{ cardId: string; mandates: LinkedCardMandate[] }> {
+  const { body } = await walletJsonRequest<{ success: true; data: { cardId: string; mandates: LinkedCardMandate[] } }>(
+    `/api/vic/agent/cards/${encodeURIComponent(cardId)}/mandates`,
+    jwt
+  );
+  return body.data;
+}
+
+export interface EligibleMandate {
+  mandateId: string;
+  status: string;
+  currency: string;
+  cardExecutionMode?: string | null;
+  limitAmount: string;
+  spentAmount: string;
+  pendingSpentAmount: string;
+  remainingAmount: string;
+  validFrom: string;
+  validUntil: string;
+  [key: string]: unknown;
+}
+
+export async function getEligibleMandates(
+  jwt: string,
+  params: { host: string; amount: string; currency: string }
+): Promise<EligibleMandate[]> {
+  const qs = new URLSearchParams({ host: params.host, amount: params.amount, currency: params.currency });
+  const { body } = await walletJsonRequest<{ status: 'ok'; eligibleMandates: EligibleMandate[] }>(
+    `/api/mandates/eligible?${qs.toString()}`,
+    jwt
+  );
+  return body.eligibleMandates || [];
+}
+
+export async function getCardMandate(jwt: string, mandateId: string): Promise<CardMandateDetail> {
+  const { body } = await walletJsonRequest<{ status: 'ok'; mandate: CardMandateDetail }>(
+    `/api/mandates/agent/${encodeURIComponent(mandateId)}`,
+    jwt
+  );
+  return body.mandate;
+}
+
+export interface HeadlessCheckoutBilling {
+  firstName?: string;
+  lastName?: string;
+  address1?: string;
+  address2?: string;
+  city?: string;
+  state?: string;
+  country?: string;
+  zip?: string;
+  phone?: string;
+  email?: string;
+  [key: string]: unknown;
+}
+
+export interface HeadlessCheckoutResult {
+  mandateId: string;
+  attempt: { attemptId: string; status: string; actionUrl: string | null };
+  httpStatus: number;
+}
+
+export async function submitHeadlessCheckout(
+  jwt: string,
+  mandateId: string,
+  params: { attemptId: string; billing?: HeadlessCheckoutBilling }
+): Promise<HeadlessCheckoutResult> {
+  const { status, body } = await walletJsonRequest<{
+    status: 'ok';
+    mandateId: string;
+    attempt: HeadlessCheckoutResult['attempt'];
+  }>(
+    `/api/mandates/agent/${encodeURIComponent(mandateId)}/headless-checkout`,
+    jwt,
+    {
+      method: 'POST',
+      body: {
+        attemptId: params.attemptId,
+        ...(params.billing ? { paymentContext: { billing: params.billing } } : {}),
+      },
+    }
+  );
+  return { mandateId: body.mandateId, attempt: body.attempt, httpStatus: status };
 }
