@@ -64,6 +64,7 @@ import {
   buildCardMandateExtFromFlags,
   hasAnyCardMandateFlag,
   validateCardMandateExt,
+  validateCardMandatePurpose,
 } from './wallet/cardMandateExt.js';
 import {
   getEffectiveAgentId,
@@ -367,15 +368,14 @@ EXAMPLES:
   # Query mandate status
   fluxa-wallet mandate-status --id mand_xxxxx
 
-  # Create a linked-card (CARD_USD) mandate: $20.00 at one merchant, one product
-  fluxa-wallet mandate-create --currency CARD_USD --desc "Buy one gift card" --amount 2000 \
-    --merchant-name "Shop" --merchant-url https://shop.example.com --merchant-country US \
-    --merchant-id shop-123 --merchant-category "Gift cards" --mcc 5947 --product gift-card-25:1
+  # Create a linked-card (CARD_USD) mandate: up to $30.00 at Amazon
+  fluxa-wallet mandate-create --currency CARD_USD --desc "Buy a USB-C cable on Amazon, up to $30" --amount 3000 \\
+    --merchant-name Amazon --merchant-url https://www.amazon.com --merchant-country US
 
   # Linked cards, their mandates, and the credential under one mandate
   fluxa-wallet linked-card list
   fluxa-wallet linked-card mandates --card <card_id>
-  fluxa-wallet linked-card mandates --host shop.example.com --amount 2000
+  fluxa-wallet linked-card mandates --host www.amazon.com --amount 3000
   fluxa-wallet linked-card subcard --mandate mand_xxxxx
 
   # Pay a WPE attempt with a signed CARD_USD mandate
@@ -786,26 +786,25 @@ Options:
 Supported currencies: USDC, XRP, FLUXA_MONETIZE_CREDITS, CARD_USD
   Aliases accepted: credits, fluxa-monetize-credits, fluxa-monetize-credit, card, card-usd
 
-CARD_USD options (linked card, VIC rail). Either the individual flags or --ext:
-  --merchant-name <text>      Merchant display name
-  --merchant-url <https url>  Merchant site (full HTTPS URL)
+CARD_USD options (linked card, VIC rail). Either the three merchant flags or --ext:
+  --merchant-name <text>      Merchant name, max 40 bytes; must match the merchant profile
+                              approved on the CardVault side (e.g. Amazon)
+  --merchant-url <https url>  Merchant site, full HTTPS URL (e.g. https://www.amazon.com)
   --merchant-country <CC>     Merchant country, 2-letter code (e.g. US)
-  --merchant-id <id>          Merchant id as known to the VIC network
-  --merchant-category <text>  Merchant category label
-  --mcc <4 digits>            Merchant category code
-  --product <ref>:<qty>[,...] Product scope: reference and max quantity, 1-100 entries
-  --ext <json | @file>        Full intent.ext JSON (merchant + vic) instead of the flags above
+  --transaction-ref <text>    Optional order / transaction reference, max 50 bytes
+  --ext <json | @file>        Full intent.ext JSON ({ "merchant": {...}, "transaction_reference_id": "..." })
+                              instead of the flags above
+  --desc for CARD_USD is sent to CardVault as the purpose: max 255 bytes, no line breaks.
 
 After creation the user must open approvalUrl in the wallet to pick a linked
-card and approve; poll "linked-card subcard --mandate <id>" until status=signed.
+card and approve; poll "linked-card subcard --mandate <id>" until isReady=true.
 
 Examples:
   fluxa-wallet mandate-create --desc "Spend up to 0.1 USDC" --amount 100000
   fluxa-wallet mandate-create --desc "Spend credits" --amount 500 --currency FLUXA_MONETIZE_CREDITS
-  fluxa-wallet mandate-create --currency CARD_USD --desc "Buy one gift card" --amount 2000 \\
-    --merchant-name "Shop" --merchant-url https://shop.example.com --merchant-country US \\
-    --merchant-id shop-123 --merchant-category "Gift cards" --mcc 5947 --product gift-card-25:1
-  fluxa-wallet mandate-create --currency CARD_USD --desc "..." --amount 2000 --ext @ext.json`,
+  fluxa-wallet mandate-create --currency CARD_USD --desc "Buy a USB-C cable on Amazon, up to $30" --amount 3000 \\\\
+    --merchant-name Amazon --merchant-url https://www.amazon.com --merchant-country US
+  fluxa-wallet mandate-create --currency CARD_USD --desc "..." --amount 3000 --ext @ext.json`,
 
   'linked-card list': `Usage: fluxa-wallet linked-card list [--limit <n>] [--cursor <cursor>]
 
@@ -830,7 +829,7 @@ List CARD_USD mandates held by this agent.
 Examples:
   fluxa-wallet linked-card mandates
   fluxa-wallet linked-card mandates --card 550e8400-e29b-41d4-a716-446655440003
-  fluxa-wallet linked-card mandates --host shop.example.com --amount 2000`,
+  fluxa-wallet linked-card mandates --host www.amazon.com --amount 3000`,
 
   'linked-card subcard': `Usage: fluxa-wallet linked-card subcard --mandate <mandate_id>
 
@@ -2095,12 +2094,13 @@ async function cmdMandateCreate(options: Record<string, string>): Promise<Comman
     try {
       if (options.ext !== undefined) {
         if (hasAnyCardMandateFlag(options)) {
-          return { success: false, error: 'Use either --ext or the --merchant-*/--mcc/--product flags, not both' };
+          return { success: false, error: 'Use either --ext or the --merchant-* / --transaction-ref flags, not both' };
         }
         ext = validateCardMandateExt(readJsonOption(options.ext, '--ext'));
       } else {
         ext = buildCardMandateExtFromFlags(options);
       }
+      validateCardMandatePurpose(description);
     } catch (err: any) {
       if (err instanceof CardMandateExtError || err instanceof JsonOptionError) {
         return { success: false, error: `Invalid CARD_USD mandate: ${err.message}` };
@@ -2108,7 +2108,7 @@ async function cmdMandateCreate(options: Record<string, string>): Promise<Comman
       throw err;
     }
   } else if (options.ext !== undefined || hasAnyCardMandateFlag(options)) {
-    return { success: false, error: 'Merchant / product flags are only valid with --currency CARD_USD' };
+    return { success: false, error: 'Merchant flags are only valid with --currency CARD_USD' };
   }
 
   const auth = await ensureValidJWT();
@@ -2312,7 +2312,7 @@ async function cmdLinkedCardSubcard(options: Record<string, string>): Promise<Co
       validUntil: mandate.validUntil,
       signedAt: mandate.signedAt,
       merchant: mandate.ext?.merchant ?? null,
-      vic: mandate.ext?.vic ?? null,
+      purpose: mandate.ext?.purpose ?? null,
       cardvault: mandate.cardvault ?? null,
     });
   } catch (err: any) {

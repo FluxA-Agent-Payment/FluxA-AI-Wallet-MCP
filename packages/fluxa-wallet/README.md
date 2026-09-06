@@ -125,11 +125,10 @@ fluxa-wallet mandate-create --desc "Spend up to 0.10 USDC" --amount 100000
 fluxa-wallet x402 --mandate mand_xxx --payload '{"accepts":[...]}'
 
 # Linked card: CARD_USD mandate for one merchant, user approves in the wallet, then pay
-fluxa-wallet mandate-create --currency CARD_USD --desc "Buy one gift card" --amount 2000 \
-  --merchant-name "Shop" --merchant-url https://shop.example.com --merchant-country US \
-  --merchant-id shop-123 --merchant-category "Gift cards" --mcc 5947 --product gift-card-25:1
+fluxa-wallet mandate-create --currency CARD_USD --desc "Buy a USB-C cable on Amazon, up to $30" --amount 3000 \
+  --merchant-name Amazon --merchant-url https://www.amazon.com --merchant-country US
 fluxa-wallet linked-card list
-fluxa-wallet linked-card mandates --host shop.example.com --amount 2000
+fluxa-wallet linked-card mandates --host www.amazon.com --amount 3000
 fluxa-wallet linked-card subcard --mandate mand_xxx
 fluxa-wallet headless-checkout --mandate mand_xxx --attempt wpa_xxx --billing @billing.json
 

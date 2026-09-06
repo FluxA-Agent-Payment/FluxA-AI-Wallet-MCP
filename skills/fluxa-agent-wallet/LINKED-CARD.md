@@ -21,7 +21,7 @@ Not for: prepaid agent cards (`fluxa-wallet card ...`), x402 API payments
   the mandate and before `headless-checkout`.
 - Amounts are **cents**: `2000` = $20.00. `--amount` is the authorization ceiling.
 - Scope the mandate to the real merchant: `--merchant-url` must be the merchant's
-  HTTPS site, `--product` the item(s) the user asked for.
+  HTTPS site and `--merchant-name` the name approved for it on the CardVault side.
 - Never ask the user for card numbers. Linking happens in the wallet UI only.
 
 ## Flow
@@ -32,13 +32,12 @@ Not for: prepaid agent cards (`fluxa-wallet card ...`), x402 API payments
 2. fluxa-wallet linked-card mandates --host <merchant host> --amount <cents>
    (an eligible signed mandate → skip to step 5)
 3. fluxa-wallet mandate-create --currency CARD_USD --desc "..." --amount <cents> \
-     --merchant-name "..." --merchant-url https://... --merchant-country US \
-     --merchant-id <id> --merchant-category "..." --mcc <4 digits> --product <ref>:<qty>
+     --merchant-name Amazon --merchant-url https://www.amazon.com --merchant-country US
    → returns mandateId + approvalUrl
 4. Send approvalUrl to the user (see "Opening Authorization URLs" in SKILL.md).
    They pick a linked card and approve. Poll:
    fluxa-wallet linked-card subcard --mandate <mandateId>
-   until status = "signed" and cardvault.canTransact = true (isReady: true)
+   until isReady = true (status "signed" and cardvault.canTransact true)
 5. fluxa-wallet headless-checkout --mandate <mandateId> --attempt <wpa_...> --billing @billing.json
    → attempt.status + attempt.actionUrl
 6. If attempt.actionUrl is present: open it with the user to complete 3-D Secure.
@@ -53,20 +52,19 @@ Mandates default to 8 hours of validity (`--seconds` to change).
 
 | Flag | Meaning |
 |------|---------|
-| `--desc` | What the user is buying (shown to the user at approval) |
-| `--amount` | Ceiling in cents |
-| `--merchant-name` | Merchant display name |
-| `--merchant-url` | Full HTTPS URL of the merchant |
+| `--desc` | What the user is buying. Sent to CardVault as the purpose: max 255 bytes, no line breaks |
+| `--amount` | Ceiling in cents (`3000` = $30.00) |
+| `--merchant-name` | Merchant name, max 40 bytes. Must match the merchant profile approved on the CardVault side (e.g. `Amazon`) |
+| `--merchant-url` | Full HTTPS URL of the merchant site (e.g. `https://www.amazon.com`) |
 | `--merchant-country` | 2-letter country code, e.g. `US` |
-| `--merchant-id` | Merchant id as known to the VIC network |
-| `--merchant-category` | Merchant category label |
-| `--mcc` | 4-digit merchant category code |
-| `--product` | `ref:qty[,ref:qty...]`, 1-100 entries |
-| `--ext` | Alternative to the flags above: JSON or `@file.json` with `{ "merchant": {...}, "vic": {...} }` |
+| `--transaction-ref` | Optional order / transaction reference, max 50 bytes |
+| `--ext` | Alternative to the flags above: JSON or `@file.json` with `{ "merchant": { "name", "url", "country_code" }, "transaction_reference_id"? }` |
 | `--seconds` | Validity in seconds (default 28800 = 8h) |
 
-Local validation rejects bad input before any call, with the field name in the
-error. The response has `mandateId` and `approvalUrl`.
+Local validation rejects bad input before any call, with the flag name in the
+error. The response has `mandateId` and `approvalUrl`. If approval fails with
+`MERCHANT_DETAILS_MISMATCH` / `MERCHANT_NOT_AVAILABLE`, the merchant name / URL /
+country do not match a profile approved on the CardVault side.
 
 ### `linked-card list [--limit <n>] [--cursor <c>]`
 
@@ -93,8 +91,9 @@ Prints the credential issued under the mandate:
   "cardActivatedAt": "…",
   "remainingAmount": "2000",
   "validUntil": "…",
-  "merchant": { "name": "…", "url": "…", "country_code": "US" },
-  "cardvault": { "status": "MANDATE_ACTIVE", "canTransact": true, "canStartCredentialRequest": true, "validUntil": "…" }
+  "merchant": { "name": "Amazon", "url": "https://www.amazon.com", "country_code": "US" },
+  "purpose": "Buy a USB-C cable on Amazon, up to $30",
+  "cardvault": { "status": "ACTIVE", "canTransact": true, "validUntil": "…" }
 }
 ```
 

@@ -411,13 +411,13 @@ print the wallet's data object directly; `mandate-create` and
 `headless-checkout` use the CLI envelope.
 
 ```bash
-# 1. Create the mandate (8h validity by default), then send approvalUrl to the user
-fluxa-wallet mandate-create --currency CARD_USD --desc "Buy one gift card" --amount 2000 \
-  --merchant-name "Shop" --merchant-url https://shop.example.com --merchant-country US \
-  --merchant-id shop-123 --merchant-category "Gift cards" --mcc 5947 --product gift-card-25:1
-# or with a prepared ext file:  --ext @ext.json   ({ "merchant": {...}, "vic": {...} })
+# 1. Create the mandate (8h validity by default), then send approvalUrl to the user.
+#    --merchant-name must match the merchant profile approved on the CardVault side.
+fluxa-wallet mandate-create --currency CARD_USD --desc "Buy a USB-C cable on Amazon, up to $30" --amount 3000 \
+  --merchant-name Amazon --merchant-url https://www.amazon.com --merchant-country US
+# optional: --transaction-ref <order ref>   or   --ext @ext.json  ({ "merchant": {...}, "transaction_reference_id": "..." })
 
-# 2. Wait until status=signed and cardvault.canTransact=true
+# 2. Wait until isReady=true (status=signed and cardvault.canTransact=true)
 fluxa-wallet linked-card subcard --mandate mand_xxx
 
 # 3. Pay the attempt; open attempt.actionUrl with the user if 3-D Secure is required
@@ -427,7 +427,7 @@ fluxa-wallet headless-checkout --mandate mand_xxx --attempt wpa_xxx --billing @b
 fluxa-wallet linked-card list
 fluxa-wallet linked-card mandates
 fluxa-wallet linked-card mandates --card <card_id>
-fluxa-wallet linked-card mandates --host shop.example.com --amount 2000
+fluxa-wallet linked-card mandates --host www.amazon.com --amount 3000
 ```
 
 If the wallet answers that linked cards are not available, the user's wallet

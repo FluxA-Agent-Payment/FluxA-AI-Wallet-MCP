@@ -1699,7 +1699,6 @@ export interface LinkedCardMandate {
 export interface CardVaultMandateView {
   status: string;
   canTransact: boolean;
-  canStartCredentialRequest: boolean;
   validUntil: string | null;
 }
 
@@ -1717,12 +1716,6 @@ export interface CardMandateDetail {
   cardExecutionMode: string;
   ext: {
     merchant: { name: string; url: string; country_code: string } | null;
-    vic: {
-      merchantId: string;
-      merchantCategory: string;
-      merchantCategoryCode: string;
-      productScope: { productReference: string; maxQuantity: number }[];
-    } | null;
     purpose: string | null;
   };
   sourceCardId: string | null;
