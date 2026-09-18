@@ -95,8 +95,8 @@ Trial Scenarios: **MUST** guide user with wording such as: Let’s try what this
 | **Mandate Planning** | Smart mandate creation, reuse, and budgeting strategy | Use before creating any mandate — check for reusable mandates first | MANDATE-PLANNING.md |
 | **Agent VC & Agent ID** | Issue a short-lived verifiable credential to prove agent identity to third parties (SSO, account binding) without handing over the login JWT | Use when a third-party service asks the agent to authenticate via a signed token | VC-ISSUE.md |
 | **Agent Market: discover & plan** | Search the marketplace for APIs, models, and skills, and get a recommended tool plan for a task | Use when you need to find paid resources, or plan which tools a task needs | `fluxa-wallet market search "<q>"` (add `--models` or `--vendors` to scope); `fluxa-wallet plan-tool-use "<task>"` |
-| **Prepaid LLM Units** | Call LLMs through prepaid per-merchant Units, and read those balances | Use when calling models via `/llm/{merchant}`, or checking what is left | `fluxa-wallet market model remainingUsage`; `fluxa-wallet market model usageHistory <vendor>` |
-| **Buy Units with Credits** | Fund a merchant's Units balance from Monetize Credits the wallet already holds | Use when a balance is low or negative **and** the wallet has credits. One command, end to end | `fluxa-wallet market model topup <vendor>` (confirm the spend first) |
+| **Prepaid LLM Units** | Call LLMs on one prepaid balance, spendable at any provider, and read it | Use when calling models via `/llm/{merchant}`, or checking what is left | `fluxa-wallet market model remainingUsage`; `fluxa-wallet market model usageHistory` |
+| **Buy Units with Credits** | Fund the Units balance from Monetize Credits the wallet already holds | Use when the balance is low or negative **and** the wallet has credits. One command, end to end | `fluxa-wallet market model topup` (confirm the spend first) |
 | **Buy Units with a card** | Fund a balance from a real card instead of credits | Use when there are no credits to spend. **Follow the published procedure, do not improvise** | Read `https://monetize.fluxapay.xyz/marketplace/models/topup.md` and follow it exactly |
 | **Token Plan** | A month of model calls on one flat allowance, on the provider's own endpoint | Use when the user wants a monthly allowance instead of per-call Units, or holds a plan already and needs its key | Read `https://monetize.fluxapay.xyz/marketplace/tokenplans/topup.md` to buy; see **Token Plan** below to use one |
 | **Market API keys** | Mint and rotate `fxa_live_` keys for metered API and LLM access | Use when an agent needs a capped key to hand to a sub-process | `fluxa-wallet market keys create --name <n> --cap <MC>` |
@@ -233,8 +233,8 @@ User adds and manages funds at the FluxA Agent Wallet web app:
 | **Refund a received payment** (full or partial) | [PAYMENT-LINK.md](PAYMENT-LINK.md) — "Refunds" section |
 | **Prove agent identity to a 3rd party** (SSO, account binding) | [VC-ISSUE.md](VC-ISSUE.md) |
 | **Call a model** and pay per call | `market model remainingUsage`, then the models catalogue |
-| **Fund a Units balance** from credits you hold | `fluxa-wallet market model topup <vendor>` |
-| **Fund a Units balance** from a card | `https://monetize.fluxapay.xyz/marketplace/models/topup.md` |
+| **Fund the Units balance** from credits you hold | `fluxa-wallet market model topup` |
+| **Fund the Units balance** from a card | `https://monetize.fluxapay.xyz/marketplace/models/topup.md` |
 | **Buy a month of calls** on one flat allowance | `https://monetize.fluxapay.xyz/marketplace/tokenplans/topup.md` |
 | **Use a Token Plan** the user already holds | "Token Plan" above |
 
@@ -314,13 +314,13 @@ For FLUXA_MONETIZE_CREDITS, amounts are in the credits' smallest unit as defined
 | `recent-transactions` | (none) | List recent transactions — USDC / XRP / credits spends (`--limit`, 1-100); excludes credit top-ups/grants/redeems and received payments |
 | `plan-tool-use` | (task arg) | Recommend the models, APIs, and skills for a task |
 | `market search` | (query arg) | Discover APIs, models, and skills (`--models` or `--vendors` to scope) |
-| `market model remainingUsage` | (vendor optional) | Prepaid Units balance per merchant |
-| `market model topup` | (vendor arg) | Buy Units by spending Monetize Credits, via x402 (confirm the spend first) |
+| `market model remainingUsage` | (none) | The account's prepaid Units balance |
+| `market model topup` | (none) | Buy Units by spending Monetize Credits, via x402 (confirm the spend first) |
 | `linked-card mandates` | `--host`, `--amount` | List reusable card mandates before creating another |
 | `linked-card subcard` | `--mandate` | The card behind a mandate, once it is live |
 | `headless-checkout` | `--mandate`, `--attempt` | Pay a created order with that card |
 | `agent-vc` | `--audience` | The token the top-up procedure authenticates with |
-| `market model usageHistory` | (vendor arg) | Spend and topup history for a merchant |
+| `market model usageHistory` | (none) | Spend and topup history |
 | `market keys create` | (none) | Mint an `fxa_live_` API key (`--name`, `--cap` optional) |
 | `market keys list` | (none) | List your `fxa_live_` keys |
 | `market keys update` | (id arg) | Update a key (`--name`, `--cap`; `--cap 0` clears the cap) |

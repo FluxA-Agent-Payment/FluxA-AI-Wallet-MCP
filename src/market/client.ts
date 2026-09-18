@@ -193,26 +193,32 @@ async function cmdVendors(): Promise<string> {
 }
 
 // --- commands: prepaid Units -------------------------------------------------
-async function cmdRemainingUsage(vendor?: string): Promise<string> {
-  const url = vendor ? `${PROXY}/llm/wallet/balances/${vendor}` : `${PROXY}/llm/wallet/balances`;
-  const { data } = await http(url, { auth: true });
-  const accounts = vendor ? [data] : (data.accounts || []);
-  if (!accounts.length) return c.dim('  no merchant balances yet — `fluxa-wallet market model topup <vendor>` to start');
-  const lines: string[] = [];
-  lines.push('  ' + c.dim(pad('merchant', 16) + pad('balance', 18) + pad('≈ USD', 12) + pad('7d/day', 12) + 'status'));
-  for (const a of accounts) {
-    const low = a.balance < (a.burn7dPerDay || 0) * 3;
-    const status = a.balance < 0 ? c.red('owed ' + usd(-a.balance)) : low ? c.red('low') : c.green('ok');
-    lines.push(`  ${pad(a.merchant, 16)}${pad((a.balance ?? 0).toLocaleString() + ' Units', 18)}${pad(usd(a.balance), 12)}${pad((a.burn7dPerDay ?? 0).toLocaleString(), 12)}${status}`);
-  }
-  return lines.join('\n');
+/**
+ * Units are ONE balance per account, spendable at any provider.
+ *
+ * This took a vendor and printed a merchant column, from when balances were
+ * per vendor. They are not, and the server stopped pretending: it now answers
+ * with a flat `balance`, keeping `accounts` as an array only so older CLIs
+ * keep rendering. Read the flat field, fall back to the array.
+ */
+async function cmdRemainingUsage(): Promise<string> {
+  const { data } = await http(`${PROXY}/llm/wallet/balances`, { auth: true });
+  const a = data.balance ?? (data.accounts || [])[0];
+  if (!a) return c.dim('  no Units yet — `fluxa-wallet market model topup` to start');
+  const low = a.balance < (a.burn7dPerDay || 0) * 3;
+  const status = a.balance < 0 ? c.red('owed ' + usd(-a.balance)) : low ? c.red('low') : c.green('ok');
+  return [
+    '  ' + c.dim(pad('balance', 18) + pad('≈ USD', 12) + pad('7d/day', 12) + 'status'),
+    `  ${pad((a.balance ?? 0).toLocaleString() + ' Units', 18)}${pad(usd(a.balance), 12)}${pad((a.burn7dPerDay ?? 0).toLocaleString(), 12)}${status}`,
+  ].join('\n');
 }
 
-async function cmdUsageHistory(vendor?: string): Promise<string> {
-  if (!vendor) die('usage: fluxa-wallet market model usageHistory <vendor>');
-  const { data } = await http(`${PROXY}/llm/wallet/ledger/${vendor}?limit=20`, { auth: true });
+async function cmdUsageHistory(): Promise<string> {
+  // Unscoped: the ledger belongs to the account. The server keeps a
+  // /ledger/:vendor route for callers that still scope, and nothing here does.
+  const { data } = await http(`${PROXY}/llm/wallet/ledger?limit=20`, { auth: true });
   const entries = data.entries || [];
-  if (!entries.length) return c.dim('  no ledger entries for ' + vendor);
+  if (!entries.length) return c.dim('  no ledger entries yet');
   const lines: string[] = [];
   lines.push('  ' + c.dim(pad('when', 22) + pad('type', 12) + pad('amount', 14) + 'balance after'));
   for (const e of entries) {
@@ -417,9 +423,11 @@ export interface TopupChallenge {
 
 // POST /llm/topup/initiate (authed). On success it answers HTTP 402 with the
 // x402 challenge — so unlike http(), we tolerate 402 instead of throwing.
-export async function topupInitiate(vendor: string, opts: { credits?: string; bundle?: string } = {}): Promise<TopupChallenge> {
-  if (!vendor) die('usage: fluxa-wallet market model topup <vendor> [--credits <N> | --bundle <slug>]');
-  const body: any = { vendorSlug: vendor };
+export async function topupInitiate(opts: { credits?: string; bundle?: string } = {}): Promise<TopupChallenge> {
+  // No vendorSlug. Units are one balance per account; the server resolves which
+  // provider the purchase is booked against, which is bookkeeping the caller
+  // has no way to choose sensibly.
+  const body: any = {};
   if (opts.bundle) body.packageSlug = opts.bundle;
   else body.costCredits = opts.credits ? Number(opts.credits) : 5; // min 5 MC ($5)
   let res: Response;
@@ -568,10 +576,10 @@ export async function runMarketCommand(
         break;
       }
       case 'market model remainingUsage':
-        raw = await cmdRemainingUsage(positionals[0]);
+        raw = await cmdRemainingUsage();
         break;
       case 'market model usageHistory':
-        raw = await cmdUsageHistory(positionals[0]);
+        raw = await cmdUsageHistory();
         break;
       // 'market model topup' is orchestrated in cli.ts (it needs the wallet's
       // in-process mandate + x402-v3 primitives); it never reaches here.

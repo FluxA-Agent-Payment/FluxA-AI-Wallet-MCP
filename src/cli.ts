@@ -166,9 +166,9 @@ COMMANDS:
 MARKETPLACE COMMANDS:
   plan-tool-use "<task>"    Recommend the models, APIs and skills for a task
   market search "<q>"       Discover resources (add --models or --vendors to scope)
-  market model remainingUsage [vendor]   Prepaid Units balance per merchant
-  market model topup <vendor>            Buy Units with Monetize Credits (x402)
-  market model usageHistory <vendor>     Spend and topup history
+  market model remainingUsage            Prepaid Units balance
+  market model topup                     Buy Units with Monetize Credits (x402)
+  market model usageHistory              Spend and topup history
   market keys [create|update <id>|revoke <id>]   Manage fxa_live_ API keys (Agent VC only)
   market tokenplan list                  Token Plans held: allowance left, days left, id
   market tokenplan key <id>              The provider key for one plan
@@ -537,21 +537,21 @@ Examples:
   fluxa-wallet market search --models
   fluxa-wallet market search --vendors`,
 
-  'market model remainingUsage': `Usage: fluxa-wallet market model remainingUsage [vendor]
+  'market model remainingUsage': `Usage: fluxa-wallet market model remainingUsage
 
 Prepaid Units balance per merchant. Pass a vendor to scope to one.`,
 
-  'market model topup': `Usage: fluxa-wallet market model topup <vendor> [--credits <N> | --bundle <slug>]
+  'market model topup': `Usage: fluxa-wallet market model topup [--credits <N> | --bundle <slug>]
 
-Buys Units for a merchant by spending Monetize Credits the wallet already
-holds. Signs a FLUXA_MONETIZE_CREDITS mandate, then pays the x402 challenge.
+Buys Units by spending Monetize Credits the wallet already holds. Signs a
+FLUXA_MONETIZE_CREDITS mandate, then pays the x402 challenge.
 
 This is the credits rail. There is a second one, the card rail, for funding
 from a real card rather than from credits: read
 https://monetize.fluxapay.xyz/marketplace/models/topup.md. Use this command
 when the user has credits; use that document when they do not.`,
 
-  'market model usageHistory': `Usage: fluxa-wallet market model usageHistory <vendor>
+  'market model usageHistory': `Usage: fluxa-wallet market model usageHistory
 
 Spend and topup history for a merchant.`,
 
@@ -2567,10 +2567,9 @@ async function cmdX402V3(options: Record<string, string>): Promise<CommandResult
 // mandate + x402-v3 primitives — the in-process replacement for the planner's
 // shell-out to `fluxa-wallet`.
 async function cmdMarketTopup(positionals: string[], options: Record<string, string>): Promise<CommandResult> {
-  const vendor = positionals[0];
-  if (!vendor) {
-    return { success: false, error: 'usage: fluxa-wallet market model topup <vendor> [--credits <N> | --bundle <slug>]' };
-  }
+  // No vendor argument. Units are one balance per account, spendable at any
+  // provider, so there was never a choice for the caller to make here -- the
+  // argument only existed because the endpoint demanded one.
   const auth = await ensureValidJWT();
   if (!auth) {
     return { success: false, error: 'FluxA Agent ID not initialized. Run "init" first.' };
@@ -2578,14 +2577,14 @@ async function cmdMarketTopup(positionals: string[], options: Record<string, str
 
   try {
     // 1. initiate — answers HTTP 402 with the x402 challenge on success
-    const init = await topupInitiate(vendor, { credits: options.credits, bundle: options.bundle });
-    console.error(`· order ${init.orderId}: ${init.costCredits} Monetize Credits -> ${Number(init.creditsToGrant).toLocaleString()} Units to ${vendor}`);
+    const init = await topupInitiate({ credits: options.credits, bundle: options.bundle });
+    console.error(`· order ${init.orderId}: ${init.costCredits} Monetize Credits -> ${Number(init.creditsToGrant).toLocaleString()} Units`);
 
     // 2. mandate (Monetize Credits) — budget must cover the cost (credits unit = MC x 100)
     const budget = options.budget ? Number(options.budget) : Math.max(500, Math.ceil(Number(init.costCredits) * 100));
     const seconds = options.seconds ? Number(options.seconds) : 28800;
     const mc = await cmdMandateCreate({
-      desc: `Prepay ${init.costCredits} MC of Units for ${vendor}`,
+      desc: `Prepay ${init.costCredits} MC of Units`,
       amount: String(budget),
       seconds: String(seconds),
       currency: 'FLUXA_MONETIZE_CREDITS',
@@ -2622,10 +2621,10 @@ async function cmdMarketTopup(positionals: string[], options: Record<string, str
     // 5. finalize — POST the resource URL with the payment token (no bearer)
     const fin = await topupFinalize(init.resource, xPayment);
     const added = Number(fin.creditsAdded ?? init.creditsToGrant);
-    await recordAudit({ event: 'market_topup', vendor, order_id: init.orderId, mandate_id: mandateId, units_added: added });
+    await recordAudit({ event: 'market_topup', order_id: init.orderId, mandate_id: mandateId, units_added: added });
     return {
       success: true,
-      raw: `topped up ${vendor} · +${added.toLocaleString()} Units · balance ${Number(fin.balance ?? 0).toLocaleString()} Units`,
+      raw: `+${added.toLocaleString()} Units · balance ${Number(fin.balance ?? 0).toLocaleString()} Units`,
     };
   } catch (err: any) {
     return { success: false, error: err?.message || 'topup failed' };

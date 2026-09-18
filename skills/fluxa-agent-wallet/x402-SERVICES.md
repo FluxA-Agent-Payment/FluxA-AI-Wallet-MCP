@@ -109,13 +109,13 @@ Unlike a Bazaar endpoint (one x402 signature per call), the model endpoint meter
 
 ```bash
 # Balance
-fluxa-wallet market model remainingUsage <vendor>
+fluxa-wallet market model remainingUsage
 
 # Spending history
-fluxa-wallet market model usageHistory <vendor>
+fluxa-wallet market model usageHistory
 
 # Top up from Monetize Credits (ONLY after explicit user confirmation)
-fluxa-wallet market model topup <vendor>
+fluxa-wallet market model topup
 ```
 
 Optionally scope the amount with `--bundle <slug>` or `--credits <N>`.
