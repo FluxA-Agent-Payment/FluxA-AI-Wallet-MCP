@@ -123,31 +123,32 @@ from memory here would drift from it.
 
 ### Using one you already hold
 
-These are proxy endpoints, not CLI commands. Authenticate with the same token
-the market commands use — `Authorization: Bearer <fxa_live_ key>` or
-`Bearer <agent_vc>` — against `https://proxy-monetize.fluxapay.xyz`.
+| What | Command |
+|------|---------|
+| Plans held, allowance left, days left, and the id the rest take | `fluxa-wallet market tokenplan list` |
+| The provider key and base url for one plan | `fluxa-wallet market tokenplan key <id>` |
+| What that plan has spent, per model | `fluxa-wallet market tokenplan usage <id>` |
+| Which models the plan can call | `fluxa-wallet market tokenplan models` |
 
-| What | Call |
-|------|------|
-| Plans held, allowance left, days left | `GET /llm/tokenplan/subscription` |
-| The provider key for one plan | `GET /llm/tokenplan/subscription/{id}/key` |
-| What that plan has spent, per model | `GET /llm/tokenplan/subscription/{id}/usage` |
-| Which models the plan can call | `GET /llm/tokenplan/models` |
-| Finish a setup that stalled | `POST /llm/tokenplan/subscription/{id}/retry` |
+One endpoint has no wrapper: `POST /llm/tokenplan/subscription/{id}/retry`
+finishes a setup that stalled. Call it directly against
+`https://proxy-monetize.fluxapay.xyz` with the same token, or send the user to
+their console, which has a button for it.
 
 ### Codes
 
 Two kinds, and they are not interchangeable:
 
-- **Redemption code** — one person, one plan of their own. Redeem at
-  `POST /llm/tokenplan/redeem` with `{ "code": "XXXX-XXXX-XXXX-XXXX" }`, or send
-  the user to `https://monetize.fluxapay.xyz/offers/tokenplan/t01`.
-- **Shared code** — many people, all on one plan FluxA already owns, free.
-  Claim at `POST /llm/tokenplan/shared/claim` with the same body.
+- **Redemption code** — one person, one plan of their own:
+  `fluxa-wallet market tokenplan redeem <code> --yes`, or send the user to
+  `https://monetize.fluxapay.xyz/offers/tokenplan/t01`.
+- **Shared code** — many people, all on one plan FluxA already owns, free:
+  `fluxa-wallet market tokenplan claim <code> --yes`.
 
-A code is spent once and cannot be un-spent. **Confirm with the user before
-redeeming one**, the same as a purchase: it is a one-shot asset, and redeeming
-it on the wrong account cannot be undone.
+A code is spent once and cannot be un-spent. `--yes` is required for exactly
+that reason: **confirm with the user first**, the same as a purchase. It costs
+no money, so nothing else would have stopped you, and redeeming onto the wrong
+account cannot be undone.
 
 Both answer one message for used, expired, voided and never-existed. That is
 deliberate — retrying variations to find out which does not work, and reads as
@@ -322,6 +323,12 @@ For FLUXA_MONETIZE_CREDITS, amounts are in the credits' smallest unit as defined
 | `market keys list` | (none) | List your `fxa_live_` keys |
 | `market keys update` | (id arg) | Update a key (`--name`, `--cap`; `--cap 0` clears the cap) |
 | `market keys revoke` | (id arg) | Revoke a key |
+| `market tokenplan list` | (none) | Token Plans held: allowance left, days left, id |
+| `market tokenplan key` | (id arg) | The provider key and base url for one plan |
+| `market tokenplan usage` | (id arg) | What that plan has spent, per model |
+| `market tokenplan models` | (none) | Which models a plan can call |
+| `market tokenplan redeem` | (code arg), `--yes` | Spend a redemption code (one-shot, cannot be undone) |
+| `market tokenplan claim` | (code arg), `--yes` | Claim a shared plan code (one-shot, cannot be undone) |
 | `market info` | (topic optional) | Explain the marketplace (topics: units, auth, pay, keys, models, skills) |
 
 **Common Mistakes to Avoid:**

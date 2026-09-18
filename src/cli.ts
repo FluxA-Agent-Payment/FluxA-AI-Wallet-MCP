@@ -167,9 +167,15 @@ MARKETPLACE COMMANDS:
   plan-tool-use "<task>"    Recommend the models, APIs and skills for a task
   market search "<q>"       Discover resources (add --models or --vendors to scope)
   market model remainingUsage [vendor]   Prepaid Units balance per merchant
-  market model topup <vendor>            Prepay Units to a merchant (x402)
+  market model topup <vendor>            DEPRECATED — see /marketplace/models/topup.md
   market model usageHistory <vendor>     Spend and topup history
   market keys [create|update <id>|revoke <id>]   Manage fxa_live_ API keys (Agent VC only)
+  market tokenplan list                  Token Plans held: allowance left, days left, id
+  market tokenplan key <id>              The provider key for one plan
+  market tokenplan usage <id>            What that plan has spent, per model
+  market tokenplan models                Which models a plan can call
+  market tokenplan redeem <code> --yes   Spend a redemption code (one-shot)
+  market tokenplan claim <code> --yes    Claim a shared plan code (one-shot)
   market info [topic]       Explain how the marketplace works
 
 OPTIONS FOR 'init':
@@ -470,7 +476,7 @@ function parseArgs(args: string[]): { command: string; options: Record<string, s
     // stay two-word. Everything after is captured as positionals.
     const sub = args[1];
     if (sub && !sub.startsWith('-')) {
-      if (sub === 'model' || sub === 'keys') {
+      if (sub === 'model' || sub === 'keys' || sub === 'tokenplan') {
         const nested = args[2];
         if (nested && !nested.startsWith('-')) {
           command = `market ${sub} ${nested}`;
@@ -537,11 +543,35 @@ Prepaid Units balance per merchant. Pass a vendor to scope to one.`,
 
   'market model topup': `Usage: fluxa-wallet market model topup <vendor> [--credits <N> | --bundle <slug>]
 
-Prepay Units to a merchant via x402. Signs a Monetize Credits mandate.`,
+DEPRECATED. This is the old x402 Units top-up. The current route is the card
+rail: read https://monetize.fluxapay.xyz/marketplace/models/topup.md and follow
+it exactly. Kept working for agents already scripted against it.`,
 
   'market model usageHistory': `Usage: fluxa-wallet market model usageHistory <vendor>
 
 Spend and topup history for a merchant.`,
+
+  'market tokenplan': `Usage: fluxa-wallet market tokenplan <list | key <id> | usage <id> | models | redeem <code> --yes | claim <code> --yes>
+
+A Token Plan is one flat monthly allowance on the provider's own endpoint, as
+opposed to per-call Units on ours. The key these commands return is the
+PROVIDER's: it does not authenticate at /llm/{merchant}, and an fxa_live_ key
+does not authenticate at the provider.
+
+  list              plans held, allowance left, days left, and the id the rest take
+  key <id>          the provider key and base url for one plan
+  usage <id>        what that plan has spent, per model
+  models            which models a plan can call
+  redeem <code>     spend a redemption code: one person, one plan of their own
+  claim <code>      claim a shared code: many people, one plan FluxA already owns
+
+To BUY a plan, read https://monetize.fluxapay.xyz/marketplace/tokenplans/topup.md
+and follow it. It is the tested procedure and it is kept current.
+
+Options:
+  --yes             required by redeem and claim. A code is spent once and
+                    cannot be un-spent, and redeeming onto the wrong account
+                    cannot be undone. Confirm with the user first.`,
 
   'market keys': `Usage: fluxa-wallet market keys [list | create | update <id> | revoke <id>]
 
@@ -3169,6 +3199,13 @@ async function main() {
     case 'market keys update':
     case 'market keys revoke':
     case 'market info':
+    case 'market tokenplan':
+    case 'market tokenplan list':
+    case 'market tokenplan key':
+    case 'market tokenplan usage':
+    case 'market tokenplan models':
+    case 'market tokenplan redeem':
+    case 'market tokenplan claim':
       result = await runMarketCommand(command, positionals, options);
       break;
     case 'market model topup':

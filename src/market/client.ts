@@ -455,6 +455,102 @@ export async function topupFinalize(resourceUrl: string, xPayment: string): Prom
 // --- dispatch ----------------------------------------------------------------
 // Single entry point called from cli.ts. `command` is the resolved multi-word
 // command string; `positionals` are the non-flag tokens after it.
+
+// --- commands: token plans ---------------------------------------------------
+//
+// A Token Plan is the other way to reach a model: one flat monthly allowance on
+// the PROVIDER's endpoint, rather than per-call Units on ours. The key these
+// commands surface is the provider's, so it does not authenticate at
+// /llm/{merchant} and an fxa_live_ key does not authenticate at the provider.
+//
+// Buying is deliberately absent. That flow is published, tested and kept
+// current at /marketplace/tokenplans/topup.md; a second copy here would drift
+// from it the first time either changed.
+
+const planStatus = (s: string): string =>
+  s === 'active' ? c.green('active')
+  : s === 'awaiting_provisioning' ? c.red('setting up')
+  : c.dim(s);
+
+async function cmdTokenplanList(): Promise<string> {
+  const { data } = await http(`${PROXY}/llm/tokenplan/subscription`, { auth: true });
+  const subs: any[] = data.subscriptions || [];
+  if (!subs.length) {
+    return c.dim('  no token plans — see ') +
+      `${PROXY.replace('proxy-monetize', 'monetize')}/marketplace/tokenplans/topup.md`;
+  }
+  const lines: string[] = [];
+  lines.push('  ' + c.dim(pad('plan', 26) + pad('left', 22) + pad('days', 7) + 'id'));
+  for (const s of subs) {
+    // Null, not zero, when there is no seat to ask: zero would read as an
+    // exhausted plan rather than one whose figures we cannot see.
+    const left = s.creditsRemaining == null
+      ? c.dim('—')
+      : `${Number(s.creditsRemaining).toLocaleString()} / ${Number(s.creditsTotal ?? 0).toLocaleString()}`;
+    const days = s.daysRemaining == null ? c.dim('—') : String(s.daysRemaining);
+    lines.push(`  ${pad(s.planSlug, 26)}${pad(left, 22)}${pad(days, 7)}${c.dim(s.id)}`);
+    if (s.lastError) lines.push('    ' + c.red(s.lastError));
+  }
+  lines.push('');
+  lines.push('  ' + c.dim('status: ') + subs.map((s: any) => planStatus(s.status)).join(c.dim(', ')));
+  return lines.join('\n');
+}
+
+async function cmdTokenplanKey(id: string): Promise<string> {
+  if (!id) die('usage: fluxa-wallet market tokenplan key <subscriptionId>');
+  const { data } = await http(`${PROXY}/llm/tokenplan/subscription/${encodeURIComponent(id)}/key`, { auth: true });
+  return [
+    '  ' + c.dim('api key   ') + data.apiKey,
+    '  ' + c.dim('base url  ') + data.baseUrl,
+    '',
+    '  ' + c.dim('This is the provider\'s key, for the provider\'s endpoint above.'),
+    '  ' + c.dim('It is not stored by FluxA; it is read from them each time you ask.'),
+  ].join('\n');
+}
+
+async function cmdTokenplanUsage(id: string): Promise<string> {
+  if (!id) die('usage: fluxa-wallet market tokenplan usage <subscriptionId>');
+  const { data } = await http(`${PROXY}/llm/tokenplan/subscription/${encodeURIComponent(id)}/usage`, { auth: true });
+  const records: any[] = data.records || [];
+  if (!records.length) return c.dim('  nothing spent on this plan yet');
+  const lines = ['  ' + c.dim(pad('when', 22) + pad('model', 26) + pad('credits', 10) + 'tokens in/out')];
+  for (const r of records) {
+    const when = new Date(r.time).toISOString().slice(0, 16).replace('T', ' ');
+    lines.push(`  ${pad(when, 22)}${pad(r.model, 26)}${pad(r.credits, 10)}${r.inputTokens}/${r.outputTokens}`);
+  }
+  return lines.join('\n');
+}
+
+async function cmdTokenplanModels(): Promise<string> {
+  const { data } = await http(`${PROXY}/llm/tokenplan/models`, { auth: true });
+  const models: string[] = data.models || [];
+  if (!models.length) return c.dim('  none reported');
+  return models.map((m) => '  ' + m).join('\n');
+}
+
+/**
+ * Spending a code.
+ *
+ * --yes is required because a code is one-shot and cannot be un-spent, and
+ * redeeming onto the wrong account is unrecoverable. It costs no money, so
+ * nothing else in this CLI would have stopped an agent from trying one.
+ */
+async function cmdTokenplanRedeem(kind: 'redeem' | 'claim', code: string, confirmed: boolean): Promise<string> {
+  if (!code) die(`usage: fluxa-wallet market tokenplan ${kind} <code> --yes`);
+  if (!confirmed) {
+    die(`a code can only be spent once and cannot be undone. Confirm with the user, then re-run with --yes`);
+  }
+  const path = kind === 'redeem' ? '/llm/tokenplan/redeem' : '/llm/tokenplan/shared/claim';
+  const { data } = await http(`${PROXY}${path}`, { auth: true, method: 'POST', body: { code } });
+  const lines = ['  ' + c.green('redeemed') + '  ' + c.dim(data.subscriptionId || '')];
+  if (data.alreadyClaimed) lines.push('  ' + c.dim('you already held this one; nothing was spent'));
+  // A plan can exist and still be mid-setup. Saying so beats a bare success.
+  if (data.status && data.status !== 'active') lines.push('  ' + c.dim(`status: ${data.status}`));
+  if (data.error) lines.push('  ' + c.red(data.error));
+  lines.push('  ' + c.dim('`fluxa-wallet market tokenplan key <id>` for the key'));
+  return lines.join('\n');
+}
+
 export async function runMarketCommand(
   command: string,
   positionals: string[],
@@ -491,6 +587,25 @@ export async function runMarketCommand(
         break;
       case 'market keys revoke':
         raw = await keysRevoke(positionals[0]);
+        break;
+      case 'market tokenplan':
+      case 'market tokenplan list':
+        raw = await cmdTokenplanList();
+        break;
+      case 'market tokenplan key':
+        raw = await cmdTokenplanKey(positionals[0]);
+        break;
+      case 'market tokenplan usage':
+        raw = await cmdTokenplanUsage(positionals[0]);
+        break;
+      case 'market tokenplan models':
+        raw = await cmdTokenplanModels();
+        break;
+      case 'market tokenplan redeem':
+        raw = await cmdTokenplanRedeem('redeem', positionals[0], options.yes !== undefined);
+        break;
+      case 'market tokenplan claim':
+        raw = await cmdTokenplanRedeem('claim', positionals[0], options.yes !== undefined);
         break;
       case 'market info':
         raw = cmdInfo(positionals[0]);
