@@ -167,7 +167,7 @@ MARKETPLACE COMMANDS:
   plan-tool-use "<task>"    Recommend the models, APIs and skills for a task
   market search "<q>"       Discover resources (add --models or --vendors to scope)
   market model remainingUsage [vendor]   Prepaid Units balance per merchant
-  market model topup <vendor>            DEPRECATED — see /marketplace/models/topup.md
+  market model topup <vendor>            Buy Units with Monetize Credits (x402)
   market model usageHistory <vendor>     Spend and topup history
   market keys [create|update <id>|revoke <id>]   Manage fxa_live_ API keys (Agent VC only)
   market tokenplan list                  Token Plans held: allowance left, days left, id
@@ -543,9 +543,13 @@ Prepaid Units balance per merchant. Pass a vendor to scope to one.`,
 
   'market model topup': `Usage: fluxa-wallet market model topup <vendor> [--credits <N> | --bundle <slug>]
 
-DEPRECATED. This is the old x402 Units top-up. The current route is the card
-rail: read https://monetize.fluxapay.xyz/marketplace/models/topup.md and follow
-it exactly. Kept working for agents already scripted against it.`,
+Buys Units for a merchant by spending Monetize Credits the wallet already
+holds. Signs a FLUXA_MONETIZE_CREDITS mandate, then pays the x402 challenge.
+
+This is the credits rail. There is a second one, the card rail, for funding
+from a real card rather than from credits: read
+https://monetize.fluxapay.xyz/marketplace/models/topup.md. Use this command
+when the user has credits; use that document when they do not.`,
 
   'market model usageHistory': `Usage: fluxa-wallet market model usageHistory <vendor>
 

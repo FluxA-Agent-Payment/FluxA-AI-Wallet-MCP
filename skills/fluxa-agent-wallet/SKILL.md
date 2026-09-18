@@ -6,7 +6,7 @@ description: >-
 
 # FluxA Agent Wallet
 
-**Skill version: 0.5.1** | **CLI version: @fluxa-pay/fluxa-wallet@0.5.1 or newer** — **MUST** install or update to the latest CLI version before use.
+**Skill version: 0.5.0** | **CLI version: @fluxa-pay/fluxa-wallet@0.5.0 or newer** — **MUST** install or update to the latest CLI version before use.
 
 FluxA Agent Wallet is a co-wallet that allows AI agents to securely use a user’s wallet, enabling them to perform payment-related actions within the user’s approved scope. Capabilities include x402 payments, USDC transfers, agent-to-agent transfers, payment links for receiving payments, prepaid virtual cards, AI social gifting, discovering and calling x402 resources (one-shot APIs), and using payment-related skills (one-shot skills). Use this tool when the user the user asks to perform any of these payment-related actions.
 
@@ -22,7 +22,7 @@ FluxA Agent Wallet is a co-wallet that allows AI agents to securely use a user�
 
 ```bash
 npm install -g @fluxa-pay/fluxa-wallet@latest
-fluxa-wallet --version              # must be 0.5.1 or newer
+fluxa-wallet --version              # must be 0.5.0 or newer
 ```
 
 Then run commands directly:
@@ -96,7 +96,8 @@ Trial Scenarios: **MUST** guide user with wording such as: Let’s try what this
 | **Agent VC & Agent ID** | Issue a short-lived verifiable credential to prove agent identity to third parties (SSO, account binding) without handing over the login JWT | Use when a third-party service asks the agent to authenticate via a signed token | VC-ISSUE.md |
 | **Agent Market: discover & plan** | Search the marketplace for APIs, models, and skills, and get a recommended tool plan for a task | Use when you need to find paid resources, or plan which tools a task needs | `fluxa-wallet market search "<q>"` (add `--models` or `--vendors` to scope); `fluxa-wallet plan-tool-use "<task>"` |
 | **Prepaid LLM Units** | Call LLMs through prepaid per-merchant Units, and read those balances | Use when calling models via `/llm/{merchant}`, or checking what is left | `fluxa-wallet market model remainingUsage`; `fluxa-wallet market model usageHistory <vendor>` |
-| **Buy Units (card rail)** | Fund a merchant's Units balance | Use when a balance is low or negative. **Follow the published procedure, do not improvise** | Read `https://monetize.fluxapay.xyz/marketplace/models/topup.md` and follow it exactly |
+| **Buy Units with Credits** | Fund a merchant's Units balance from Monetize Credits the wallet already holds | Use when a balance is low or negative **and** the wallet has credits. One command, end to end | `fluxa-wallet market model topup <vendor>` (confirm the spend first) |
+| **Buy Units with a card** | Fund a balance from a real card instead of credits | Use when there are no credits to spend. **Follow the published procedure, do not improvise** | Read `https://monetize.fluxapay.xyz/marketplace/models/topup.md` and follow it exactly |
 | **Token Plan** | A month of model calls on one flat allowance, on the provider's own endpoint | Use when the user wants a monthly allowance instead of per-call Units, or holds a plan already and needs its key | Read `https://monetize.fluxapay.xyz/marketplace/tokenplans/topup.md` to buy; see **Token Plan** below to use one |
 | **Market API keys** | Mint and rotate `fxa_live_` keys for metered API and LLM access | Use when an agent needs a capped key to hand to a sub-process | `fluxa-wallet market keys create --name <n> --cap <MC>` |
 
@@ -232,7 +233,8 @@ User adds and manages funds at the FluxA Agent Wallet web app:
 | **Refund a received payment** (full or partial) | [PAYMENT-LINK.md](PAYMENT-LINK.md) — "Refunds" section |
 | **Prove agent identity to a 3rd party** (SSO, account binding) | [VC-ISSUE.md](VC-ISSUE.md) |
 | **Call a model** and pay per call | `market model remainingUsage`, then the models catalogue |
-| **Fund a Units balance** that ran low | `https://monetize.fluxapay.xyz/marketplace/models/topup.md` |
+| **Fund a Units balance** from credits you hold | `fluxa-wallet market model topup <vendor>` |
+| **Fund a Units balance** from a card | `https://monetize.fluxapay.xyz/marketplace/models/topup.md` |
 | **Buy a month of calls** on one flat allowance | `https://monetize.fluxapay.xyz/marketplace/tokenplans/topup.md` |
 | **Use a Token Plan** the user already holds | "Token Plan" above |
 
@@ -313,7 +315,7 @@ For FLUXA_MONETIZE_CREDITS, amounts are in the credits' smallest unit as defined
 | `plan-tool-use` | (task arg) | Recommend the models, APIs, and skills for a task |
 | `market search` | (query arg) | Discover APIs, models, and skills (`--models` or `--vendors` to scope) |
 | `market model remainingUsage` | (vendor optional) | Prepaid Units balance per merchant |
-| `market model topup` | (vendor arg) | **Deprecated.** The x402 Units top-up. Use the card rail in `/marketplace/models/topup.md` instead |
+| `market model topup` | (vendor arg) | Buy Units by spending Monetize Credits, via x402 (confirm the spend first) |
 | `linked-card mandates` | `--host`, `--amount` | List reusable card mandates before creating another |
 | `linked-card subcard` | `--mandate` | The card behind a mandate, once it is live |
 | `headless-checkout` | `--mandate`, `--attempt` | Pay a created order with that card |

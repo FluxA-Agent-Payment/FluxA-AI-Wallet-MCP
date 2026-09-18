@@ -114,13 +114,16 @@ fluxa-wallet market model remainingUsage <vendor>
 # Spending history
 fluxa-wallet market model usageHistory <vendor>
 
+# Top up from Monetize Credits (ONLY after explicit user confirmation)
+fluxa-wallet market model topup <vendor>
 ```
 
-**To top up, do not use `market model topup`.** That is the old x402 route and
-it is deprecated. Read
+Optionally scope the amount with `--bundle <slug>` or `--credits <N>`.
+
+That command spends **Monetize Credits** the wallet already holds. To fund from
+a **card** instead, read
 `https://monetize.fluxapay.xyz/marketplace/models/topup.md` and follow it
-exactly: it is the card-rail procedure, it is tested, and it is kept current.
-**Always confirm the spend with the user first.**
+exactly. **Always confirm a top-up with the user first.**
 
 Full credential setup, operations, top-up protocol, and error handling:
 
