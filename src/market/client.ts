@@ -577,8 +577,14 @@ async function cmdTokenplanBuy(planSlug: string): Promise<string> {
     method: 'POST',
     body: { planSlug },
   });
+  // `amount` is newer than this command. A proxy that predates it answers
+  // without one, and printing "$undefined USDC" at somebody about to spend
+  // money is worse than not naming the price at all.
+  const price = Number.isFinite(Number(data.amount))
+    ? `${c.bold('$' + data.amount)} ${data.currency ?? 'USDC'}`
+    : c.dim(`price shown on the checkout page`);
   return [
-    `  ${c.bold(data.planSlug)}  ${c.bold('$' + data.amount)} ${data.currency}`,
+    `  ${c.bold(data.planSlug)}  ${price}`,
     '',
     '  Open to pay:',
     '    ' + data.checkoutUrl,
