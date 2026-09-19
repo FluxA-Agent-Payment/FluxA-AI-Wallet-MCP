@@ -174,6 +174,8 @@ MARKETPLACE COMMANDS:
   market tokenplan key <id>              The provider key for one plan
   market tokenplan usage <id>            What that plan has spent, per model
   market tokenplan models                Which models a plan can call
+  market tokenplan buy <plan>            Pay in USDC: prints a checkout link
+  market tokenplan order <id>            Whether a purchase settled and its seat is ready
   market tokenplan redeem <code> --yes   Spend a redemption code (one-shot)
   market tokenplan claim <code> --yes    Claim a shared plan code (one-shot)
   market info [topic]       Explain how the marketplace works
@@ -555,13 +557,15 @@ when the user has credits; use that document when they do not.`,
 
 Spend and topup history for a merchant.`,
 
-  'market tokenplan': `Usage: fluxa-wallet market tokenplan <list | key <id> | usage <id> | models | redeem <code> --yes | claim <code> --yes>
+  'market tokenplan': `Usage: fluxa-wallet market tokenplan <buy <plan> | order <id> | list | key <id> | usage <id> | models | redeem <code> --yes | claim <code> --yes>
 
 A Token Plan is one flat monthly allowance on the provider's own endpoint, as
 opposed to per-call Units on ours. The key these commands return is the
 PROVIDER's: it does not authenticate at /llm/{merchant}, and an fxa_live_ key
 does not authenticate at the provider.
 
+  buy <plan>        a checkout link to pay for a plan in USDC (lite|standard|advanced)
+  order <id>        whether that purchase settled, and whether its seat is ready
   list              plans held, allowance left, days left, and the id the rest take
   key <id>          the provider key and base url for one plan
   usage <id>        what that plan has spent, per model
@@ -569,8 +573,10 @@ does not authenticate at the provider.
   redeem <code>     spend a redemption code: one person, one plan of their own
   claim <code>      claim a shared code: many people, one plan FluxA already owns
 
-To BUY a plan, read https://monetize.fluxapay.xyz/marketplace/tokenplans/topup.md
-and follow it. It is the tested procedure and it is kept current.
+buy charges USDC through a FluxA Wallet payment link. It only CREATES the
+link -- the money moves when a human opens it and approves, which is why it
+needs no --yes and an agent cannot spend by running it. To pay by card instead,
+read https://monetize.fluxapay.xyz/marketplace/tokenplans/topup.md.
 
 Options:
   --yes             required by redeem and claim. A code is spent once and
@@ -3206,6 +3212,8 @@ async function main() {
     case 'market tokenplan list':
     case 'market tokenplan key':
     case 'market tokenplan usage':
+    case 'market tokenplan buy':
+    case 'market tokenplan order':
     case 'market tokenplan models':
     case 'market tokenplan redeem':
     case 'market tokenplan claim':

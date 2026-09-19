@@ -98,7 +98,7 @@ Trial Scenarios: **MUST** guide user with wording such as: Let’s try what this
 | **Prepaid LLM Units** | Call LLMs on one prepaid balance, spendable at any provider, and read it | Use when calling models via `/llm/{merchant}`, or checking what is left | `fluxa-wallet market model remainingUsage`; `fluxa-wallet market model usageHistory` |
 | **Buy Units with Credits** | Fund the Units balance from Monetize Credits the wallet already holds | Use when the balance is low or negative **and** the wallet has credits. One command, end to end | `fluxa-wallet market model topup` (confirm the spend first) |
 | **Buy Units with a card** | Fund a balance from a real card instead of credits | Use when there are no credits to spend. **Follow the published procedure, do not improvise** | Read `https://monetize.fluxapay.xyz/marketplace/models/topup.md` and follow it exactly |
-| **Token Plan** | A month of model calls on one flat allowance, on the provider's own endpoint | Use when the user wants a monthly allowance instead of per-call Units, or holds a plan already and needs its key | Read `https://monetize.fluxapay.xyz/marketplace/tokenplans/topup.md` to buy; see **Token Plan** below to use one |
+| **Token Plan** | A month of model calls on one flat allowance, on the provider's own endpoint | Use when the user wants a monthly allowance instead of per-call Units, or holds a plan already and needs its key | `fluxa-wallet market tokenplan buy <plan>` to pay in USDC; see **Token Plan** below |
 | **Market API keys** | Mint and rotate `fxa_live_` keys for metered API and LLM access | Use when an agent needs a capped key to hand to a sub-process | `fluxa-wallet market keys create --name <n> --cap <MC>` |
 
 ## Token Plan
@@ -118,9 +118,22 @@ credentials, and swapping them returns 401 either way.
 
 ### Buying one
 
-Read `https://monetize.fluxapay.xyz/marketplace/tokenplans/topup.md` and follow
-it exactly. It is the tested procedure and it is kept current; a flow written
-from memory here would drift from it.
+**In USDC**, from the wallet's own balance:
+
+```bash
+fluxa-wallet market tokenplan buy lite      # prints a checkout link
+fluxa-wallet market tokenplan order <id>    # settled? seat ready?
+```
+
+`buy` only CREATES the link. The money moves when the user opens it and
+approves, which is the confirmation step — so it takes no `--yes`, and running
+it cannot spend anything. Tell the user the price it prints before handing over
+the link.
+
+**By card instead**, read
+`https://monetize.fluxapay.xyz/marketplace/tokenplans/topup.md` and follow it
+exactly. It is the tested procedure and it is kept current; a flow written from
+memory here would drift from it.
 
 ### Using one you already hold
 
@@ -325,6 +338,8 @@ For FLUXA_MONETIZE_CREDITS, amounts are in the credits' smallest unit as defined
 | `market keys list` | (none) | List your `fxa_live_` keys |
 | `market keys update` | (id arg) | Update a key (`--name`, `--cap`; `--cap 0` clears the cap) |
 | `market keys revoke` | (id arg) | Revoke a key |
+| `market tokenplan buy` | (plan arg) | A checkout link to pay for a plan in USDC. Creates only; paying is the spend |
+| `market tokenplan order` | (id arg) | Whether that purchase settled, and whether its seat is ready |
 | `market tokenplan list` | (none) | Token Plans held: allowance left, days left, id |
 | `market tokenplan key` | (id arg) | The provider key and base url for one plan |
 | `market tokenplan usage` | (id arg) | What that plan has spent, per model |

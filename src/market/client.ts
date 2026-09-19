@@ -559,6 +559,55 @@ async function cmdTokenplanRedeem(kind: 'redeem' | 'claim', code: string, confir
   return lines.join('\n');
 }
 
+
+/**
+ * Buying a plan with USDC, through a FluxA Wallet payment link.
+ *
+ * Creating the link costs nothing: the money moves when a human opens the URL
+ * and approves it, which IS the confirmation step. So this needs no --yes, and
+ * an agent cannot spend by running it.
+ *
+ * The plan is charged in USDC, not Monetize Credits -- a different currency
+ * from `market model topup`, which funds Units.
+ */
+async function cmdTokenplanBuy(planSlug: string): Promise<string> {
+  if (!planSlug) die('usage: fluxa-wallet market tokenplan buy <plan>   (lite | standard | advanced)');
+  const { data } = await http(`${PROXY}/llm/topup/paylink`, {
+    auth: true,
+    method: 'POST',
+    body: { planSlug },
+  });
+  return [
+    `  ${c.bold(data.planSlug)}  ${c.bold('$' + data.amount)} ${data.currency}`,
+    '',
+    '  Open to pay:',
+    '    ' + data.checkoutUrl,
+    '',
+    c.dim('  Nothing has been charged yet. Paying the link is what spends.'),
+    c.dim(`  Then: fluxa-wallet market tokenplan order ${data.orderId}`),
+  ].join('\n');
+}
+
+/** Where an order got to, and whether its seat is ready. */
+async function cmdTokenplanOrder(orderId: string): Promise<string> {
+  if (!orderId) die('usage: fluxa-wallet market tokenplan order <orderId>');
+  const { data } = await http(`${PROXY}/llm/topup/order/${encodeURIComponent(orderId)}`, { auth: true });
+  const lines = [`  payment  ${data.status === 'settled' ? c.green('settled') : c.dim(data.status)}`];
+  if (data.plan) {
+    // Two states, not one: the money can be settled while the seat is still
+    // being made, or has failed to be made.
+    lines.push(`  plan     ${data.plan.planSlug ?? '—'}`);
+    lines.push(
+      data.plan.ready
+        ? `  seat     ${c.green('ready')}  ${c.dim('— `market tokenplan list` for the key')}`
+        : `  seat     ${c.dim(`${data.plan.seatStatus ?? 'pending'}, step ${data.plan.provisioningStep}/4`)}`,
+    );
+  } else if (data.status === 'settled') {
+    lines.push(`  units    +${Number(data.creditsToGrant).toLocaleString()}  balance ${Number(data.balance).toLocaleString()}`);
+  }
+  return lines.join('\n');
+}
+
 export async function runMarketCommand(
   command: string,
   positionals: string[],
@@ -608,6 +657,12 @@ export async function runMarketCommand(
         break;
       case 'market tokenplan models':
         raw = await cmdTokenplanModels();
+        break;
+      case 'market tokenplan buy':
+        raw = await cmdTokenplanBuy(positionals[0]);
+        break;
+      case 'market tokenplan order':
+        raw = await cmdTokenplanOrder(positionals[0]);
         break;
       case 'market tokenplan redeem':
         raw = await cmdTokenplanRedeem('redeem', positionals[0], options.yes !== undefined);
