@@ -114,16 +114,19 @@ fluxa-wallet market model remainingUsage
 # Spending history
 fluxa-wallet market model usageHistory
 
-# Top up from Monetize Credits (ONLY after explicit user confirmation)
-fluxa-wallet market model topup
+# Top up (ONLY after explicit user confirmation)
+fluxa-wallet market model topup           # pays with Monetize Credits (default)
+fluxa-wallet market model topup --usdc    # pays with on-chain USDC on Base
 ```
 
 Optionally scope the amount with `--bundle <slug>` or `--credits <N>`.
 
-That command spends **Monetize Credits** the wallet already holds. To fund from
-a **card** instead, read
-`https://monetize.fluxapay.xyz/marketplace/models/topup.md` and follow it
-exactly. **Always confirm a top-up with the user first.**
+By default `topup` spends **Monetize Credits** the wallet already holds. With
+`--usdc` it pays the same topup order with on-chain USDC on Base instead; the
+topup 402 offers that rail when the deployment accepts USDC. Cards are not
+supported for Units topups for now. The published procedure at
+`https://monetize.fluxapay.xyz/marketplace/models/topup.md` is this same x402
+wallet flow. **Always confirm a top-up with the user first.**
 
 Full credential setup, operations, top-up protocol, and error handling:
 

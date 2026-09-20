@@ -167,7 +167,7 @@ MARKETPLACE COMMANDS:
   plan-tool-use "<task>"    Recommend the models, APIs and skills for a task
   market search "<q>"       Discover resources (add --models or --vendors to scope)
   market model remainingUsage            Prepaid Units balance
-  market model topup                     Buy Units with Monetize Credits (x402)
+  market model topup                     Buy Units with Monetize Credits (x402); --usdc pays in Base USDC
   market model usageHistory              Spend and topup history
   market keys [create|update <id>|revoke <id>]   Manage fxa_live_ API keys (Agent VC only)
   market tokenplan list                  Token Plans held: allowance left, days left, id
@@ -543,15 +543,19 @@ Examples:
 
 Prepaid Units balance per merchant. Pass a vendor to scope to one.`,
 
-  'market model topup': `Usage: fluxa-wallet market model topup [--credits <N> | --bundle <slug>]
+  'market model topup': `Usage: fluxa-wallet market model topup [--credits <N> | --bundle <slug>] [--usdc]
 
 Buys Units by spending Monetize Credits the wallet already holds. Signs a
 FLUXA_MONETIZE_CREDITS mandate, then pays the x402 challenge.
 
-This is the credits rail. There is a second one, the card rail, for funding
-from a real card rather than from credits: read
-https://monetize.fluxapay.xyz/marketplace/models/topup.md. Use this command
-when the user has credits; use that document when they do not.`,
+Options:
+  --usdc              pay the challenge's on-chain Base USDC accept instead of
+                      Monetize Credits (signs a USDC mandate). Errors if this
+                      deployment does not offer USDC topups.
+
+Two rails: Monetize Credits (the default) and on-chain Base USDC (--usdc).
+Cards are not a rail for Units topups. Full topup guide:
+https://monetize.fluxapay.xyz/marketplace/models/topup.md`,
 
   'market model usageHistory': `Usage: fluxa-wallet market model usageHistory
 
@@ -2580,27 +2584,49 @@ async function cmdMarketTopup(positionals: string[], options: Record<string, str
   if (!auth) {
     return { success: false, error: 'FluxA Agent ID not initialized. Run "init" first.' };
   }
+  const payWithUsdc = options.usdc !== undefined;
 
   try {
     // 1. initiate — answers HTTP 402 with the x402 challenge on success
     const init = await topupInitiate({ credits: options.credits, bundle: options.bundle });
     console.error(`· order ${init.orderId}: ${init.costCredits} Monetize Credits -> ${Number(init.creditsToGrant).toLocaleString()} Units`);
 
-    // 2. mandate (Monetize Credits) — budget must cover the cost (credits unit = MC x 100)
-    const budget = options.budget ? Number(options.budget) : Math.max(500, Math.ceil(Number(init.costCredits) * 100));
+    // 2. mandate — Monetize Credits by default; --usdc pays the challenge's
+    //    on-chain Base USDC accept instead. Both ride the same x402-v3 leg
+    //    below: it picks the accepts entry whose currency matches the mandate.
+    let mandateCurrency = 'FLUXA_MONETIZE_CREDITS';
+    // budget must cover the cost (credits unit = MC x 100)
+    let budget = options.budget ? Number(options.budget) : Math.max(500, Math.ceil(Number(init.costCredits) * 100));
+    if (payWithUsdc) {
+      // The deployment advertises USDC only when it configured a receiving
+      // address, so check the 402 body before creating any mandate.
+      let accepts: any[] = [];
+      try { accepts = JSON.parse(init.rawBody)?.accepts || []; } catch { /* checked below */ }
+      const usdcAccept = accepts.find((a: any) =>
+        a?.scheme === 'exact' &&
+        getCurrencyFromAsset(a.asset || DEFAULT_ASSET, a.network || DEFAULT_NETWORK) === 'USDC'
+      );
+      if (!usdcAccept) {
+        return { success: false, error: 'this deployment does not offer USDC topups (no "base" accept in the 402) — re-run without --usdc to pay with Monetize Credits.' };
+      }
+      mandateCurrency = 'USDC';
+      // USDC budget is in 6-decimal atomic units, straight from the accept.
+      budget = options.budget ? Number(options.budget) : Number(usdcAccept.maxAmountRequired);
+      console.error(`· paying on-chain: ${(budget / 1e6).toFixed(2)} USDC on ${usdcAccept.network || DEFAULT_NETWORK}`);
+    }
     const seconds = options.seconds ? Number(options.seconds) : 28800;
     const mc = await cmdMandateCreate({
-      desc: `Prepay ${init.costCredits} MC of Units`,
+      desc: payWithUsdc ? `Prepay ${init.costCredits} MC of Units (paid in USDC)` : `Prepay ${init.costCredits} MC of Units`,
       amount: String(budget),
       seconds: String(seconds),
-      currency: 'FLUXA_MONETIZE_CREDITS',
+      currency: mandateCurrency,
     });
     if (!mc.success) return mc;
     const mandateId: string = mc.data.mandateId;
     const authUrl: string | undefined = mc.data.authorizationUrl;
 
     // 3. sign — the human approves the mandate URL; we poll until it's signed
-    console.error(`\n  Sign the spending mandate (budget ${budget} FLUXA_MONETIZE_CREDITS, valid ${seconds}s)`);
+    console.error(`\n  Sign the spending mandate (budget ${budget} ${mandateCurrency}, valid ${seconds}s)`);
     if (authUrl) console.error(`  ${authUrl}`);
     console.error('  open the link, approve, then this continues automatically...\n');
     const READY = new Set(['signed', 'active', 'authorized', 'approved']);
@@ -2627,7 +2653,7 @@ async function cmdMarketTopup(positionals: string[], options: Record<string, str
     // 5. finalize — POST the resource URL with the payment token (no bearer)
     const fin = await topupFinalize(init.resource, xPayment);
     const added = Number(fin.creditsAdded ?? init.creditsToGrant);
-    await recordAudit({ event: 'market_topup', order_id: init.orderId, mandate_id: mandateId, units_added: added });
+    await recordAudit({ event: 'market_topup', order_id: init.orderId, mandate_id: mandateId, units_added: added, ...(payWithUsdc ? { rail: 'usdc' } : {}) });
     return {
       success: true,
       raw: `+${added.toLocaleString()} Units · balance ${Number(fin.balance ?? 0).toLocaleString()} Units`,
