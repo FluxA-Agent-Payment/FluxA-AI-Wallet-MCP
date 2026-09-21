@@ -20,7 +20,7 @@ fluxa-wallet market search --vendors              # list fundable vendors
 Or hit the discovery endpoint directly:
 
 ```bash
-curl "https://monetize.fluxapay.xyz/api/discover?type=api,skill,model"
+curl "https://agentmarket.fluxapay.xyz/api/discover?type=api,skill,model"
 ```
 
 - Fuzzy search: `?search=<keywords>` (matches name, description, tags).
@@ -33,7 +33,7 @@ To use an **API** result, call its endpoint. The first unpaid call returns HTTP 
 To use a **skill** result, install it directly:
 
 ```bash
-npx -y skills add https://monetize.fluxapay.xyz -s <slug>
+npx -y skills add https://agentmarket.fluxapay.xyz -s <slug>
 ```
 
 ## Fallback: broader external catalogs (`more`)
@@ -64,7 +64,7 @@ First-party LLM catalog published by FluxA Monetize. Use this when you need to *
 ## Discover Models
 
 ```bash
-curl "https://monetize.fluxapay.xyz/api/discover?type=model"
+curl "https://agentmarket.fluxapay.xyz/api/discover?type=model"
 ```
 
 Returns a `models[]` array. Each entry:
@@ -125,11 +125,11 @@ By default `topup` spends **Monetize Credits** the wallet already holds. With
 `--usdc` it pays the same topup order with on-chain USDC on Base instead; the
 topup 402 offers that rail when the deployment accepts USDC. Cards are not
 supported for Units topups for now. The published procedure at
-`https://monetize.fluxapay.xyz/marketplace/models/topup.md` is this same x402
+`https://agentmarket.fluxapay.xyz/marketplace/models/topup.md` is this same x402
 wallet flow. **Always confirm a top-up with the user first.**
 
 Full credential setup, operations, top-up protocol, and error handling:
 
 ```bash
-curl https://monetize.fluxapay.xyz/api/llm/skills.md
+curl https://agentmarket.fluxapay.xyz/api/llm/skills.md
 ```

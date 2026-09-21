@@ -13,7 +13,7 @@
 //
 // Config (env):
 //   FLUXA_KEY        fxa_live_… API key (optional; else an Agent VC is minted)
-//   MARKET_PLATFORM  default https://monetize.fluxapay.xyz      (discovery, models)
+//   MARKET_PLATFORM  default https://agentmarket.fluxapay.xyz      (discovery, models)
 //   MARKET_PROXY     default https://proxy-monetize.fluxapay.xyz (balances, keys, plan)
 //   AGENT_ID_API     default https://agentid.fluxapay.xyz       (VC issue)
 // ---------------------------------------------------------------------------
@@ -22,7 +22,7 @@ import { refreshJWT, isJWTExpired } from '../wallet/client.js';
 import { getEffectiveAgentId, updateJWT } from '../agent/agentId.js';
 import { planLines } from './plan-format.js';
 
-const PLATFORM = (process.env.MARKET_PLATFORM || process.env.FLUXA_PLATFORM || 'https://monetize.fluxapay.xyz').replace(/\/$/, '');
+const PLATFORM = (process.env.MARKET_PLATFORM || process.env.FLUXA_PLATFORM || 'https://agentmarket.fluxapay.xyz').replace(/\/$/, '');
 const PROXY = (process.env.MARKET_PROXY || process.env.FLUXA_PROXY || 'https://proxy-monetize.fluxapay.xyz').replace(/\/$/, '');
 const AGENT_ID_API = (process.env.AGENT_ID_API || 'https://agentid.fluxapay.xyz').replace(/\/$/, '');
 const UNIT_USD = 0.00001;
@@ -485,7 +485,7 @@ async function cmdTokenplanList(): Promise<string> {
   const subs: any[] = data.subscriptions || [];
   if (!subs.length) {
     return c.dim('  no token plans — see ') +
-      `${PROXY.replace('proxy-monetize', 'monetize')}/marketplace/tokenplans/topup.md`;
+      `${PLATFORM}/marketplace/tokenplans/topup.md`;
   }
   const lines: string[] = [];
   lines.push('  ' + c.dim(pad('plan', 26) + pad('left', 22) + pad('days', 7) + 'id'));

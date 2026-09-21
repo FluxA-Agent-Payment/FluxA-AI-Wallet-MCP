@@ -555,7 +555,7 @@ Options:
 
 Two rails: Monetize Credits (the default) and on-chain Base USDC (--usdc).
 Cards are not a rail for Units topups. Full topup guide:
-https://monetize.fluxapay.xyz/marketplace/models/topup.md`,
+https://agentmarket.fluxapay.xyz/marketplace/models/topup.md`,
 
   'market model usageHistory': `Usage: fluxa-wallet market model usageHistory
 
@@ -580,7 +580,7 @@ does not authenticate at the provider.
 buy charges USDC through a FluxA Wallet payment link. It only CREATES the
 link -- the money moves when a human opens it and approves, which is why it
 needs no --yes and an agent cannot spend by running it. To pay by card instead,
-read https://monetize.fluxapay.xyz/marketplace/tokenplans/topup.md.
+read https://agentmarket.fluxapay.xyz/marketplace/tokenplans/topup.md.
 
 Options:
   --yes             required by redeem and claim. A code is spent once and
