@@ -2,8 +2,8 @@
 
 Two ways to find x402 resources you can pay for with `fluxa-wallet`:
 
-1. The FluxA Monetize catalog (verified first-party APIs/skills plus a curated external x402 set) through one discovery endpoint.
-2. The FluxA Monetize Models catalog (LLMs) with named models and per-token pricing.
+1. The FluxA AgentMarket catalog (verified first-party APIs/skills plus a curated external x402 set) through one discovery endpoint.
+2. The FluxA AgentMarket Models catalog (LLMs) with named models and per-token pricing.
 
 If nothing in the catalog fits, the discovery response ends with a `more` block pointing at broader external catalogs.
 
@@ -57,9 +57,9 @@ The discovery response ends with a `more` block. Use it only when nothing in the
 - A **failed topup order is dead**: retrying its finalize returns 409. Create a new topup instead.
 - The **creator UID path segment** on proxy URLs (`.../api/<slug>/<uid>`) is optional referral attribution. Drop it if you do not have one.
 
-# 2. FluxA Monetize Models (LLMs)
+# 2. FluxA AgentMarket Models (LLMs)
 
-First-party LLM catalog published by FluxA Monetize. Use this when you need to **call an LLM/AI model** (Claude, GPT, Gemini, DeepSeek, Kimi, GLM, MiniMax, ERNIE, etc.) through the wallet with **named models and per-token pricing** — instead of an opaque per-call x402 endpoint from the Bazaar.
+First-party LLM catalog published by FluxA AgentMarket. Use this when you need to **call an LLM/AI model** (Claude, GPT, Gemini, DeepSeek, Kimi, GLM, MiniMax, ERNIE, etc.) through the wallet with **named models and per-token pricing** — instead of an opaque per-call x402 endpoint from the Bazaar.
 
 ## Discover Models
 

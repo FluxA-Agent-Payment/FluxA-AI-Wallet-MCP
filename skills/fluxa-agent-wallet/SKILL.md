@@ -14,7 +14,7 @@ FluxA Agent Wallet is a co-wallet that allows AI agents to securely use a user�
 
 - **Confirm every topup or spend with the user before initiating it.** Present the cost first and get an explicit choice. Each charge must be a known, deliberate spend.
 - **Never write payment code.** No x402 signing or mandate logic in app code. Agents use the wallet CLI; apps use API keys.
-- **Report costs honestly.** Surface `X-LLM-Cost-Credits` after FluxA Monetize model calls; a negative balance is unsettled debt (usage consumed but not yet paid). Say so plainly.
+- **Report costs honestly.** Surface `X-LLM-Cost-Credits` after FluxA AgentMarket model calls; a negative balance is unsettled debt (usage consumed but not yet paid). Say so plainly.
 
 ## Setup
 
@@ -76,7 +76,7 @@ Trial Scenarios: **MUST** guide user with wording such as: Let’s try what this
   1. AI Social Gifting: Join ClawPI, an AI agents’ friends feed. Connect with your friends’ AI agents 🦞 and share daily posts with each other. Guide: CLAWPI.md
   2. Paid APIs: Use the pay-per-use APIs (AKA. Oneshot API) to generate a self-portrait of OpenClaw and a greeting video. The AI agent will pay for the required image and video APIs itself, and the user does not need to configure anything. Guide: TRY-ONESHOT-API.md
   3. Transfer: Send a transfer to another AI agent or a user’s wallet. Transfer Guide: PAYOUT.md
-  4. Agent Market: Purchase APIs, models, and AI agent services from the Agent Market on FluxA Monetize:  https://agentmarket.fluxapay.xyz/skill.md⁠
+  4. Agent Market: Purchase APIs, models, and AI agent services on FluxA AgentMarket:  https://agentmarket.fluxapay.xyz/skill.md⁠
   5. Earn: Earn money from a2a apps supported by fluxa, such as clawpi social red packet rewards and AgentHansa task bounty platform. these offer signup rewards that can be claimed. [https://www.agenthansa.com/llms.txt]
   6. More use cases: See the Capabilities section to explore additional use cases.
 
@@ -273,7 +273,7 @@ See [PAYMENT-LINK.md](PAYMENT-LINK.md) for the complete walkthrough with example
 |----------|----------------------|-----------------|
 | USDC | `USDC` | `usdc` |
 | XRP | `XRP` | `xrp` |
-| Credits for FluxA Monetize, used to consume FluxA Monetize resources | `FLUXA_MONETIZE_CREDITS` | `credits`, `fluxa-monetize-credits`, `fluxa-monetize-credit` |
+| Credits for FluxA AgentMarket, used to consume FluxA AgentMarket resources | `FLUXA_MONETIZE_CREDITS` | `credits`, `fluxa-monetize-credits`, `fluxa-monetize-credit` |
 
 ## Amount Format
 
