@@ -146,7 +146,7 @@ memory here would drift from it.
 
 One endpoint has no wrapper: `POST /llm/tokenplan/subscription/{id}/retry`
 finishes a setup that stalled. Call it directly against
-`https://proxy-monetize.fluxapay.xyz` with the same token, or send the user to
+`https://router.fluxapay.xyz` with the same token, or send the user to
 their console, which has a button for it.
 
 ### Codes

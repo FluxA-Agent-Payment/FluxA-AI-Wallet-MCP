@@ -91,10 +91,10 @@ Model pricing is denominated in **Units** (a.k.a. FLUXA_MONETIZE_CREDITS), **not
 
 OpenAI Chat Completions wire format — drop-in for any OpenAI client, just swap the `baseURL`.
 
-**Base URL:** `https://proxy-monetize.fluxapay.xyz/llm/<provider>/v1` (`<provider>` from discovery)
+**Base URL:** `https://router.fluxapay.xyz/llm/<provider>/v1` (`<provider>` from discovery)
 
 ```bash
-curl -X POST https://proxy-monetize.fluxapay.xyz/llm/<provider>/v1/chat/completions \
+curl -X POST https://router.fluxapay.xyz/llm/<provider>/v1/chat/completions \
   -H "Authorization: Bearer <credential>" \
   -H "Content-Type: application/json" \
   -d '{"model":"anthropic/claude-sonnet-4.6","messages":[{"role":"user","content":"..."}]}'
