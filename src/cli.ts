@@ -556,9 +556,13 @@ Options:
                       Monetize Credits (signs a USDC mandate). Errors if this
                       deployment does not offer USDC topups.
 
-Two rails: Monetize Credits (the default) and on-chain Base USDC (--usdc).
-Cards are not a rail for Units topups. Full topup guide:
-https://agentmarket.fluxapay.xyz/marketplace/models/topup.md`,
+This command is the x402 rail, and it carries two currencies: Monetize Credits
+(the default) and on-chain Base USDC (--usdc). Full procedure:
+https://agentmarket.fluxapay.xyz/marketplace/models/agent-topup.md
+
+Units can also be bought with the user's linked card, which this command does
+not do -- that rail is createOrder + a CARD_USD mandate + headless-checkout,
+written out at https://agentmarket.fluxapay.xyz/marketplace/models/topup.md`,
 
   'market model usageHistory': `Usage: fluxa-wallet market model usageHistory
 

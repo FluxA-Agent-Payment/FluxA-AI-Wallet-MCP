@@ -123,10 +123,15 @@ Pick the tier with `--bundle <slug>`: `starter` (5 MC), `mid` (10), `pro` (25). 
 
 By default `topup` spends **Monetize Credits** the wallet already holds. With
 `--usdc` it pays the same topup order with on-chain USDC on Base instead; the
-topup 402 offers that rail when the deployment accepts USDC. Cards are not
-supported for Units topups for now. The published procedure at
-`https://agentmarket.fluxapay.xyz/marketplace/models/topup.md` is this same x402
-wallet flow. **Always confirm a top-up with the user first.**
+topup 402 offers that rail when the deployment accepts USDC. Either way it is
+the x402 rail, written out at
+`https://agentmarket.fluxapay.xyz/marketplace/models/agent-topup.md`.
+
+A third rail exists that this command does not drive: the user's linked card,
+via `/pay/createOrder` + a `CARD_USD` mandate + `headless-checkout`. Use it when
+the wallet holds neither credits nor USDC, and follow
+`https://agentmarket.fluxapay.xyz/marketplace/models/topup.md` exactly rather
+than improvising it. **Always confirm a top-up with the user first.**
 
 Full credential setup, operations, top-up protocol, and error handling:
 
