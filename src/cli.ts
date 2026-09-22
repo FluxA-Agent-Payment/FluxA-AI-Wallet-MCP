@@ -5,7 +5,7 @@
  * Can be bundled into a single file with esbuild for distribution
  */
 
-import { runMarketCommand, topupInitiate, topupFinalize } from './market/client.js';
+import { runMarketCommand, topupInitiate, topupFinalize, TOPUP_BUNDLES } from './market/client.js';
 import {
   registerAgent,
   createPayout,
@@ -167,7 +167,7 @@ MARKETPLACE COMMANDS:
   plan-tool-use "<task>"    Recommend the models, APIs and skills for a task
   market search "<q>"       Discover resources (add --models or --vendors to scope)
   market model remainingUsage            Prepaid Units balance
-  market model topup                     Buy Units with Monetize Credits (x402); --usdc pays in Base USDC
+  market model topup [--bundle <slug>]   Buy a Units bundle with Monetize Credits (x402); --usdc pays in Base USDC
   market model usageHistory              Spend and topup history
   market keys [create|update <id>|revoke <id>]   Manage fxa_live_ API keys (Agent VC only)
   market tokenplan list                  Token Plans held: allowance left, days left, id
@@ -541,14 +541,17 @@ Examples:
 
   'market model remainingUsage': `Usage: fluxa-wallet market model remainingUsage
 
-Prepaid Units balance per merchant. Pass a vendor to scope to one.`,
+The account's prepaid Units balance. One balance, spendable at any provider.`,
 
-  'market model topup': `Usage: fluxa-wallet market model topup [--credits <N> | --bundle <slug>] [--usdc]
+  'market model topup': `Usage: fluxa-wallet market model topup [--bundle <slug>] [--usdc]
 
 Buys Units by spending Monetize Credits the wallet already holds. Signs a
 FLUXA_MONETIZE_CREDITS mandate, then pays the x402 challenge.
 
 Options:
+  --bundle <slug>     which tier to buy: starter (5 MC), mid (10), pro (25).
+                      Defaults to starter. Units are sold as bundles on every
+                      rail, so there is no arbitrary amount to name.
   --usdc              pay the challenge's on-chain Base USDC accept instead of
                       Monetize Credits (signs a USDC mandate). Errors if this
                       deployment does not offer USDC topups.
@@ -559,7 +562,7 @@ https://agentmarket.fluxapay.xyz/marketplace/models/topup.md`,
 
   'market model usageHistory': `Usage: fluxa-wallet market model usageHistory
 
-Spend and topup history for a merchant.`,
+Spend and topup history for the account.`,
 
   'market tokenplan': `Usage: fluxa-wallet market tokenplan <buy <plan> | order <id> | list | key <id> | usage <id> | models | redeem <code> --yes | claim <code> --yes>
 
@@ -2580,6 +2583,16 @@ async function cmdMarketTopup(positionals: string[], options: Record<string, str
   // No vendor argument. Units are one balance per account, spendable at any
   // provider, so there was never a choice for the caller to make here -- the
   // argument only existed because the endpoint demanded one.
+  //
+  // --credits is gone too. Ignoring it silently would top up 5 MC for a caller
+  // who asked for 25, so it is an error, and it is checked before auth: a
+  // removed flag should say so on any machine.
+  if (options.credits !== undefined) {
+    return {
+      success: false,
+      error: `--credits is no longer supported: Units are sold as bundles (${TOPUP_BUNDLES.join(' | ')}). Use --bundle <slug>.`,
+    };
+  }
   const auth = await ensureValidJWT();
   if (!auth) {
     return { success: false, error: 'FluxA Agent ID not initialized. Run "init" first.' };
@@ -2588,7 +2601,7 @@ async function cmdMarketTopup(positionals: string[], options: Record<string, str
 
   try {
     // 1. initiate — answers HTTP 402 with the x402 challenge on success
-    const init = await topupInitiate({ credits: options.credits, bundle: options.bundle });
+    const init = await topupInitiate({ bundle: options.bundle });
     console.error(`· order ${init.orderId}: ${init.costCredits} Monetize Credits -> ${Number(init.creditsToGrant).toLocaleString()} Units`);
 
     // 2. mandate — Monetize Credits by default; --usdc pays the challenge's
