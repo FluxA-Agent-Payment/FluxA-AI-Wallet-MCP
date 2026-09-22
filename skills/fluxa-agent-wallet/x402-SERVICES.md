@@ -126,12 +126,7 @@ By default `topup` spends **Monetize Credits** the wallet already holds. With
 topup 402 offers that rail when the deployment accepts USDC. Either way it is
 the x402 rail, written out at
 `https://agentmarket.fluxapay.xyz/marketplace/models/agent-topup.md`.
-
-A third rail exists that this command does not drive: the user's linked card,
-via `/pay/createOrder` + a `CARD_USD` mandate + `headless-checkout`. Use it when
-the wallet holds neither credits nor USDC, and follow
-`https://agentmarket.fluxapay.xyz/marketplace/models/topup.md` exactly rather
-than improvising it. **Always confirm a top-up with the user first.**
+**Always confirm a top-up with the user first.**
 
 Full credential setup, operations, top-up protocol, and error handling:
 

@@ -558,11 +558,7 @@ Options:
 
 This command is the x402 rail, and it carries two currencies: Monetize Credits
 (the default) and on-chain Base USDC (--usdc). Full procedure:
-https://agentmarket.fluxapay.xyz/marketplace/models/agent-topup.md
-
-Units can also be bought with the user's linked card, which this command does
-not do -- that rail is createOrder + a CARD_USD mandate + headless-checkout,
-written out at https://agentmarket.fluxapay.xyz/marketplace/models/topup.md`,
+https://agentmarket.fluxapay.xyz/marketplace/models/agent-topup.md`,
 
   'market model usageHistory': `Usage: fluxa-wallet market model usageHistory
 
