@@ -332,14 +332,14 @@ ${c.bold('market')} ${c.dim('— what you\'re working with')}
 
   ${c.bold('Money')}
     1 Unit = $0.00001 · 100,000 Units = $1 = 1 Monetize Credit (MC)
-    Balances are ${c.bold('per merchant')} (prepaid Units). ${c.cyan('fluxa-wallet market model topup <merchant>')} to prefund.
+    One ${c.bold('account-wide')} prepaid Units balance is shared across providers. ${c.cyan('fluxa-wallet market model topup --bundle starter')} to prefund.
 
   ${c.bold('Auth')}  an ${c.dim('fxa_live_')} key OR an auto-minted agent VC from your wallet identity.
   ${c.bold('Bases')} platform ${c.dim(new URL(PLATFORM).host)} · proxy ${c.dim(new URL(PROXY).host)}
 
   ${c.bold('Commands')}
     ${c.cyan('plan-tool-use "<task>"')}     recommend tools for a task
-    ${c.cyan('market model topup <merchant>')}   prepay Units
+    ${c.cyan('market model topup --bundle starter')}   prepay Units
     ${c.cyan('market search "<q>"')}        discover apis/models/skills
     ${c.dim('market search --models · --vendors · market model remainingUsage · usageHistory · market keys')}
 
@@ -349,8 +349,9 @@ ${c.bold('market')} ${c.dim('— what you\'re working with')}
 ${c.bold('Units & credits')}
   1 Unit = $0.00001 (USD).  100,000 Units = $1 = 1 Monetize Credit (MC).
   · Per-call API/skill prices are quoted in USD; model rates in Units per 1M tokens.
-  · Your prepaid balance is in Units, held ${c.bold('per merchant')}.
-  · Topups are charged in Monetize Credits (min 5 MC = $5); 1 MC grants 100,000 Units.
+  · Your prepaid Units balance is ${c.bold('shared across providers')}.
+  · Topups use fixed bundles: ${c.cyan('--bundle starter|mid|pro')} (default: starter).
+  · Pay in Monetize Credits or add ${c.cyan('--usdc')} for Base USDC; 1 MC grants 100,000 Units.
 `,
   auth: () => `
 ${c.bold('Auth')}
@@ -375,7 +376,7 @@ ${c.bold('API keys — programmatic management')} ${c.dim('(Agent VC only)')}
 `,
   pay: () => `
 ${c.bold('Paying — x402 v3')}
-  Prepaid: each merchant has a Units balance; while it's funded, calls just work.
+  Prepaid: one account-wide Units balance is shared across providers; while it's funded, calls just work.
   On a shortfall a paid endpoint returns HTTP 402 with an x402 challenge. Settle it with
   the wallet:
     1. sign a spending ${c.bold('mandate')} once (you pre-approve a budget + time window)
@@ -385,12 +386,12 @@ ${c.bold('Paying — x402 v3')}
   Reuse the signed mandate for later calls in its window. ${c.cyan('market model topup')} prefunds instead.
 `,
   models: () => `
-${c.bold('Models — merchant-centric')}
-  A ${c.bold('merchant')} (provider) exposes many models; billing + balance are per merchant.
+${c.bold('Models — shared prepaid Units')}
+  A ${c.bold('merchant')} (provider) exposes many models; all providers draw from one account-wide Units balance.
   An offering is ${c.dim('(merchant, model)')}; the lane is ${c.dim('POST /llm/{merchant}/v1/chat/completions')}
   (OpenAI wire format), billed per token.
     ${c.cyan('fluxa-wallet market search --models')}          list models + Units rates
-    ${c.cyan('fluxa-wallet market model topup <merchant>')}   fund that merchant's balance
+    ${c.cyan('fluxa-wallet market model topup --bundle starter')}   fund the shared balance
 `,
   skills: () => `
 ${c.bold('Skills')}
