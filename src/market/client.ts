@@ -414,10 +414,9 @@ function cmdInfo(topic?: string): string {
 // The two marketplace-proxy calls of the topup flow. The money-moving middle
 // (mandate signing + x402-v3) is orchestrated by the wallet CLI in-process
 // using its own proven primitives; these helpers only talk to the proxy.
-// The Units catalogue, universal across merchants. Used for the default and
-// for the error hint; the server is the authority and 404s an unknown slug.
+// The Units catalogue, universal across merchants. Used for the error hint;
+// the server is the authority and 404s an unknown slug.
 export const TOPUP_BUNDLES = ['starter', 'mid', 'pro'] as const;
-export const DEFAULT_BUNDLE = 'starter';
 
 export interface TopupChallenge {
   orderId: string;
@@ -429,7 +428,7 @@ export interface TopupChallenge {
 
 // POST /llm/topup/initiate (authed). On success it answers HTTP 402 with the
 // x402 challenge — so unlike http(), we tolerate 402 instead of throwing.
-export async function topupInitiate(opts: { bundle?: string } = {}): Promise<TopupChallenge> {
+export async function topupInitiate(opts: { bundle: string }): Promise<TopupChallenge> {
   // No vendorSlug. Units are one balance per account; the server resolves which
   // provider the purchase is booked against, which is bookkeeping the caller
   // has no way to choose sensibly.
@@ -439,7 +438,7 @@ export async function topupInitiate(opts: { bundle?: string } = {}): Promise<Top
   // packageSlug because an arbitrary amount has no SKU behind it. Bundles grant
   // at the same flat rate as that path, so buying off-catalogue bought nothing
   // except a top-up the other rails could never repeat.
-  const body: any = { packageSlug: opts.bundle || DEFAULT_BUNDLE };
+  const body: any = { packageSlug: opts.bundle };
   let res: Response;
   try {
     res = await fetch(`${PROXY}/llm/topup/initiate`, {

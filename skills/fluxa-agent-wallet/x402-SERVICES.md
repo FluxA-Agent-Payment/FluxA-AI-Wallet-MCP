@@ -115,11 +115,11 @@ fluxa-wallet market model remainingUsage
 fluxa-wallet market model usageHistory
 
 # Top up (ONLY after explicit user confirmation)
-fluxa-wallet market model topup --credit  # pays with Monetize Credits (default)
-fluxa-wallet market model topup --usdc    # pays with on-chain USDC on Base
+fluxa-wallet market model topup --bundle starter --credit  # pays with Monetize Credits (default)
+fluxa-wallet market model topup --bundle starter --usdc    # pays with on-chain USDC on Base
 ```
 
-Pick the tier with `--bundle <slug>`: `starter` (5 MC), `mid` (10), `pro` (25). Defaults to `starter`.
+`--bundle` is required: `starter` (5 MC), `mid` (10), `pro` (25). There is no default, because the three cost different amounts.
 
 With `--credit` (or no currency flag), `topup` spends **Monetize Credits** the wallet already holds. With
 `--usdc` it pays the same topup order with on-chain USDC on Base instead; the

@@ -5,7 +5,7 @@
  * Can be bundled into a single file with esbuild for distribution
  */
 
-import { runMarketCommand, topupInitiate, topupFinalize, TOPUP_BUNDLES, DEFAULT_BUNDLE } from './market/client.js';
+import { runMarketCommand, topupInitiate, topupFinalize, TOPUP_BUNDLES } from './market/client.js';
 import {
   registerAgent,
   createPayout,
@@ -167,7 +167,7 @@ MARKETPLACE COMMANDS:
   plan-tool-use "<task>"    Recommend the models, APIs and skills for a task
   market search "<q>"       Discover resources (add --models or --vendors to scope)
   market model remainingUsage            Prepaid Units balance
-  market model topup [--bundle <slug>]   Buy a Units bundle via x402: --credit (default) or --usdc
+  market model topup --bundle <slug>     Buy a Units bundle via x402: --credit (default) or --usdc
   market model usageHistory              Spend and topup history
   market keys [create|update <id>|revoke <id>]   Manage fxa_live_ API keys (Agent VC only)
   market tokenplan list                  Token Plans held: allowance left, days left, id
@@ -543,16 +543,18 @@ Examples:
 
 The account's prepaid Units balance. One balance, spendable at any provider.`,
 
-  'market model topup': `Usage: fluxa-wallet market model topup [--bundle <slug>] [--credit | --usdc]
+  'market model topup': `Usage: fluxa-wallet market model topup --bundle <slug> [--credit | --usdc]
 
 Buys Units with Monetize Credits (--credit, default) or on-chain Base USDC
 (--usdc). Creates a mandate in the selected currency, then pays the x402
 challenge after the user approves it.
 
 Options:
-  --bundle <slug>     which tier to buy: starter (5 MC), mid (10), pro (25).
-                      Defaults to starter. Units are sold as bundles on every
-                      rail, so there is no arbitrary amount to name.
+  --bundle <slug>     REQUIRED. Which tier to buy: starter (5 MC), mid (10),
+                      pro (25). There is no default: the three cost different
+                      amounts, so the choice is the caller's. Units are sold as
+                      bundles on every rail, so there is no arbitrary amount to
+                      name either.
   --credit            pay with Monetize Credits (signs a FLUXA_MONETIZE_CREDITS
                       mandate). Default when neither currency flag is passed.
   --usdc              pay the challenge's on-chain Base USDC accept instead of
@@ -2601,6 +2603,15 @@ async function cmdMarketTopup(positionals: string[], options: Record<string, str
   if (options.credit !== undefined && options.usdc !== undefined) {
     return { success: false, error: '--credit and --usdc are mutually exclusive. Choose one payment currency.' };
   }
+  // Which package is the caller's decision, not ours. Three tiers at three
+  // prices, and defaulting to one of them turns `topup` with no arguments into
+  // a purchase nobody chose. Checked before auth, like the flag above.
+  if (!options.bundle) {
+    return {
+      success: false,
+      error: `pick a package: --bundle <${TOPUP_BUNDLES.join('|')}>. Confirm the price with the user first.`,
+    };
+  }
   const auth = await ensureValidJWT();
   if (!auth) {
     return { success: false, error: 'FluxA Agent ID not initialized. Run "init" first.' };
@@ -2643,7 +2654,7 @@ async function cmdMarketTopup(positionals: string[], options: Record<string, str
     }
 
     // One statement of the purchase: what arrives, what it costs, which order.
-    console.error(`  Buying   ${options.bundle || DEFAULT_BUNDLE} bundle · ${Number(init.creditsToGrant).toLocaleString()} Units`);
+    console.error(`  Buying   ${options.bundle} bundle · ${Number(init.creditsToGrant).toLocaleString()} Units`);
     console.error(`  Price    ${priceLine}`);
     console.error(`  Order    ${init.orderId}`);
 
