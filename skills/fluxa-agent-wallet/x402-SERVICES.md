@@ -115,16 +115,17 @@ fluxa-wallet market model remainingUsage
 fluxa-wallet market model usageHistory
 
 # Top up (ONLY after explicit user confirmation)
-fluxa-wallet market model topup --bundle starter --credit  # pays with Monetize Credits (default)
+fluxa-wallet market model topup --bundle starter --credit  # pays with Monetize Credits
 fluxa-wallet market model topup --bundle starter --usdc    # pays with on-chain USDC on Base
 ```
 
 `--bundle` is required: `starter` (5 MC), `mid` (10), `pro` (25). There is no default, because the three cost different amounts.
 
-With `--credit` (or no currency flag), `topup` spends **Monetize Credits** the wallet already holds. With
-`--usdc` it pays the same topup order with on-chain USDC on Base instead; the
-topup 402 offers that rail when the deployment accepts USDC. Either way it is
-the x402 rail, written out at
+Both arguments are required. `--credit` spends **Monetize Credits** the wallet
+already holds; `--usdc` pays the same order with on-chain USDC on Base, which
+the topup 402 offers when the deployment accepts USDC. Neither is a default:
+the price is the same either way, so the flag only decides which of the user's
+balances is drained. Ask which. Either way it is the x402 rail, written out at
 `https://agentmarket.fluxapay.xyz/marketplace/models/agent-topup.md`.
 `--credit` and `--usdc` are mutually exclusive.
 **Always confirm a top-up with the user first.**

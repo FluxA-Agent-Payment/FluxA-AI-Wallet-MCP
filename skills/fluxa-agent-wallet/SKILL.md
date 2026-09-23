@@ -295,7 +295,7 @@ For FLUXA_MONETIZE_CREDITS, amounts are in the credits' smallest unit as defined
 | `plan-tool-use` | (task arg) | Recommend the models, APIs, and skills for a task |
 | `market search` | (query arg) | Discover APIs, models, and skills (`--models` or `--vendors` to scope) |
 | `market model remainingUsage` | (none) | The account's prepaid Units balance |
-| `market model topup` | (none) | Buy Units via x402: `--credit` for Monetize Credits (default), or `--usdc` for Base USDC; flags are mutually exclusive (confirm the spend first) |
+| `market model topup` | `--bundle`, and `--credit` or `--usdc` | Buy a Units bundle via x402. Both required: which tier, and which balance pays. Exactly one currency flag (confirm the spend first) |
 | `market model usageHistory` | (none) | Spend and topup history |
 | `market keys create` | (none) | Mint an `fxa_live_` API key (`--name`, `--cap` optional) |
 | `market keys list` | (none) | List your `fxa_live_` keys |

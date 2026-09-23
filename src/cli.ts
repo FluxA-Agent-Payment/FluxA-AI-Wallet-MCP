@@ -167,7 +167,7 @@ MARKETPLACE COMMANDS:
   plan-tool-use "<task>"    Recommend the models, APIs and skills for a task
   market search "<q>"       Discover resources (add --models or --vendors to scope)
   market model remainingUsage            Prepaid Units balance
-  market model topup --bundle <slug>     Buy a Units bundle via x402: --credit (default) or --usdc
+  market model topup --bundle <slug> --credit|--usdc   Buy a Units bundle via x402
   market model usageHistory              Spend and topup history
   market keys [create|update <id>|revoke <id>]   Manage fxa_live_ API keys (Agent VC only)
   market tokenplan list                  Token Plans held: allowance left, days left, id
@@ -543,28 +543,26 @@ Examples:
 
 The account's prepaid Units balance. One balance, spendable at any provider.`,
 
-  'market model topup': `Usage: fluxa-wallet market model topup --bundle <slug> [--credit | --usdc]
+  'market model topup': `Usage: fluxa-wallet market model topup --bundle <slug> <--credit | --usdc>
 
-Buys Units with Monetize Credits (--credit, default) or on-chain Base USDC
-(--usdc). Creates a mandate in the selected currency, then pays the x402
-challenge after the user approves it.
+Buys Units on the x402 rail. Both arguments are required: which package, and
+which of the user's two balances pays for it. Creates a mandate in that
+currency, then pays the x402 challenge once the user approves it.
 
 Options:
   --bundle <slug>     REQUIRED. Which tier to buy: starter (5 MC), mid (10),
-                      pro (25). There is no default: the three cost different
-                      amounts, so the choice is the caller's. Units are sold as
-                      bundles on every rail, so there is no arbitrary amount to
-                      name either.
-  --credit            pay with Monetize Credits (signs a FLUXA_MONETIZE_CREDITS
-                      mandate). Default when neither currency flag is passed.
-  --usdc              pay the challenge's on-chain Base USDC accept instead of
-                      Monetize Credits (signs a USDC mandate). Errors if this
+                      pro (25). The three cost different amounts, so the
+                      choice is the caller's. Units are sold as bundles on
+                      every rail, so there is no arbitrary amount to name.
+  --credit            REQUIRED, or --usdc. Pay with Monetize Credits (signs a
+                      FLUXA_MONETIZE_CREDITS mandate).
+  --usdc              REQUIRED, or --credit. Pay the challenge's on-chain Base
+                      USDC accept (signs a USDC mandate). Errors if this
                       deployment does not offer USDC topups.
 
---credit and --usdc are mutually exclusive.
-
-This command is the x402 rail, and it carries two currencies: Monetize Credits
-(--credit, the default) and on-chain Base USDC (--usdc). Full procedure:
+Exactly one currency flag. Both buy the same Units for the same price, so
+neither is a default: the choice is which balance to drain, and it belongs to
+the person whose money it is. Full procedure:
 https://agentmarket.fluxapay.xyz/marketplace/models/agent-topup.md`,
 
   'market model usageHistory': `Usage: fluxa-wallet market model usageHistory
@@ -2600,16 +2598,28 @@ async function cmdMarketTopup(positionals: string[], options: Record<string, str
       error: `--credits <amount> is no longer supported: Units are sold as bundles (${TOPUP_BUNDLES.join(' | ')}). Use --bundle <slug> and --credit to pay with Monetize Credits.`,
     };
   }
-  if (options.credit !== undefined && options.usdc !== undefined) {
-    return { success: false, error: '--credit and --usdc are mutually exclusive. Choose one payment currency.' };
-  }
-  // Which package is the caller's decision, not ours. Three tiers at three
-  // prices, and defaulting to one of them turns `topup` with no arguments into
-  // a purchase nobody chose. Checked before auth, like the flag above.
+  // Two decisions, neither of them ours, asked in the order the usage line
+  // asks for them: which package, then which balance pays. Both are checked
+  // before auth, so a malformed command says so on any machine.
+  //
+  // Which package: three tiers at three prices, so defaulting to one turns
+  // `topup` with no arguments into a purchase nobody chose.
   if (!options.bundle) {
     return {
       success: false,
       error: `pick a package: --bundle <${TOPUP_BUNDLES.join('|')}>. Confirm the price with the user first.`,
+    };
+  }
+  if (options.credit !== undefined && options.usdc !== undefined) {
+    return { success: false, error: '--credit and --usdc are mutually exclusive. Choose one payment currency.' };
+  }
+  // Which balance: both rails buy the same Units at the same price, so the flag
+  // decides only which of the user's two balances is drained -- their decision,
+  // and agent-topup.md already says not to pick silently.
+  if (options.credit === undefined && options.usdc === undefined) {
+    return {
+      success: false,
+      error: 'pick a currency: --credit to spend Monetize Credits, or --usdc to spend on-chain USDC on Base. Ask the user which.',
     };
   }
   const auth = await ensureValidJWT();
