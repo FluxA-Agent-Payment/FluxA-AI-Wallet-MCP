@@ -2,8 +2,8 @@
 
 Two ways to find x402 resources you can pay for with `fluxa-wallet`:
 
-1. The FluxA Monetize catalog (verified first-party APIs/skills plus a curated external x402 set) through one discovery endpoint.
-2. The FluxA Monetize Models catalog (LLMs) with named models and per-token pricing.
+1. The FluxA AgentMarket catalog (verified first-party APIs/skills plus a curated external x402 set) through one discovery endpoint.
+2. The FluxA AgentMarket Models catalog (LLMs) with named models and per-token pricing.
 
 If nothing in the catalog fits, the discovery response ends with a `more` block pointing at broader external catalogs.
 
@@ -20,7 +20,7 @@ fluxa-wallet market search --vendors              # list fundable vendors
 Or hit the discovery endpoint directly:
 
 ```bash
-curl "https://monetize.fluxapay.xyz/api/discover?type=api,skill,model"
+curl "https://agentmarket.fluxapay.xyz/api/discover?type=api,skill,model"
 ```
 
 - Fuzzy search: `?search=<keywords>` (matches name, description, tags).
@@ -33,7 +33,7 @@ To use an **API** result, call its endpoint. The first unpaid call returns HTTP 
 To use a **skill** result, install it directly:
 
 ```bash
-npx -y skills add https://monetize.fluxapay.xyz -s <slug>
+npx -y skills add https://agentmarket.fluxapay.xyz -s <slug>
 ```
 
 ## Fallback: broader external catalogs (`more`)
@@ -57,14 +57,14 @@ The discovery response ends with a `more` block. Use it only when nothing in the
 - A **failed topup order is dead**: retrying its finalize returns 409. Create a new topup instead.
 - The **creator UID path segment** on proxy URLs (`.../api/<slug>/<uid>`) is optional referral attribution. Drop it if you do not have one.
 
-# 2. FluxA Monetize Models (LLMs)
+# 2. FluxA AgentMarket Models (LLMs)
 
-First-party LLM catalog published by FluxA Monetize. Use this when you need to **call an LLM/AI model** (Claude, GPT, Gemini, DeepSeek, Kimi, GLM, MiniMax, ERNIE, etc.) through the wallet with **named models and per-token pricing** — instead of an opaque per-call x402 endpoint from the Bazaar.
+First-party LLM catalog published by FluxA AgentMarket. Use this when you need to **call an LLM/AI model** (Claude, GPT, Gemini, DeepSeek, Kimi, GLM, MiniMax, ERNIE, etc.) through the wallet with **named models and per-token pricing** — instead of an opaque per-call x402 endpoint from the Bazaar.
 
 ## Discover Models
 
 ```bash
-curl "https://monetize.fluxapay.xyz/api/discover?type=model"
+curl "https://agentmarket.fluxapay.xyz/api/discover?type=model"
 ```
 
 Returns a `models[]` array. Each entry:
@@ -91,10 +91,10 @@ Model pricing is denominated in **Units** (a.k.a. FLUXA_MONETIZE_CREDITS), **not
 
 OpenAI Chat Completions wire format — drop-in for any OpenAI client, just swap the `baseURL`.
 
-**Base URL:** `https://proxy-monetize.fluxapay.xyz/llm/<provider>/v1` (`<provider>` from discovery)
+**Base URL:** `https://router.fluxapay.xyz/llm/<provider>/v1` (`<provider>` from discovery)
 
 ```bash
-curl -X POST https://proxy-monetize.fluxapay.xyz/llm/<provider>/v1/chat/completions \
+curl -X POST https://router.fluxapay.xyz/llm/<provider>/v1/chat/completions \
   -H "Authorization: Bearer <credential>" \
   -H "Content-Type: application/json" \
   -d '{"model":"anthropic/claude-sonnet-4.6","messages":[{"role":"user","content":"..."}]}'
@@ -109,19 +109,27 @@ Unlike a Bazaar endpoint (one x402 signature per call), the model endpoint meter
 
 ```bash
 # Balance
-fluxa-wallet market model remainingUsage <vendor>
+fluxa-wallet market model remainingUsage
 
 # Spending history
-fluxa-wallet market model usageHistory <vendor>
+fluxa-wallet market model usageHistory
 
 # Top up (ONLY after explicit user confirmation)
-fluxa-wallet market model topup <vendor>
+fluxa-wallet market model topup           # pays with Monetize Credits (default)
+fluxa-wallet market model topup --usdc    # pays with on-chain USDC on Base
 ```
 
-Optionally scope the amount with `--bundle <slug>` or `--credits <N>`. **Always confirm a top-up with the user first.**
+Pick the tier with `--bundle <slug>`: `starter` (5 MC), `mid` (10), `pro` (25). Defaults to `starter`.
+
+By default `topup` spends **Monetize Credits** the wallet already holds. With
+`--usdc` it pays the same topup order with on-chain USDC on Base instead; the
+topup 402 offers that rail when the deployment accepts USDC. Either way it is
+the x402 rail, written out at
+`https://agentmarket.fluxapay.xyz/marketplace/models/agent-topup.md`.
+**Always confirm a top-up with the user first.**
 
 Full credential setup, operations, top-up protocol, and error handling:
 
 ```bash
-curl https://monetize.fluxapay.xyz/api/llm/skills.md
+curl https://agentmarket.fluxapay.xyz/api/llm/skills.md
 ```

@@ -6,7 +6,7 @@ Tell the user:
 
 Step 2
 Find the Nano Banana and Kling APIs here:
-https://monetize.fluxapay.xyz/api/discover?type=api
+https://agentmarket.fluxapay.xyz/api/discover?type=api
 
 Step 3
 You need to generate one image and one video. Based on the actual cost, request a budget via fluxa agent wallet.

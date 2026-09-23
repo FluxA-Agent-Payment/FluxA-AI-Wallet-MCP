@@ -13,8 +13,8 @@
 //
 // Config (env):
 //   FLUXA_KEY        fxa_live_… API key (optional; else an Agent VC is minted)
-//   MARKET_PLATFORM  default https://monetize.fluxapay.xyz      (discovery, models)
-//   MARKET_PROXY     default https://proxy-monetize.fluxapay.xyz (balances, keys, plan)
+//   MARKET_PLATFORM  default https://agentmarket.fluxapay.xyz      (discovery, models)
+//   MARKET_PROXY     default https://router.fluxapay.xyz (balances, keys, plan)
 //   AGENT_ID_API     default https://agentid.fluxapay.xyz       (VC issue)
 // ---------------------------------------------------------------------------
 
@@ -22,8 +22,8 @@ import { refreshJWT, isJWTExpired } from '../wallet/client.js';
 import { getEffectiveAgentId, updateJWT } from '../agent/agentId.js';
 import { planLines } from './plan-format.js';
 
-const PLATFORM = (process.env.MARKET_PLATFORM || process.env.FLUXA_PLATFORM || 'https://monetize.fluxapay.xyz').replace(/\/$/, '');
-const PROXY = (process.env.MARKET_PROXY || process.env.FLUXA_PROXY || 'https://proxy-monetize.fluxapay.xyz').replace(/\/$/, '');
+const PLATFORM = (process.env.MARKET_PLATFORM || process.env.FLUXA_PLATFORM || 'https://agentmarket.fluxapay.xyz').replace(/\/$/, '');
+const PROXY = (process.env.MARKET_PROXY || process.env.FLUXA_PROXY || 'https://router.fluxapay.xyz').replace(/\/$/, '');
 const AGENT_ID_API = (process.env.AGENT_ID_API || 'https://agentid.fluxapay.xyz').replace(/\/$/, '');
 const UNIT_USD = 0.00001;
 
@@ -193,26 +193,32 @@ async function cmdVendors(): Promise<string> {
 }
 
 // --- commands: prepaid Units -------------------------------------------------
-async function cmdRemainingUsage(vendor?: string): Promise<string> {
-  const url = vendor ? `${PROXY}/llm/wallet/balances/${vendor}` : `${PROXY}/llm/wallet/balances`;
-  const { data } = await http(url, { auth: true });
-  const accounts = vendor ? [data] : (data.accounts || []);
-  if (!accounts.length) return c.dim('  no merchant balances yet — `fluxa-wallet market model topup <vendor>` to start');
-  const lines: string[] = [];
-  lines.push('  ' + c.dim(pad('merchant', 16) + pad('balance', 18) + pad('≈ USD', 12) + pad('7d/day', 12) + 'status'));
-  for (const a of accounts) {
-    const low = a.balance < (a.burn7dPerDay || 0) * 3;
-    const status = a.balance < 0 ? c.red('owed ' + usd(-a.balance)) : low ? c.red('low') : c.green('ok');
-    lines.push(`  ${pad(a.merchant, 16)}${pad((a.balance ?? 0).toLocaleString() + ' Units', 18)}${pad(usd(a.balance), 12)}${pad((a.burn7dPerDay ?? 0).toLocaleString(), 12)}${status}`);
-  }
-  return lines.join('\n');
+/**
+ * Units are ONE balance per account, spendable at any provider.
+ *
+ * This took a vendor and printed a merchant column, from when balances were
+ * per vendor. They are not, and the server stopped pretending: it now answers
+ * with a flat `balance`, keeping `accounts` as an array only so older CLIs
+ * keep rendering. Read the flat field, fall back to the array.
+ */
+async function cmdRemainingUsage(): Promise<string> {
+  const { data } = await http(`${PROXY}/llm/wallet/balances`, { auth: true });
+  const a = data.balance ?? (data.accounts || [])[0];
+  if (!a) return c.dim('  no Units yet — `fluxa-wallet market model topup` to start');
+  const low = a.balance < (a.burn7dPerDay || 0) * 3;
+  const status = a.balance < 0 ? c.red('owed ' + usd(-a.balance)) : low ? c.red('low') : c.green('ok');
+  return [
+    '  ' + c.dim(pad('balance', 18) + pad('≈ USD', 12) + pad('7d/day', 12) + 'status'),
+    `  ${pad((a.balance ?? 0).toLocaleString() + ' Units', 18)}${pad(usd(a.balance), 12)}${pad((a.burn7dPerDay ?? 0).toLocaleString(), 12)}${status}`,
+  ].join('\n');
 }
 
-async function cmdUsageHistory(vendor?: string): Promise<string> {
-  if (!vendor) die('usage: fluxa-wallet market model usageHistory <vendor>');
-  const { data } = await http(`${PROXY}/llm/wallet/ledger/${vendor}?limit=20`, { auth: true });
+async function cmdUsageHistory(): Promise<string> {
+  // Unscoped: the ledger belongs to the account. The server keeps a
+  // /ledger/:vendor route for callers that still scope, and nothing here does.
+  const { data } = await http(`${PROXY}/llm/wallet/ledger?limit=20`, { auth: true });
   const entries = data.entries || [];
-  if (!entries.length) return c.dim('  no ledger entries for ' + vendor);
+  if (!entries.length) return c.dim('  no ledger entries yet');
   const lines: string[] = [];
   lines.push('  ' + c.dim(pad('when', 22) + pad('type', 12) + pad('amount', 14) + 'balance after'));
   for (const e of entries) {
@@ -326,14 +332,14 @@ ${c.bold('market')} ${c.dim('— what you\'re working with')}
 
   ${c.bold('Money')}
     1 Unit = $0.00001 · 100,000 Units = $1 = 1 Monetize Credit (MC)
-    Balances are ${c.bold('per merchant')} (prepaid Units). ${c.cyan('fluxa-wallet market model topup <merchant>')} to prefund.
+    One ${c.bold('account-wide')} prepaid Units balance is shared across providers. ${c.cyan('fluxa-wallet market model topup --bundle starter')} to prefund.
 
   ${c.bold('Auth')}  an ${c.dim('fxa_live_')} key OR an auto-minted agent VC from your wallet identity.
   ${c.bold('Bases')} platform ${c.dim(new URL(PLATFORM).host)} · proxy ${c.dim(new URL(PROXY).host)}
 
   ${c.bold('Commands')}
     ${c.cyan('plan-tool-use "<task>"')}     recommend tools for a task
-    ${c.cyan('market model topup <merchant>')}   prepay Units
+    ${c.cyan('market model topup --bundle starter')}   prepay Units
     ${c.cyan('market search "<q>"')}        discover apis/models/skills
     ${c.dim('market search --models · --vendors · market model remainingUsage · usageHistory · market keys')}
 
@@ -343,8 +349,9 @@ ${c.bold('market')} ${c.dim('— what you\'re working with')}
 ${c.bold('Units & credits')}
   1 Unit = $0.00001 (USD).  100,000 Units = $1 = 1 Monetize Credit (MC).
   · Per-call API/skill prices are quoted in USD; model rates in Units per 1M tokens.
-  · Your prepaid balance is in Units, held ${c.bold('per merchant')}.
-  · Topups are charged in Monetize Credits (min 5 MC = $5); 1 MC grants 100,000 Units.
+  · Your prepaid Units balance is ${c.bold('shared across providers')}.
+  · Topups use fixed bundles: ${c.cyan('--bundle starter|mid|pro')} (default: starter).
+  · Pay in Monetize Credits or add ${c.cyan('--usdc')} for Base USDC; 1 MC grants 100,000 Units.
 `,
   auth: () => `
 ${c.bold('Auth')}
@@ -369,7 +376,7 @@ ${c.bold('API keys — programmatic management')} ${c.dim('(Agent VC only)')}
 `,
   pay: () => `
 ${c.bold('Paying — x402 v3')}
-  Prepaid: each merchant has a Units balance; while it's funded, calls just work.
+  Prepaid: one account-wide Units balance is shared across providers; while it's funded, calls just work.
   On a shortfall a paid endpoint returns HTTP 402 with an x402 challenge. Settle it with
   the wallet:
     1. sign a spending ${c.bold('mandate')} once (you pre-approve a budget + time window)
@@ -379,12 +386,12 @@ ${c.bold('Paying — x402 v3')}
   Reuse the signed mandate for later calls in its window. ${c.cyan('market model topup')} prefunds instead.
 `,
   models: () => `
-${c.bold('Models — merchant-centric')}
-  A ${c.bold('merchant')} (provider) exposes many models; billing + balance are per merchant.
+${c.bold('Models — shared prepaid Units')}
+  A ${c.bold('merchant')} (provider) exposes many models; all providers draw from one account-wide Units balance.
   An offering is ${c.dim('(merchant, model)')}; the lane is ${c.dim('POST /llm/{merchant}/v1/chat/completions')}
   (OpenAI wire format), billed per token.
     ${c.cyan('fluxa-wallet market search --models')}          list models + Units rates
-    ${c.cyan('fluxa-wallet market model topup <merchant>')}   fund that merchant's balance
+    ${c.cyan('fluxa-wallet market model topup --bundle starter')}   fund the shared balance
 `,
   skills: () => `
 ${c.bold('Skills')}
@@ -407,6 +414,11 @@ function cmdInfo(topic?: string): string {
 // The two marketplace-proxy calls of the topup flow. The money-moving middle
 // (mandate signing + x402-v3) is orchestrated by the wallet CLI in-process
 // using its own proven primitives; these helpers only talk to the proxy.
+// The Units catalogue, universal across merchants. Used for the default and
+// for the error hint; the server is the authority and 404s an unknown slug.
+export const TOPUP_BUNDLES = ['starter', 'mid', 'pro'] as const;
+export const DEFAULT_BUNDLE = 'starter';
+
 export interface TopupChallenge {
   orderId: string;
   resource: string;
@@ -417,11 +429,17 @@ export interface TopupChallenge {
 
 // POST /llm/topup/initiate (authed). On success it answers HTTP 402 with the
 // x402 challenge — so unlike http(), we tolerate 402 instead of throwing.
-export async function topupInitiate(vendor: string, opts: { credits?: string; bundle?: string } = {}): Promise<TopupChallenge> {
-  if (!vendor) die('usage: fluxa-wallet market model topup <vendor> [--credits <N> | --bundle <slug>]');
-  const body: any = { vendorSlug: vendor };
-  if (opts.bundle) body.packageSlug = opts.bundle;
-  else body.costCredits = opts.credits ? Number(opts.credits) : 5; // min 5 MC ($5)
+export async function topupInitiate(opts: { bundle?: string } = {}): Promise<TopupChallenge> {
+  // No vendorSlug. Units are one balance per account; the server resolves which
+  // provider the purchase is booked against, which is bookkeeping the caller
+  // has no way to choose sensibly.
+  //
+  // Always a bundle. /initiate also accepts a free-form costCredits, but it is
+  // the only rail that does -- the paylink, card and Stripe routes all demand a
+  // packageSlug because an arbitrary amount has no SKU behind it. Bundles grant
+  // at the same flat rate as that path, so buying off-catalogue bought nothing
+  // except a top-up the other rails could never repeat.
+  const body: any = { packageSlug: opts.bundle || DEFAULT_BUNDLE };
   let res: Response;
   try {
     res = await fetch(`${PROXY}/llm/topup/initiate`, {
@@ -455,6 +473,157 @@ export async function topupFinalize(resourceUrl: string, xPayment: string): Prom
 // --- dispatch ----------------------------------------------------------------
 // Single entry point called from cli.ts. `command` is the resolved multi-word
 // command string; `positionals` are the non-flag tokens after it.
+
+// --- commands: token plans ---------------------------------------------------
+//
+// A Token Plan is the other way to reach a model: one flat monthly allowance on
+// the PROVIDER's endpoint, rather than per-call Units on ours. The key these
+// commands surface is the provider's, so it does not authenticate at
+// /llm/{merchant} and an fxa_live_ key does not authenticate at the provider.
+//
+// Buying is deliberately absent. That flow is published, tested and kept
+// current at /marketplace/tokenplans/topup.md; a second copy here would drift
+// from it the first time either changed.
+
+const planStatus = (s: string): string =>
+  s === 'active' ? c.green('active')
+  : s === 'awaiting_provisioning' ? c.red('setting up')
+  : c.dim(s);
+
+async function cmdTokenplanList(): Promise<string> {
+  const { data } = await http(`${PROXY}/llm/tokenplan/subscription`, { auth: true });
+  const subs: any[] = data.subscriptions || [];
+  if (!subs.length) {
+    return c.dim('  no token plans — see ') +
+      `${PLATFORM}/marketplace/tokenplans/topup.md`;
+  }
+  const lines: string[] = [];
+  lines.push('  ' + c.dim(pad('plan', 26) + pad('left', 22) + pad('days', 7) + 'id'));
+  for (const s of subs) {
+    // Null, not zero, when there is no seat to ask: zero would read as an
+    // exhausted plan rather than one whose figures we cannot see.
+    const left = s.creditsRemaining == null
+      ? c.dim('—')
+      : `${Number(s.creditsRemaining).toLocaleString()} / ${Number(s.creditsTotal ?? 0).toLocaleString()}`;
+    const days = s.daysRemaining == null ? c.dim('—') : String(s.daysRemaining);
+    lines.push(`  ${pad(s.planSlug, 26)}${pad(left, 22)}${pad(days, 7)}${c.dim(s.id)}`);
+    if (s.lastError) lines.push('    ' + c.red(s.lastError));
+  }
+  lines.push('');
+  lines.push('  ' + c.dim('status: ') + subs.map((s: any) => planStatus(s.status)).join(c.dim(', ')));
+  return lines.join('\n');
+}
+
+async function cmdTokenplanKey(id: string): Promise<string> {
+  if (!id) die('usage: fluxa-wallet market tokenplan key <subscriptionId>');
+  const { data } = await http(`${PROXY}/llm/tokenplan/subscription/${encodeURIComponent(id)}/key`, { auth: true });
+  return [
+    '  ' + c.dim('api key   ') + data.apiKey,
+    '  ' + c.dim('base url  ') + data.baseUrl,
+    '',
+    '  ' + c.dim('This is the provider\'s key, for the provider\'s endpoint above.'),
+    '  ' + c.dim('It is not stored by FluxA; it is read from them each time you ask.'),
+  ].join('\n');
+}
+
+async function cmdTokenplanUsage(id: string): Promise<string> {
+  if (!id) die('usage: fluxa-wallet market tokenplan usage <subscriptionId>');
+  const { data } = await http(`${PROXY}/llm/tokenplan/subscription/${encodeURIComponent(id)}/usage`, { auth: true });
+  const records: any[] = data.records || [];
+  if (!records.length) return c.dim('  nothing spent on this plan yet');
+  const lines = ['  ' + c.dim(pad('when', 22) + pad('model', 26) + pad('credits', 10) + 'tokens in/out')];
+  for (const r of records) {
+    const when = new Date(r.time).toISOString().slice(0, 16).replace('T', ' ');
+    lines.push(`  ${pad(when, 22)}${pad(r.model, 26)}${pad(r.credits, 10)}${r.inputTokens}/${r.outputTokens}`);
+  }
+  return lines.join('\n');
+}
+
+async function cmdTokenplanModels(): Promise<string> {
+  const { data } = await http(`${PROXY}/llm/tokenplan/models`, { auth: true });
+  const models: string[] = data.models || [];
+  if (!models.length) return c.dim('  none reported');
+  return models.map((m) => '  ' + m).join('\n');
+}
+
+/**
+ * Spending a code.
+ *
+ * --yes is required because a code is one-shot and cannot be un-spent, and
+ * redeeming onto the wrong account is unrecoverable. It costs no money, so
+ * nothing else in this CLI would have stopped an agent from trying one.
+ */
+async function cmdTokenplanRedeem(kind: 'redeem' | 'claim', code: string, confirmed: boolean): Promise<string> {
+  if (!code) die(`usage: fluxa-wallet market tokenplan ${kind} <code> --yes`);
+  if (!confirmed) {
+    die(`a code can only be spent once and cannot be undone. Confirm with the user, then re-run with --yes`);
+  }
+  const path = kind === 'redeem' ? '/llm/tokenplan/redeem' : '/llm/tokenplan/shared/claim';
+  const { data } = await http(`${PROXY}${path}`, { auth: true, method: 'POST', body: { code } });
+  const lines = ['  ' + c.green('redeemed') + '  ' + c.dim(data.subscriptionId || '')];
+  if (data.alreadyClaimed) lines.push('  ' + c.dim('you already held this one; nothing was spent'));
+  // A plan can exist and still be mid-setup. Saying so beats a bare success.
+  if (data.status && data.status !== 'active') lines.push('  ' + c.dim(`status: ${data.status}`));
+  if (data.error) lines.push('  ' + c.red(data.error));
+  lines.push('  ' + c.dim('`fluxa-wallet market tokenplan key <id>` for the key'));
+  return lines.join('\n');
+}
+
+
+/**
+ * Buying a plan with USDC, through a FluxA Wallet payment link.
+ *
+ * Creating the link costs nothing: the money moves when a human opens the URL
+ * and approves it, which IS the confirmation step. So this needs no --yes, and
+ * an agent cannot spend by running it.
+ *
+ * The plan is charged in USDC, not Monetize Credits -- a different currency
+ * from `market model topup`, which funds Units.
+ */
+async function cmdTokenplanBuy(planSlug: string): Promise<string> {
+  if (!planSlug) die('usage: fluxa-wallet market tokenplan buy <plan>   (lite | standard | advanced)');
+  const { data } = await http(`${PROXY}/llm/topup/paylink`, {
+    auth: true,
+    method: 'POST',
+    body: { planSlug },
+  });
+  // `amount` is newer than this command. A proxy that predates it answers
+  // without one, and printing "$undefined USDC" at somebody about to spend
+  // money is worse than not naming the price at all.
+  const price = Number.isFinite(Number(data.amount))
+    ? `${c.bold('$' + data.amount)} ${data.currency ?? 'USDC'}`
+    : c.dim(`price shown on the checkout page`);
+  return [
+    `  ${c.bold(data.planSlug)}  ${price}`,
+    '',
+    '  Open to pay:',
+    '    ' + data.checkoutUrl,
+    '',
+    c.dim('  Nothing has been charged yet. Paying the link is what spends.'),
+    c.dim(`  Then: fluxa-wallet market tokenplan order ${data.orderId}`),
+  ].join('\n');
+}
+
+/** Where an order got to, and whether its seat is ready. */
+async function cmdTokenplanOrder(orderId: string): Promise<string> {
+  if (!orderId) die('usage: fluxa-wallet market tokenplan order <orderId>');
+  const { data } = await http(`${PROXY}/llm/topup/order/${encodeURIComponent(orderId)}`, { auth: true });
+  const lines = [`  payment  ${data.status === 'settled' ? c.green('settled') : c.dim(data.status)}`];
+  if (data.plan) {
+    // Two states, not one: the money can be settled while the seat is still
+    // being made, or has failed to be made.
+    lines.push(`  plan     ${data.plan.planSlug ?? '—'}`);
+    lines.push(
+      data.plan.ready
+        ? `  seat     ${c.green('ready')}  ${c.dim('— `market tokenplan list` for the key')}`
+        : `  seat     ${c.dim(`${data.plan.seatStatus ?? 'pending'}, step ${data.plan.provisioningStep}/4`)}`,
+    );
+  } else if (data.status === 'settled') {
+    lines.push(`  units    +${Number(data.creditsToGrant).toLocaleString()}  balance ${Number(data.balance).toLocaleString()}`);
+  }
+  return lines.join('\n');
+}
+
 export async function runMarketCommand(
   command: string,
   positionals: string[],
@@ -472,10 +641,10 @@ export async function runMarketCommand(
         break;
       }
       case 'market model remainingUsage':
-        raw = await cmdRemainingUsage(positionals[0]);
+        raw = await cmdRemainingUsage();
         break;
       case 'market model usageHistory':
-        raw = await cmdUsageHistory(positionals[0]);
+        raw = await cmdUsageHistory();
         break;
       // 'market model topup' is orchestrated in cli.ts (it needs the wallet's
       // in-process mandate + x402-v3 primitives); it never reaches here.
@@ -491,6 +660,31 @@ export async function runMarketCommand(
         break;
       case 'market keys revoke':
         raw = await keysRevoke(positionals[0]);
+        break;
+      case 'market tokenplan':
+      case 'market tokenplan list':
+        raw = await cmdTokenplanList();
+        break;
+      case 'market tokenplan key':
+        raw = await cmdTokenplanKey(positionals[0]);
+        break;
+      case 'market tokenplan usage':
+        raw = await cmdTokenplanUsage(positionals[0]);
+        break;
+      case 'market tokenplan models':
+        raw = await cmdTokenplanModels();
+        break;
+      case 'market tokenplan buy':
+        raw = await cmdTokenplanBuy(positionals[0]);
+        break;
+      case 'market tokenplan order':
+        raw = await cmdTokenplanOrder(positionals[0]);
+        break;
+      case 'market tokenplan redeem':
+        raw = await cmdTokenplanRedeem('redeem', positionals[0], options.yes !== undefined);
+        break;
+      case 'market tokenplan claim':
+        raw = await cmdTokenplanRedeem('claim', positionals[0], options.yes !== undefined);
         break;
       case 'market info':
         raw = cmdInfo(positionals[0]);
