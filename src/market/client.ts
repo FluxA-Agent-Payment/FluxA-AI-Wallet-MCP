@@ -351,7 +351,7 @@ ${c.bold('Units & credits')}
   · Per-call API/skill prices are quoted in USD; model rates in Units per 1M tokens.
   · Your prepaid Units balance is ${c.bold('shared across providers')}.
   · Topups use fixed bundles: ${c.cyan('--bundle starter|mid|pro')} (default: starter).
-  · Pay in Monetize Credits or add ${c.cyan('--usdc')} for Base USDC; 1 MC grants 100,000 Units.
+  · Use ${c.cyan('--credit')} (default) for Monetize Credits or ${c.cyan('--usdc')} for Base USDC; 1 MC grants 100,000 Units.
 `,
   auth: () => `
 ${c.bold('Auth')}

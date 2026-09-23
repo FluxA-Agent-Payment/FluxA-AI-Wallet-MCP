@@ -167,7 +167,7 @@ MARKETPLACE COMMANDS:
   plan-tool-use "<task>"    Recommend the models, APIs and skills for a task
   market search "<q>"       Discover resources (add --models or --vendors to scope)
   market model remainingUsage            Prepaid Units balance
-  market model topup [--bundle <slug>]   Buy a Units bundle with Monetize Credits (x402); --usdc pays in Base USDC
+  market model topup [--bundle <slug>]   Buy a Units bundle via x402: --credit (default) or --usdc
   market model usageHistory              Spend and topup history
   market keys [create|update <id>|revoke <id>]   Manage fxa_live_ API keys (Agent VC only)
   market tokenplan list                  Token Plans held: allowance left, days left, id
@@ -543,21 +543,26 @@ Examples:
 
 The account's prepaid Units balance. One balance, spendable at any provider.`,
 
-  'market model topup': `Usage: fluxa-wallet market model topup [--bundle <slug>] [--usdc]
+  'market model topup': `Usage: fluxa-wallet market model topup [--bundle <slug>] [--credit | --usdc]
 
-Buys Units by spending Monetize Credits the wallet already holds. Signs a
-FLUXA_MONETIZE_CREDITS mandate, then pays the x402 challenge.
+Buys Units with Monetize Credits (--credit, default) or on-chain Base USDC
+(--usdc). Creates a mandate in the selected currency, then pays the x402
+challenge after the user approves it.
 
 Options:
   --bundle <slug>     which tier to buy: starter (5 MC), mid (10), pro (25).
                       Defaults to starter. Units are sold as bundles on every
                       rail, so there is no arbitrary amount to name.
+  --credit            pay with Monetize Credits (signs a FLUXA_MONETIZE_CREDITS
+                      mandate). Default when neither currency flag is passed.
   --usdc              pay the challenge's on-chain Base USDC accept instead of
                       Monetize Credits (signs a USDC mandate). Errors if this
                       deployment does not offer USDC topups.
 
+--credit and --usdc are mutually exclusive.
+
 This command is the x402 rail, and it carries two currencies: Monetize Credits
-(the default) and on-chain Base USDC (--usdc). Full procedure:
+(--credit, the default) and on-chain Base USDC (--usdc). Full procedure:
 https://agentmarket.fluxapay.xyz/marketplace/models/agent-topup.md`,
 
   'market model usageHistory': `Usage: fluxa-wallet market model usageHistory
@@ -2584,14 +2589,17 @@ async function cmdMarketTopup(positionals: string[], options: Record<string, str
   // provider, so there was never a choice for the caller to make here -- the
   // argument only existed because the endpoint demanded one.
   //
-  // --credits is gone too. Ignoring it silently would top up 5 MC for a caller
+  // --credits <amount> is gone too. Ignoring it silently would top up 5 MC for a caller
   // who asked for 25, so it is an error, and it is checked before auth: a
   // removed flag should say so on any machine.
   if (options.credits !== undefined) {
     return {
       success: false,
-      error: `--credits is no longer supported: Units are sold as bundles (${TOPUP_BUNDLES.join(' | ')}). Use --bundle <slug>.`,
+      error: `--credits <amount> is no longer supported: Units are sold as bundles (${TOPUP_BUNDLES.join(' | ')}). Use --bundle <slug> and --credit to pay with Monetize Credits.`,
     };
+  }
+  if (options.credit !== undefined && options.usdc !== undefined) {
+    return { success: false, error: '--credit and --usdc are mutually exclusive. Choose one payment currency.' };
   }
   const auth = await ensureValidJWT();
   if (!auth) {
@@ -2604,7 +2612,7 @@ async function cmdMarketTopup(positionals: string[], options: Record<string, str
     const init = await topupInitiate({ bundle: options.bundle });
     console.error(`· order ${init.orderId}: ${init.costCredits} Monetize Credits -> ${Number(init.creditsToGrant).toLocaleString()} Units`);
 
-    // 2. mandate — Monetize Credits by default; --usdc pays the challenge's
+    // 2. mandate — --credit (or no currency flag) uses Monetize Credits; --usdc pays the challenge's
     //    on-chain Base USDC accept instead. Both ride the same x402-v3 leg
     //    below: it picks the accepts entry whose currency matches the mandate.
     let mandateCurrency = 'FLUXA_MONETIZE_CREDITS';
@@ -2620,7 +2628,7 @@ async function cmdMarketTopup(positionals: string[], options: Record<string, str
         getCurrencyFromAsset(a.asset || DEFAULT_ASSET, a.network || DEFAULT_NETWORK) === 'USDC'
       );
       if (!usdcAccept) {
-        return { success: false, error: 'this deployment does not offer USDC topups (no "base" accept in the 402) — re-run without --usdc to pay with Monetize Credits.' };
+        return { success: false, error: 'this deployment does not offer USDC topups (no "base" accept in the 402) — use --credit instead of --usdc to pay with Monetize Credits.' };
       }
       mandateCurrency = 'USDC';
       // USDC budget is in 6-decimal atomic units, straight from the accept.
