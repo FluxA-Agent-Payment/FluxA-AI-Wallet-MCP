@@ -95,75 +95,6 @@ Trial Scenarios: **MUST** guide user with wording such as: Let’s try what this
 | **Agent Market: discover & plan** | Search the marketplace for APIs, models, and skills, and get a recommended tool plan for a task | Use when you need to find paid resources, or plan which tools a task needs | `fluxa-wallet market search "<q>"` (add `--models` or `--vendors` to scope); `fluxa-wallet plan-tool-use "<task>"` |
 | **Prepaid LLM Units** | Call LLMs on one prepaid balance, spendable at any provider, and read it | Use when calling models via `/llm/{merchant}`, or checking what is left | `fluxa-wallet market model remainingUsage`; `fluxa-wallet market model usageHistory` |
 | **Buy Units with USDC and Credits** | Fund the Units balance over x402, paying in Monetize Credits or in on-chain Base USDC. Requires the user to open the authorization link and approve a spending mandate | Use when the balance is low or negative and the wallet holds either credits or USDC | `fluxa-wallet market model topup --bundle starter`, `--usdc` to pay on-chain (confirm the spend first); procedure: https://agentmarket.fluxapay.xyz/marketplace/models/agent-topup.md |
-| **Token Plan** | A month of model calls on one flat allowance, on the provider's own endpoint | Use when the user wants a monthly allowance instead of per-call Units, or holds a plan already and needs its key | `fluxa-wallet market tokenplan buy <plan>` to pay in USDC; see **Token Plan** below |
-
-
-## Token Plan
-
-A Token Plan is a month of model calls on one flat allowance, bought once. It is
-the alternative to prepaid Units: Units meter every call against the account's
-balance, a plan does not meter at all until the allowance runs out.
-
-Reach for a plan when the user wants predictable monthly cost or is calling one
-provider steadily. Reach for Units when usage is occasional or spread across
-providers.
-
-**A plan key is the PROVIDER's key, not a FluxA key.** It is used against the
-provider's own endpoint, so it does not authenticate at `/llm/{merchant}`, and a
-FluxA `fxa_live_` key does not authenticate at the provider. Two products, two
-credentials, and swapping them returns 401 either way.
-
-### Buying one
-
-**In USDC**, from the wallet's own balance:
-
-```bash
-fluxa-wallet market tokenplan buy lite      # prints a checkout link
-fluxa-wallet market tokenplan order <id>    # settled? seat ready?
-```
-
-`buy` only CREATES the link. The money moves when the user opens it and
-approves, which is the confirmation step, so it takes no `--yes` and running it
-cannot spend anything. Tell the user the price it prints before handing over the
-link.
-
-**By card instead**, read
-`https://agentmarket.fluxapay.xyz/marketplace/tokenplans/topup.md` and follow it
-exactly. It is the tested procedure and it is kept current; a flow written from
-memory here would drift from it.
-
-### Using one you already hold
-
-| What | Command |
-|------|---------|
-| Plans held, allowance left, days left, and the id the rest take | `fluxa-wallet market tokenplan list` |
-| The provider key and base url for one plan | `fluxa-wallet market tokenplan key <id>` |
-| What that plan has spent, per model | `fluxa-wallet market tokenplan usage <id>` |
-| Which models the plan can call | `fluxa-wallet market tokenplan models` |
-
-One endpoint has no wrapper: `POST /llm/tokenplan/subscription/{id}/retry`
-finishes a setup that stalled. Call it directly against
-`https://router.fluxapay.xyz` with the same token, or send the user to their
-console, which has a button for it.
-
-### Codes
-
-Two kinds, and they are not interchangeable:
-
-- **Redemption code**, one person, one plan of their own:
-  `fluxa-wallet market tokenplan redeem <code> --yes`, or send the user to
-  `https://agentmarket.fluxapay.xyz/offers/tokenplan/t01`.
-- **Shared code**, many people, all on one plan FluxA already owns, free:
-  `fluxa-wallet market tokenplan claim <code> --yes`.
-
-A code is spent once and cannot be un-spent. `--yes` is required for exactly
-that reason: **confirm with the user first**, the same as a purchase. It costs
-no money, so nothing else would have stopped you, and redeeming onto the wrong
-account cannot be undone.
-
-Both answer one message for used, expired, voided and never-existed. That is
-deliberate: retrying variations to find out which does not work, and reads as
-guessing at codes.
 
 
 ## Opening Authorization URLs (UX Pattern)
@@ -220,6 +151,15 @@ User adds and manages funds at the FluxA Agent Wallet web app:
 AgentMarket is FluxA's official marketplace for agent tools, APIs, skills, model providers, other agent resources, and digital products. It integrates directly with the FluxA Wallet, allowing agents to discover, purchase, and use resources autonomously without requiring users to manually register or complete payments.
 
 Compared with a standard web search, AgentMarket provides access to paid data sources and specialized services, enabling agents to complete more advanced tasks, such as accessing real time social media data.
+
+**Supported products**
+
+| Product | What it provides |
+|---------|------------------|
+| **API** | Pay-per-call APIs for search, data, image and video generation, and other services. |
+| **Model** | OpenAI-compatible model calls, paid per call from one prepaid Units balance shared across providers. |
+| **TokenPlan** | A monthly model allowance on the provider's own endpoint. For purchasing, using, or redeeming a plan, read [TOKENPLAN.md](TOKENPLAN.md). |
+| **Skill** | Packaged multi-step agent workflows. |
 
 **How to access AgentMarket**
 
@@ -361,14 +301,6 @@ For FLUXA_MONETIZE_CREDITS, amounts are in the credits' smallest unit as defined
 | `market keys list` | (none) | List your `fxa_live_` keys |
 | `market keys update` | (id arg) | Update a key (`--name`, `--cap`; `--cap 0` clears the cap) |
 | `market keys revoke` | (id arg) | Revoke a key |
-| `market tokenplan buy` | (plan arg) | A checkout link to pay for a plan in USDC. Creates only; paying is the spend |
-| `market tokenplan order` | (id arg) | Whether that purchase settled, and whether its seat is ready |
-| `market tokenplan list` | (none) | Token Plans held: allowance left, days left, id |
-| `market tokenplan key` | (id arg) | The provider key and base url for one plan |
-| `market tokenplan usage` | (id arg) | What that plan has spent, per model |
-| `market tokenplan models` | (none) | Which models a plan can call |
-| `market tokenplan redeem` | (code arg), `--yes` | Spend a redemption code (one-shot, cannot be undone) |
-| `market tokenplan claim` | (code arg), `--yes` | Claim a shared plan code (one-shot, cannot be undone) |
 | `market info` | (topic optional) | Explain the marketplace (topics: units, auth, pay, keys, models, skills) |
 
 **Common Mistakes to Avoid:**
