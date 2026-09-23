@@ -2647,7 +2647,14 @@ async function cmdMarketTopup(positionals: string[], options: Record<string, str
     const authUrl: string | undefined = mc.data.authorizationUrl;
 
     // 3. sign — the human approves the mandate URL; we poll until it's signed
-    console.error(`\n  Sign the spending mandate (budget ${budget} ${mandateCurrency}, valid ${seconds}s)`);
+    //
+    // Print what a person recognises, not the atomic value. USDC carries 6
+    // decimals, so a 5 dollar budget renders as 5000000, and this line is the
+    // one someone reads before approving a spend.
+    const budgetHuman = payWithUsdc
+      ? `${(budget / 1e6).toFixed(2)} USDC`
+      : `${(budget / 100).toFixed(2)} MC`;
+    console.error(`\n  Sign the spending mandate (budget ${budgetHuman}, valid ${seconds}s)`);
     if (authUrl) console.error(`  ${authUrl}`);
     console.error('  open the link, approve, then this continues automatically...\n');
     const READY = new Set(['signed', 'active', 'authorized', 'approved']);
