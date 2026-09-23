@@ -5,7 +5,7 @@
  * Can be bundled into a single file with esbuild for distribution
  */
 
-import { runMarketCommand, topupInitiate, topupFinalize, TOPUP_BUNDLES } from './market/client.js';
+import { runMarketCommand, topupInitiate, topupFinalize, TOPUP_BUNDLES, DEFAULT_BUNDLE } from './market/client.js';
 import {
   registerAgent,
   createPayout,
@@ -2610,7 +2610,6 @@ async function cmdMarketTopup(positionals: string[], options: Record<string, str
   try {
     // 1. initiate — answers HTTP 402 with the x402 challenge on success
     const init = await topupInitiate({ bundle: options.bundle });
-    console.error(`· order ${init.orderId}: ${init.costCredits} Monetize Credits -> ${Number(init.creditsToGrant).toLocaleString()} Units`);
 
     // 2. mandate — --credit (or no currency flag) uses Monetize Credits; --usdc pays the challenge's
     //    on-chain Base USDC accept instead. Both ride the same x402-v3 leg
@@ -2618,6 +2617,11 @@ async function cmdMarketTopup(positionals: string[], options: Record<string, str
     let mandateCurrency = 'FLUXA_MONETIZE_CREDITS';
     // budget must cover the cost (credits unit = MC x 100)
     let budget = options.budget ? Number(options.budget) : Math.max(500, Math.ceil(Number(init.costCredits) * 100));
+    // The price, in the currency actually being paid. Each rail buys Units
+    // directly: 5 USDC buys 500,000 Units, 5 Monetize Credits buys 500,000
+    // Units. Naming the other currency anywhere in between reads as a second
+    // price for one purchase and gives the reader a conversion to do.
+    let priceLine = `${Number(init.costCredits).toFixed(2)} Monetize Credits`;
     if (payWithUsdc) {
       // The deployment advertises USDC only when it configured a receiving
       // address, so check the 402 body before creating any mandate.
@@ -2631,13 +2635,23 @@ async function cmdMarketTopup(positionals: string[], options: Record<string, str
         return { success: false, error: 'this deployment does not offer USDC topups (no "base" accept in the 402) — use --credit instead of --usdc to pay with Monetize Credits.' };
       }
       mandateCurrency = 'USDC';
-      // USDC budget is in 6-decimal atomic units, straight from the accept.
-      budget = options.budget ? Number(options.budget) : Number(usdcAccept.maxAmountRequired);
-      console.error(`· paying on-chain: ${(budget / 1e6).toFixed(2)} USDC on ${usdcAccept.network || DEFAULT_NETWORK}`);
+      // USDC amounts are in 6-decimal atomic units, straight from the accept.
+      const priceAtomic = Number(usdcAccept.maxAmountRequired);
+      budget = options.budget ? Number(options.budget) : priceAtomic;
+      const network = String(usdcAccept.network || DEFAULT_NETWORK);
+      priceLine = `${(priceAtomic / 1e6).toFixed(2)} USDC on ${network.charAt(0).toUpperCase()}${network.slice(1)}`;
     }
+
+    // One statement of the purchase: what arrives, what it costs, which order.
+    console.error(`  Buying   ${options.bundle || DEFAULT_BUNDLE} bundle · ${Number(init.creditsToGrant).toLocaleString()} Units`);
+    console.error(`  Price    ${priceLine}`);
+    console.error(`  Order    ${init.orderId}`);
+
     const seconds = options.seconds ? Number(options.seconds) : 28800;
     const mc = await cmdMandateCreate({
-      desc: payWithUsdc ? `Prepay ${init.costCredits} MC of Units (paid in USDC)` : `Prepay ${init.costCredits} MC of Units`,
+      // What the human sees on the authorization page, worded exactly as the
+      // lines above it.
+      desc: `${Number(init.creditsToGrant).toLocaleString()} Units for ${priceLine}`,
       amount: String(budget),
       seconds: String(seconds),
       currency: mandateCurrency,
@@ -2648,13 +2662,13 @@ async function cmdMarketTopup(positionals: string[], options: Record<string, str
 
     // 3. sign — the human approves the mandate URL; we poll until it's signed
     //
-    // Print what a person recognises, not the atomic value. USDC carries 6
-    // decimals, so a 5 dollar budget renders as 5000000, and this line is the
-    // one someone reads before approving a spend.
+    // Money, not atomic units. USDC carries 6 decimals, so a five dollar cap
+    // renders as 5000000 on the one line someone reads before approving.
     const budgetHuman = payWithUsdc
       ? `${(budget / 1e6).toFixed(2)} USDC`
-      : `${(budget / 100).toFixed(2)} MC`;
-    console.error(`\n  Sign the spending mandate (budget ${budgetHuman}, valid ${seconds}s)`);
+      : `${(budget / 100).toFixed(2)} Monetize Credits`;
+    const validFor = seconds % 3600 === 0 ? `${seconds / 3600}h` : `${Math.round(seconds / 60)}m`;
+    console.error(`\n  Approve a spending limit of ${budgetHuman}, valid ${validFor}:`);
     if (authUrl) console.error(`  ${authUrl}`);
     console.error('  open the link, approve, then this continues automatically...\n');
     const READY = new Set(['signed', 'active', 'authorized', 'approved']);
