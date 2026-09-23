@@ -325,9 +325,10 @@ ${c.bold('market')} ${c.dim('— what you\'re working with')}
   FluxA is an agent-native task layer. ${c.bold('plan-tool-use')} recommends the right tools for a
   task; your agent runs them and FluxA settles each paid call from your wallet.
 
-  ${c.bold('Three kinds of tool')} (all metered in Units):
+  ${c.bold('Products')}:
     ${KIND.api}  Oneshot APIs  — pay-per-call endpoints (scrape, search, video, …)
     ${KIND.model}  Models        — LLM endpoints, billed per token, via /llm/{merchant}
+    ${c.cyan('tokenplan')} Token Plans — monthly model allowance on the provider's own endpoint
     ${KIND.skill}  Skills        — packaged multi-step routines
 
   ${c.bold('Money')}
@@ -337,13 +338,45 @@ ${c.bold('market')} ${c.dim('— what you\'re working with')}
   ${c.bold('Auth')}  an ${c.dim('fxa_live_')} key OR an auto-minted agent VC from your wallet identity.
   ${c.bold('Bases')} platform ${c.dim(new URL(PLATFORM).host)} · proxy ${c.dim(new URL(PROXY).host)}
 
-  ${c.bold('Commands')}
-    ${c.cyan('plan-tool-use "<task>"')}     recommend tools for a task
-    ${c.cyan('market model topup --bundle starter')}   prepay Units
-    ${c.cyan('market search "<q>"')}        discover apis/models/skills
-    ${c.dim('market search --models · --vendors · market model remainingUsage · usageHistory · market keys')}
+  ${c.bold('Commands')} (run with the ${c.cyan('fluxa-wallet')} prefix)
 
-  More:  ${c.cyan('fluxa-wallet market info')} ${c.dim('<units|auth|pay|keys|models|skills>')}
+  ${c.bold('Discovery & planning')}
+    ${c.cyan('market search ["<q>"]')}                      discover APIs, models, and skills
+    ${c.cyan('market search --models ["<q>"]')}             list models and Units rates
+    ${c.cyan('market search --vendors')}                    list model providers
+    ${c.cyan('plan-tool-use "<task>"')}                      recommend tools for a task
+
+  ${c.bold('Prepaid model Units')}
+    ${c.cyan('market model remainingUsage')}                shared balance and recent burn rate
+    ${c.cyan('market model usageHistory')}                  spend and topup history
+    ${c.cyan('market model topup [--bundle <slug>] [--credit | --usdc]')}
+      buy Units: starter (default), mid, or pro; Credits (default) or Base USDC
+      --credit and --usdc are mutually exclusive; user mandate approval is required
+
+  ${c.bold('API keys')} (Agent VC required)
+    ${c.cyan('market keys list')}                           list keys (alias: ${c.cyan('market keys')})
+    ${c.cyan('market keys create [--name <n>] [--cap <MC>]')} mint a key; raw key shown once
+    ${c.cyan('market keys update <id> [--name <n>] [--cap <MC>]')} change name or spend cap
+    ${c.cyan('market keys revoke <id>')}                    revoke a key immediately
+      --cap 0 clears the cap
+
+  ${c.bold('Token Plans')}
+    ${c.cyan('market tokenplan buy <plan>')}                 create a USDC checkout link
+    ${c.cyan('market tokenplan order <orderId>')}            payment and provisioning status
+    ${c.cyan('market tokenplan list')}                       plans held, allowance and days left (alias: ${c.cyan('market tokenplan')})
+    ${c.cyan('market tokenplan key <id>')}                   provider key and endpoint
+    ${c.cyan('market tokenplan usage <id>')}                 usage by model for a plan
+    ${c.cyan('market tokenplan models')}                     models available to Token Plans
+    ${c.cyan('market tokenplan redeem <code> --yes')}        redeem a code for your own plan
+    ${c.cyan('market tokenplan claim <code> --yes')}         join a shared plan with a code
+      buy only creates a link; payment requires user approval
+      confirm code redemption with the user before passing --yes
+
+  ${c.bold('Help')}
+    ${c.cyan('market info [topic]')}                        marketplace overview or topic guide
+
+  Topics: ${c.dim(Object.keys(INFO).join(', '))}
+  Command options: ${c.cyan('fluxa-wallet market <command> --help')}
 `,
   units: () => `
 ${c.bold('Units & credits')}
@@ -359,7 +392,7 @@ ${c.bold('Auth')}
     ${c.dim('fxa_live_<key>')}   create with ${c.cyan('fluxa-wallet market keys create')} · export FLUXA_KEY=…
     ${c.dim('agent VC')}         short-lived JWT, auto-minted from your wallet identity
   The market commands auto-mint an agent VC when no key is set — nothing to log in.
-  Discovery (${c.cyan('market search')}) is public; everything else is authed.
+  Discovery (${c.cyan('market search')}) and ${c.cyan('market info')} need no auth; account commands do.
   Manage keys programmatically with ${c.cyan('market keys')} ${c.dim('(VC only — see `market info keys`)')}.
 `,
   keys: () => `
@@ -367,7 +400,7 @@ ${c.bold('API keys — programmatic management')} ${c.dim('(Agent VC only)')}
   Provision and rotate your ${c.dim('fxa_live_')} keys so an agent can hand a fresh, capped key
   to a sub-process without you minting one by hand. ${c.bold('Requires an Agent VC')} — a metered
   fxa_live_ key is refused (it must not mint uncapped siblings or revoke others).
-    ${c.cyan('fluxa-wallet market keys')}                                list your keys (prefixes only)
+    ${c.cyan('fluxa-wallet market keys list')}                           list your keys (alias: market keys; prefixes only)
     ${c.cyan('fluxa-wallet market keys create --name <n> --cap <MC>')}   mint one; raw key shown ONCE
     ${c.cyan('fluxa-wallet market keys update <id> --cap <MC>')}         change name / spend cap (${c.dim('--cap 0')} clears)
     ${c.cyan('fluxa-wallet market keys revoke <id>')}                    revoke (immediate, irreversible)
@@ -391,7 +424,33 @@ ${c.bold('Models — shared prepaid Units')}
   An offering is ${c.dim('(merchant, model)')}; the lane is ${c.dim('POST /llm/{merchant}/v1/chat/completions')}
   (OpenAI wire format), billed per token.
     ${c.cyan('fluxa-wallet market search --models')}          list models + Units rates
-    ${c.cyan('fluxa-wallet market model topup --bundle starter')}   fund the shared balance
+    ${c.cyan('fluxa-wallet market search --vendors')}         list model providers
+    ${c.cyan('fluxa-wallet market model remainingUsage')}     shared balance and recent burn rate
+    ${c.cyan('fluxa-wallet market model usageHistory')}       spend and topup history
+    ${c.cyan('fluxa-wallet market model topup --bundle starter --credit')}   fund the shared balance
+  Bundles: starter (default), mid, pro. Choose --credit (default) or --usdc for
+  Base USDC; the flags are mutually exclusive. Confirm the spend, then open the
+  authorization link and approve the mandate to complete the topup.
+`,
+  tokenplan: () => `
+${c.bold('Token Plans — monthly model allowance')}
+  Use a plan for a monthly allowance on the provider's own endpoint.
+  The plan's provider key is separate from the ${c.dim('fxa_live_')} key used for prepaid Units.
+
+    ${c.cyan('fluxa-wallet market tokenplan buy <plan>')}          create a USDC checkout link (lite, standard, advanced)
+    ${c.cyan('fluxa-wallet market tokenplan order <orderId>')}     check payment and provisioning separately
+    ${c.cyan('fluxa-wallet market tokenplan list')}                plans held, allowance and days left
+    ${c.cyan('fluxa-wallet market tokenplan key <id>')}            provider key and base URL for a plan
+    ${c.cyan('fluxa-wallet market tokenplan usage <id>')}          usage by model for a plan
+    ${c.cyan('fluxa-wallet market tokenplan models')}              models available to Token Plans
+    ${c.cyan('fluxa-wallet market tokenplan redeem <code> --yes')} redeem a code for your own plan
+    ${c.cyan('fluxa-wallet market tokenplan claim <code> --yes')}  join a shared plan with a code
+
+  ${c.cyan('market tokenplan')} is an alias for ${c.cyan('market tokenplan list')}.
+  Use the subscription id from list for key/usage, and the order id from buy for order.
+  buy creates a link; show the price and let the user open and approve payment.
+  Confirm with the user before redeem/claim: codes are consumed once and require --yes.
+  Card purchase procedure: ${PLATFORM}/marketplace/tokenplans/topup.md
 `,
   skills: () => `
 ${c.bold('Skills')}

@@ -609,7 +609,8 @@ Examples:
 
   'market info': `Usage: fluxa-wallet market info [topic]
 
-Explain how the marketplace works. Topics: units, auth, pay, keys, models, skills.`,
+Show all marketplace commands, or explain a topic. No authentication required.
+Topics: overview (default), units, auth, pay, keys, models, tokenplan, skills.`,
 
   status: `Usage: fluxa-wallet status
 

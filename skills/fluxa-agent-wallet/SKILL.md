@@ -301,7 +301,7 @@ For FLUXA_MONETIZE_CREDITS, amounts are in the credits' smallest unit as defined
 | `market keys list` | (none) | List your `fxa_live_` keys |
 | `market keys update` | (id arg) | Update a key (`--name`, `--cap`; `--cap 0` clears the cap) |
 | `market keys revoke` | (id arg) | Revoke a key |
-| `market info` | (topic optional) | Explain the marketplace (topics: units, auth, pay, keys, models, skills) |
+| `market info` | (topic optional) | List all marketplace commands or explain a topic: overview, units, auth, pay, keys, models, tokenplan, skills |
 
 **Common Mistakes to Avoid:**
 
