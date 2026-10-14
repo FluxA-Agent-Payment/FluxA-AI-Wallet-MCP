@@ -26,6 +26,8 @@ import {
   getPaymentLinkPayments,
   getCardServiceVc,
   listCards,
+  listCardTypes,
+  getCardRequest,
   initiateCard,
   completeCard,
   getCardDetails,
@@ -35,6 +37,7 @@ import {
   listLatestHourCard3ds,
   createCardholder,
   getCardholder,
+  updateCardholder,
   initiateCardRecharge,
   completeCardRecharge,
   requestCardWithdrawal,
@@ -58,6 +61,9 @@ import {
   getCardMandate,
   submitHeadlessCheckout,
 } from './wallet/client.js';
+import { runCardFlow } from './wallet/cardFlow.js';
+import { cardAmount, cardSelector, cardProfile } from './wallet/cardOptions.js';
+import type { CardChargeInitiateResponse } from './wallet/client.js';
 import {
   CARD_USD_CURRENCY,
   CardMandateExtError,
@@ -120,13 +126,15 @@ COMMANDS:
   init                      Initialize/register agent ID
   refreshJWT                Refresh expired JWT and print new token
   card list                 List cards created by this agent
+  card types                List card products, fees, and availability
   card create               Issue a funded card
   card details              Reveal full card details
   card balance              Refresh and query card balance
   card transactions         List card transaction history
   card 3ds latest           Show the latest 3DS challenge from the last 24 hours
   card 3ds latest_1h        Show 3DS challenges from the last hour
-  card holder create        Set up the account cardholder once
+  card holder create        Create the account profile and start KYC
+  card holder update        Update the account profile
   card holder me            Show the account cardholder
   card recharge             Add funds to an existing card
   card withdraw             Withdraw card balance back to the agent wallet
@@ -199,8 +207,11 @@ OPTIONS FOR 'card list':
   --global                  Show all cards in the linked account, not just this agent's cards
 
 OPTIONS FOR 'card create':
-  --amount <usd>            Card amount in USD, human-readable (required)
+  --card-type-id <id>       Public product ID (or use --bin-id / --bin; exactly one)
+  --amount <usd>            Initial load in USD (new requests only)
   --mandate <mandate_id>    Mandate ID for x402 payment (required)
+  --request-id <id>         Continue the original request; omit amount/selector
+  --wait <seconds>          Poll for 0..300 seconds (default: 30)
 
 OPTIONS FOR 'card details':
   --id <card_id>            Card ID (required)
@@ -210,7 +221,7 @@ OPTIONS FOR 'card balance':
 
 OPTIONS FOR 'card transactions':
   --id <card_id>            Card ID (required)
-  --type <type>             purchase | refund | verification | reversal | fee
+  --type <type>             purchase | refund | verification | reversal | fee | deposit | withdrawal
   --page <n>                Page number (alias: --page-num)
   --limit <n>               Page size, max 50 (alias: --page-size)
   --start-time <ms>         Start timestamp in milliseconds
@@ -223,14 +234,28 @@ OPTIONS FOR 'card 3ds latest_1h':
   --id <card_id>            Card ID (required)
 
 OPTIONS FOR 'card holder create':
-  --first-name <name>       Cardholder first name (required, immutable after approval)
-  --last-name <name>        Cardholder last name (required, immutable after approval)
-  --country <country>       ISO 3166-1 alpha-2 country code (default: US)
+  --profile <json|@file>    Complete real account profile (or individual flags)
+  --first-name <name>       firstName (required)
+  --last-name <name>        lastName (required)
+  --email <email>           email (required)
+  --phone <E.164>           phone (required)
+  --country <code>          address.country (required; no default)
+  --city <city>             address.city (required)
+  --address-line1 <text>    address.line1 (required)
+  --postal-code <code>      address.postalCode (required)
+  --region <text>           address.region (optional)
+  --address-line2 <text>    address.line2 (optional)
+
+OPTIONS FOR 'card holder update':
+  --profile <json|@file>    Partial profile (or individual flags from create)
+  --revision <n>           Current profile revision for If-Match (optional)
 
 OPTIONS FOR 'card recharge':
-  --id <card_id>            Card ID (required)
-  --amount <usd>            Recharge amount in USD, human-readable (required)
+  --id <card_id>            Card ID (required for new requests, inferred on retry)
+  --amount <usd>            Recharge amount in USD (new requests only)
   --mandate <mandate_id>    Mandate ID for x402 payment (required)
+  --request-id <id>         Continue the original recharge; omit amount
+  --wait <seconds>          Poll for 0..300 seconds (default: 30)
 
 OPTIONS FOR 'card withdraw':
   --id <card_id>            Card ID (required)
@@ -350,12 +375,12 @@ EXAMPLES:
   fluxa-wallet card list
   fluxa-wallet card list --global
 
-  # Set up the account cardholder once
-  fluxa-wallet card holder create --first-name Alice --last-name Agent
+  # Create a real account profile only if absent, then complete its verification URL
+  fluxa-wallet card holder create --profile @profile.json
   fluxa-wallet card holder me
 
   # Issue a card (requires mandate for x402 payment)
-  fluxa-wallet card create --amount 25.00 --mandate mand_xxxxx
+  fluxa-wallet card create --card-type-id <cardTypeId> --amount 25.00 --mandate mand_xxxxx
 
   # Reveal card details
   fluxa-wallet card details --id card_xxx
@@ -641,16 +666,34 @@ Example:
   fluxa-wallet card list
   fluxa-wallet card list --global`,
 
-  'card create': `Usage: fluxa-wallet card create --amount <usd> --mandate <mandate_id>
+  'card types': `Usage: fluxa-wallet card types
 
-Issue a funded card using the two-step x402 payment flow.
+List published card products, BINs, fees, load limits, and availability.
+Use the returned public cardTypeId (not a provider numeric type ID).
+Unknown fees/capabilities remain unknown; availability does not grant Prepaid access.`,
+
+  'card create': `Usage: fluxa-wallet card create --card-type-id <id> --amount <usd> --mandate <id> [--wait <seconds>]
+       fluxa-wallet card create --request-id <id> --mandate <id> [--wait <seconds>]
+
+Issue a prepaid card using AgentCard v2. Wait for product-holder review before
+signing the returned x402 payment. Pending settlement completes in the background.
 
 Options:
-  --amount <usd>             Card amount in USD, human-readable (required)
-  --mandate <mandate_id>     Mandate ID for x402 payment (required)
+  --card-type-id <id>       Public product ID from "card types"
+  --bin-id <id>             String BIN registry ID (alternative selector)
+  --bin <prefix>            BIN prefix (alternative selector; must be unambiguous)
+                           Exactly one selector is required for a new request.
+  --amount <usd>            Initial load, positive USD decimal (new request only)
+  --mandate <id>            Mandate for the returned x402 payment (required)
+  --request-id <id>         Continue the original request; omit amount/selectors
+  --wait <seconds>          Poll for 0..300 seconds (default: 30; 0 skips waiting)
 
-Example:
-  fluxa-wallet card create --amount 25.00 --mandate mand_xxxxx`,
+Examples:
+  fluxa-wallet card types
+  fluxa-wallet card create --card-type-id <cardTypeId> --amount 25.00 --mandate mand_xxx
+  fluxa-wallet card create --request-id <pendingRequestId> --mandate mand_xxx
+
+Use "card list" to see issued cards. Do not start another request to retry payment.`,
 
   'card details': `Usage: fluxa-wallet card details --id <card_id>
 
@@ -678,7 +721,7 @@ List card transaction history from the card service.
 
 Options:
   --id <card_id>           Card ID (required)
-  --type <type>            purchase | refund | verification | reversal | fee
+  --type <type>            purchase | refund | verification | reversal | fee | deposit | withdrawal
   --page <n>               Page number (alias: --page-num)
   --limit <n>              Page size, max 50 (alias: --page-size)
   --start-time <ms>        Start timestamp in milliseconds
@@ -708,18 +751,32 @@ Options:
 Example:
   fluxa-wallet card 3ds latest_1h --id card_xxx`,
 
-  'card holder create': `Usage: fluxa-wallet card holder create --first-name <name> --last-name <name> [--country <country>]
+  'card holder create': `Usage: fluxa-wallet card holder create --profile @profile.json
+       fluxa-wallet card holder create --first-name <name> --last-name <name> --email <email> --phone <E.164> --country <code> --city <city> --address-line1 <address> --postal-code <code>
 
-Set up the account cardholder once. The holder name is immutable after approval
-and shared by every agent linked to the same wallet account.
+Create an account profile and start initial KYC. Use the real account owner's
+materials. Complete the returned verificationUrl, then check "card holder me".
+Read the existing profile first; a legacy holder does not require a new profile.
 
 Options:
-  --first-name <name>   Cardholder first name (required)
-  --last-name <name>    Cardholder last name (required)
-  --country <country>   ISO 3166-1 alpha-2 country code (default: US)
+  --profile <json|@file>    Full profile JSON; exclusive with individual flags
+  --first-name <name>      firstName (required)
+  --last-name <name>       lastName (required)
+  --email <email>          email (required)
+  --phone <E.164>          phone, e.g. +14155550123 (required)
+  --country <code>         address.country (required; no default)
+  --city <city>            address.city (required)
+  --address-line1 <text>   address.line1 (required)
+  --postal-code <code>     address.postalCode (required)
+  --region <region>        address.region (optional)
+  --address-line2 <text>   address.line2 (optional)`,
 
-Example:
-  fluxa-wallet card holder create --first-name Alice --last-name Agent`,
+  'card holder update': `Usage: fluxa-wallet card holder update --profile @patch.json [--revision <n>]
+
+Partially update the account profile using the same profile flags as create.
+Supply only the changed fields. --revision sends If-Match with the revision from
+"card holder me"; on a conflict, fetch the latest profile before retrying.
+Name locks and verification transitions are enforced by the service.`,
 
   'card holder me': `Usage: fluxa-wallet card holder me
 
@@ -728,17 +785,24 @@ Show the account cardholder and review status.
 Example:
   fluxa-wallet card holder me`,
 
-  'card recharge': `Usage: fluxa-wallet card recharge --id <card_id> --amount <usd> --mandate <mandate_id>
+  'card recharge': `Usage: fluxa-wallet card recharge --id <card_id> --amount <usd> --mandate <id> [--wait <seconds>]
+       fluxa-wallet card recharge --request-id <id> --mandate <id> [--id <card_id>] [--wait <seconds>]
 
-Add funds to an existing card using the same two-step x402 payment flow as card creation.
+Add funds using the returned x402 payment. Continue a pending recharge using its
+original request ID; omit --amount. --id is inferred from the request when available.
 
 Options:
-  --id <card_id>             Card ID (required)
-  --amount <usd>             Recharge amount in USD, human-readable (required)
-  --mandate <mandate_id>     Mandate ID for x402 payment (required)
+  --id <card_id>            Card ID (required for a new request)
+  --amount <usd>            Positive USD decimal (new request only)
+  --mandate <id>            Mandate for x402 payment (required)
+  --request-id <id>         Continue the same recharge request
+  --wait <seconds>          Wait up to 0..300 seconds (default: 30)
 
-Example:
-  fluxa-wallet card recharge --id card_xxx --amount 10.00 --mandate mand_xxxxx`,
+Examples:
+  fluxa-wallet card recharge --id card_xxx --amount 10.00 --mandate mand_xxx
+  fluxa-wallet card recharge --request-id <pendingRequestId> --mandate mand_xxx
+
+Use "card balance" for the live balance once settlement finishes.`,
 
   'card withdraw': `Usage: fluxa-wallet card withdraw --id <card_id> [--amount <usd>]
 
@@ -1226,9 +1290,21 @@ function cardErrorHint(code?: string): string | undefined {
     case 'agent_not_linked':
       return 'Run "fluxa-wallet link-wallet", complete wallet linking, then retry.';
     case 'cardholder_required':
-      return 'Run "fluxa-wallet card holder create --first-name <first> --last-name <last>" first.';
+      return 'Run "fluxa-wallet card holder me" first; create a profile with "card holder create --profile @profile.json" only if absent.';
     case 'cardholder_not_approved':
       return 'Run "fluxa-wallet card holder me" to check the holder review status, then retry when approved.';
+    case 'card_waitlist_required':
+      return 'Apply for Prepaid access in the Wallet Agent Cards page, then retry after approval and access synchronization. Visa approval does not grant Prepaid access.';
+    case 'card_access_unavailable':
+      return 'Prepaid access could not be checked; retry later.';
+    case 'card_type_selector_required':
+    case 'card_type_selector_invalid':
+    case 'card_type_ambiguous':
+    case 'card_type_not_found':
+    case 'card_type_unavailable':
+      return 'Run "fluxa-wallet card types" and select one available product with --card-type-id, --bin-id, or --bin.';
+    case 'revision_conflict':
+      return 'Run "fluxa-wallet card holder me" and retry with the current revision.';
     case 'recharge_in_progress':
       return 'A recharge is already active for this card; wait for it to finish before starting another.';
     case 'withdrawal_in_progress':
@@ -1244,18 +1320,15 @@ function commandError(err: any, fallback: string): CommandResult {
   const code = apiErrorCode(err);
   const details = apiErrorDetails(err);
   const hint = cardErrorHint(code);
-  const base = err?.message || fallback;
+  const applicationUrl = code === 'card_waitlist_required' && typeof details?.applicationUrl === 'string'
+    ? ` Apply here: ${details.applicationUrl}` : '';
+  const base = (err?.message || fallback) + applicationUrl;
   return {
     success: false,
     error: hint ? `${base} ${hint}` : base,
     ...(code ? { code } : {}),
     ...(details !== undefined ? { details } : {}),
   };
-}
-
-function withoutSuccessField<T extends Record<string, any>>(value: T): Omit<T, 'success'> {
-  const { success: _success, ...rest } = value;
-  return rest;
 }
 
 function extractPaymentPayloadB64(result: any): string | null {
@@ -1270,12 +1343,15 @@ function extractPaymentPayloadB64(result: any): string | null {
 
 async function signPaymentRequestWithMandate(
   paymentRequest: any,
-  mandateId: string,
-  jwt: string
+  mandateId: string
 ): Promise<string> {
   if (!paymentRequest || typeof paymentRequest !== 'object') {
     throw new Error('Invalid payment request from card service');
   }
+  // Holder review can outlast the login JWT's original refresh buffer.
+  const auth = await ensureValidJWT();
+  if (!auth) throw new Error('FluxA Agent ID not initialized. Run "init" first.');
+  const jwt = auth.jwt;
 
   if (paymentRequest.x402Version === 2) {
     const signed = await requestX402V2Payment({ mandateId, paymentRequest }, jwt);
@@ -1502,25 +1578,43 @@ async function cmdCardList(options: Record<string, string> = {}): Promise<Comman
   }
 }
 
-async function cmdCardCreate(options: Record<string, string>): Promise<CommandResult> {
-  const amountUsd = options.amount;
-  const mandateId = options.mandate;
-
-  if (!amountUsd) {
-    return {
-      success: false,
-      error: 'Missing required parameter: --amount',
-    };
-  }
-
-  if (!mandateId) {
-    return {
-      success: false,
-      error: 'Missing required parameter: --mandate',
-    };
-  }
-
+async function cmdCardTypes(): Promise<CommandResult> {
   try {
+    const auth = await ensureCardServiceAuth();
+    if (!auth) return { success: false, error: 'FluxA Agent ID not initialized. Run "init" first.' };
+    const result = await listCardTypes(auth.cardToken);
+    return rawJson(result.cardTypes);
+  } catch (err: any) {
+    return commandError(err, 'Card product lookup failed');
+  }
+}
+
+function cardWaitSeconds(options: Record<string, string>): number {
+  const value = options.wait ?? '30';
+  if (!/^\d+$/.test(value) || Number(value) > 300) throw new Error('--wait must be an integer in [0, 300] seconds');
+  return Number(value);
+}
+
+function cardPendingOutput(request: CardChargeInitiateResponse, command: 'create' | 'recharge') {
+  const { paymentRequest: _paymentRequest, ...state } = request;
+  return {
+    ...state,
+    continueCommand: `fluxa-wallet card ${command} --request-id ${request.pendingRequestId} --mandate <mandate_id>`,
+  };
+}
+
+async function cmdCardCreate(options: Record<string, string>): Promise<CommandResult> {
+  const mandateId = options.mandate;
+  try {
+    if (!mandateId || mandateId === 'true') throw new Error('Missing required parameter: --mandate');
+    const requestId = options['request-id'];
+    if (requestId === 'true') throw new Error('--request-id requires a value');
+    if (requestId && ['amount', 'card-type-id', 'bin-id', 'bin'].some(key => options[key] !== undefined)) {
+      throw new Error('--request-id continues the original product and amount; omit --amount, --card-type-id, --bin-id, --bin');
+    }
+    const amountUsd = requestId ? undefined : cardAmount(options.amount || '');
+    const selector = requestId ? undefined : cardSelector(options);
+    const waitSeconds = cardWaitSeconds(options);
     const auth = await ensureCardServiceAuth();
     if (!auth) {
       return {
@@ -1529,34 +1623,24 @@ async function cmdCardCreate(options: Record<string, string>): Promise<CommandRe
       };
     }
 
-    // Step 1: Initiate card issuance → get payment request
-    const initiated = await initiateCard({ amountUsd }, auth.cardToken);
-
-    // Step 2: Sign payment via wallet backend using agent's mandate
-    const paymentPayloadB64 = await signPaymentRequestWithMandate(
-      initiated.paymentRequest,
-      mandateId,
-      auth.jwt
-    );
-
-    // Step 3: Complete card issuance with signed payment
-    const result = await completeCard(
-      {
-        pendingRequestId: initiated.pendingRequestId,
-        paymentPayloadB64,
-      },
-      auth.cardToken
-    );
+    const { request } = await runCardFlow({ requestId, requestType: 'issue', waitSeconds }, {
+      initiate: () => initiateCard({ amountUsd: amountUsd!, ...selector! }, auth.cardToken),
+      getRequest: id => getCardRequest(id, auth.cardToken),
+      sign: paymentRequest => signPaymentRequestWithMandate(paymentRequest, mandateId),
+      complete: (pending, payload) => completeCard({ pendingRequestId: pending.pendingRequestId, paymentPayloadB64: payload }, auth.cardToken),
+    });
 
     await recordAudit({
       event: 'card_create',
-      amount_usd: amountUsd,
+      amount_usd: request.amountUsd,
       mandate_id: mandateId,
-      card_id: result.success ? result.card?.id : undefined,
-      status: result.success ? 'completed' : result.status,
+      pending_request_id: request.pendingRequestId,
+      card_id: request.card?.id,
+      card_type_id: request.cardTypeId,
+      status: request.status,
     });
 
-    return rawJson(result.success ? result.card : withoutSuccessField(result));
+    return rawJson(request.status === 'completed' && request.card ? request.card : cardPendingOutput(request, 'create'));
   } catch (err: any) {
     return commandError(err, 'Card creation failed');
   }
@@ -1742,19 +1826,42 @@ async function cmdCard3dsLatest1h(options: Record<string, string>): Promise<Comm
   }
 }
 
-async function cmdCardHolderCreate(options: Record<string, string>): Promise<CommandResult> {
-  const firstName = options['first-name'] || options.firstName;
-  const lastName = options['last-name'] || options.lastName;
-  const country = options.country;
-
-  if (!firstName || !lastName) {
-    return {
-      success: false,
-      error: 'Missing required parameters: --first-name, --last-name',
-    };
+function readCardProfile(options: Record<string, string>): unknown {
+  const fieldFlags: Record<string, string> = {
+    'first-name': 'firstName', firstName: 'firstName',
+    'last-name': 'lastName', lastName: 'lastName', email: 'email', phone: 'phone',
+  };
+  const addressFlags: Record<string, string> = {
+    country: 'country', city: 'city', 'address-line1': 'line1',
+    'postal-code': 'postalCode', region: 'region', 'address-line2': 'line2',
+  };
+  if (options.profile !== undefined) {
+    if ([...Object.keys(fieldFlags), ...Object.keys(addressFlags)].some(key => options[key] !== undefined)) {
+      throw new Error('Use --profile or individual profile flags, not both');
+    }
+    return readJsonOption(options.profile, '--profile');
   }
+  const profile: Record<string, unknown> = {};
+  const address: Record<string, string> = {};
+  for (const [flag, field] of Object.entries(fieldFlags)) {
+    if (options[flag] !== undefined) {
+      if (options[flag] === 'true') throw new Error(`--${flag} requires a value`);
+      profile[field] = options[flag];
+    }
+  }
+  for (const [flag, field] of Object.entries(addressFlags)) {
+    if (options[flag] !== undefined) {
+      if (options[flag] === 'true') throw new Error(`--${flag} requires a value`);
+      address[field] = options[flag];
+    }
+  }
+  if (Object.keys(address).length) profile.address = address;
+  return profile;
+}
 
+async function cmdCardHolderCreate(options: Record<string, string>): Promise<CommandResult> {
   try {
+    const profile = cardProfile(readCardProfile(options), false);
     const auth = await ensureCardServiceAuth();
     if (!auth) {
       return {
@@ -1763,18 +1870,11 @@ async function cmdCardHolderCreate(options: Record<string, string>): Promise<Com
       };
     }
 
-    const result = await createCardholder(
-      {
-        firstName,
-        lastName,
-        ...(country ? { country } : {}),
-      },
-      auth.cardToken
-    );
+    const result = await createCardholder(profile, auth.cardToken);
 
     await recordAudit({
       event: 'card_holder_create',
-      holder_status: result.cardholder?.status,
+      kyc_status: result.cardholder?.kycStatus,
     });
 
     return rawJson(result.cardholder);
@@ -1784,6 +1884,23 @@ async function cmdCardHolderCreate(options: Record<string, string>): Promise<Com
       return rawJson(details.cardholder);
     }
     return commandError(err, 'Card holder creation failed');
+  }
+}
+
+async function cmdCardHolderUpdate(options: Record<string, string>): Promise<CommandResult> {
+  try {
+    const profile = cardProfile(readCardProfile(options), true);
+    const revisionRaw = options.revision;
+    if (revisionRaw !== undefined && (!/^\d+$/.test(revisionRaw) || !Number.isSafeInteger(Number(revisionRaw)) || Number(revisionRaw) < 1)) {
+      throw new Error('--revision must be a positive integer');
+    }
+    const auth = await ensureCardServiceAuth();
+    if (!auth) return { success: false, error: 'FluxA Agent ID not initialized. Run "init" first.' };
+    const result = await updateCardholder(profile, auth.cardToken, revisionRaw === undefined ? undefined : Number(revisionRaw));
+    await recordAudit({ event: 'card_holder_update', kyc_status: result.cardholder.kycStatus, revision: result.cardholder.revision });
+    return rawJson(result.cardholder);
+  } catch (err: any) {
+    return commandError(err, 'Card holder update failed');
   }
 }
 
@@ -1802,6 +1919,7 @@ async function cmdCardHolderMe(): Promise<CommandResult> {
     await recordAudit({
       event: 'card_holder_me',
       holder_status: result.cardholder?.status,
+      kyc_status: result.cardholder?.kycStatus,
     });
 
     return rawJson(result.cardholder);
@@ -1812,17 +1930,16 @@ async function cmdCardHolderMe(): Promise<CommandResult> {
 
 async function cmdCardRecharge(options: Record<string, string>): Promise<CommandResult> {
   const cardId = options.id;
-  const amountUsd = options.amount;
   const mandateId = options.mandate;
-
-  if (!cardId || !amountUsd || !mandateId) {
-    return {
-      success: false,
-      error: 'Missing required parameters: --id, --amount, --mandate',
-    };
-  }
-
   try {
+    if (!mandateId || mandateId === 'true') throw new Error('Missing required parameter: --mandate');
+    const requestId = options['request-id'];
+    if (requestId === 'true') throw new Error('--request-id requires a value');
+    if (cardId === 'true') throw new Error('--id requires a value');
+    if (requestId && options.amount !== undefined) throw new Error('--request-id continues the original amount; omit --amount');
+    if (!requestId && !cardId) throw new Error('Missing required parameter: --id');
+    const amountUsd = requestId ? undefined : cardAmount(options.amount || '');
+    const waitSeconds = cardWaitSeconds(options);
     const auth = await ensureCardServiceAuth();
     if (!auth) {
       return {
@@ -1831,30 +1948,32 @@ async function cmdCardRecharge(options: Record<string, string>): Promise<Command
       };
     }
 
-    const initiated = await initiateCardRecharge(cardId, { amountUsd }, auth.cardToken);
-    const paymentPayloadB64 = await signPaymentRequestWithMandate(
-      initiated.paymentRequest,
-      mandateId,
-      auth.jwt
-    );
-    const result = await completeCardRecharge(
-      cardId,
-      {
-        pendingRequestId: initiated.pendingRequestId,
-        paymentPayloadB64,
+    const { request, completion } = await runCardFlow({ requestId, requestType: 'recharge', cardId, waitSeconds }, {
+      initiate: () => initiateCardRecharge(cardId!, { amountUsd: amountUsd! }, auth.cardToken),
+      getRequest: id => getCardRequest(id, auth.cardToken),
+      sign: paymentRequest => signPaymentRequestWithMandate(paymentRequest, mandateId),
+      complete: (pending, payload) => {
+        const targetCard = pending.cardId || cardId;
+        if (!targetCard) throw new Error('Recharge request has no cardId; provide the original --id');
+        return completeCardRecharge(targetCard, { pendingRequestId: pending.pendingRequestId, paymentPayloadB64: payload }, auth.cardToken);
       },
-      auth.cardToken
-    );
+    });
 
     await recordAudit({
       event: 'card_recharge',
-      card_id: cardId,
-      amount_usd: amountUsd,
+      card_id: request.card?.id || request.cardId || cardId,
+      amount_usd: request.amountUsd,
       mandate_id: mandateId,
-      status: result.success ? 'completed' : result.status,
+      pending_request_id: request.pendingRequestId,
+      status: request.status,
     });
 
-    return rawJson(result.success ? { card: result.card, recharge: result.recharge } : withoutSuccessField(result));
+    if (request.status === 'completed' && request.card) {
+      const recharge = completion?.success && 'recharge' in completion
+        ? completion.recharge : { amountUsd: request.amountUsd, feeUsd: request.feeUsd };
+      return rawJson({ card: request.card, recharge });
+    }
+    return rawJson(cardPendingOutput(request, 'recharge'));
   } catch (err: any) {
     return commandError(err, 'Card recharge failed');
   }
@@ -1862,7 +1981,6 @@ async function cmdCardRecharge(options: Record<string, string>): Promise<Command
 
 async function cmdCardWithdraw(options: Record<string, string>): Promise<CommandResult> {
   const cardId = options.id;
-  const amountUsd = options.amount;
 
   if (!cardId) {
     return {
@@ -1872,6 +1990,7 @@ async function cmdCardWithdraw(options: Record<string, string>): Promise<Command
   }
 
   try {
+    const amountUsd = options.amount === undefined ? undefined : cardAmount(options.amount);
     const auth = await ensureCardServiceAuth();
     if (!auth) {
       return {
@@ -3286,6 +3405,9 @@ async function main() {
     case 'card list':
       result = await cmdCardList(options);
       break;
+    case 'card types':
+      result = await cmdCardTypes();
+      break;
     case 'card create':
       result = await cmdCardCreate(options);
       break;
@@ -3306,6 +3428,9 @@ async function main() {
       break;
     case 'card holder create':
       result = await cmdCardHolderCreate(options);
+      break;
+    case 'card holder update':
+      result = await cmdCardHolderUpdate(options);
       break;
     case 'card holder me':
       result = await cmdCardHolderMe();

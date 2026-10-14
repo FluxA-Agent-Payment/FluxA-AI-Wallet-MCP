@@ -281,7 +281,14 @@ For FLUXA_MONETIZE_CREDITS, amounts are in the credits' smallest unit as defined
 | `check-wallet` | (none) | Check if agent is linked to user's wallet |
 | `link-wallet` | (none) | Get wallet linking URL or confirm already linked |
 | `agent-vc` | `--audience`, `--challenge` | Issue a short-lived VC for a 3rd party (default TTL 3600s) |
-| `card create` | `--amount`, `--mandate` | Issue a prepaid virtual card (two-step: initiate → sign → complete) |
+| `card types` | (none) | List public card products, string IDs/BINs, fees, limits, and availability |
+| `card create` | One of `--card-type-id` / `--bin-id` / `--bin`, `--amount`, `--mandate` | Issue a prepaid card; continue the same request with `--request-id` and `--mandate` (omit amount/selector) |
+| `card holder create` | `--profile @profile.json` | Create a complete real account profile and start KYC, only if absent |
+| `card holder update` | `--profile @patch.json`, optional `--revision` | Partially update the account profile with optional If-Match |
+| `card holder me` | (none) | Inspect the profile, KYC state, verification URL, and legacy holder |
+| `card recharge` | `--id`, `--amount`, `--mandate` | Recharge; continue with `--request-id` and `--mandate` (card inferred, optional original `--id`) |
+| `card withdraw` | `--id`, optional `--amount` | Withdraw an explicit amount or the full live available balance |
+| `card withdrawals` / `withdrawal` | `--id`, plus `--withdrawal-id` for one record | Inspect safe withdrawal progress |
 | `card list` | (none) | List cards owned by this agent (`--global` for linked-account scope) |
 | `card details` | `--id` | Reveal full card details (PAN, CVV, expiry) |
 | `card balance` | `--id` | Refresh and show card balance |
@@ -302,6 +309,30 @@ For FLUXA_MONETIZE_CREDITS, amounts are in the credits' smallest unit as defined
 | `market keys update` | (id arg) | Update a key (`--name`, `--cap`; `--cap 0` clears the cap) |
 | `market keys revoke` | (id arg) | Revoke a key |
 | `market info` | (topic optional) | List all marketplace commands or explain a topic: overview, units, auth, pay, keys, models, tokenplan, skills |
+
+AgentCard uses `/api/v2` with an automatic challenge-bound Agent VC. For new
+issuance, run `card types` and select exactly one product selector. Do not
+substitute a default product or treat unknown fees as zero. Catalog availability
+is not account access approval. `card_waitlist_required` means send the user to
+`details.applicationUrl` (or Wallet's Agent Cards page) to apply once for Prepaid
+access, then retry after approval/synchronization. Visa approval is separate.
+`card_access_unavailable` means retry later. Neither rejection is payable.
+
+Read `card holder me` before creating a profile. New profiles need the real
+owner's firstName, lastName, email, E.164 phone, and address (country, city, line1,
+postalCode; optional region/line2). Direct the user to verificationUrl and check
+kycStatus/nextAction. An approved legacy holder (`source:"legacy"`,
+`kycStatus:"not_recorded"`) can keep using its approved product; do not create an
+optional new KYC profile automatically or invent missing materials.
+
+Create/recharge poll the same request for up to 30 seconds (`--wait 0..300`). A
+holder under review has no payment request; do not sign until payable. If still
+pending, use the returned continueCommand with `--request-id` and the existing
+mandate. Do not initiate again to retry payment. `--wait 0` skips polling but
+still submits a payable request. A submitted payment is only polled, not signed
+again automatically. `card list` contains issued cards, not pending requests;
+use it to view the result, and `card balance` for live recharge balances. Keep
+PAN/CVV/VC/payment payloads out of logs; retrieve card details only when needed.
 
 **Common Mistakes to Avoid:**
 

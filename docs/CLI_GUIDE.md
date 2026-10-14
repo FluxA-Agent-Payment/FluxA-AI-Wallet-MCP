@@ -63,8 +63,8 @@ Run `fluxa-wallet <command> --help` for the full option list of any command.
 
 | Command | Description |
 |---------|-------------|
-| `card holder create` / `me` | Set up and inspect the account cardholder |
-| `card create` / `list` / `details` / `balance` | Issue and inspect virtual cards |
+| `card holder create` / `update` / `me` | Create/update an account KYC profile and inspect verification |
+| `card types` / `create` / `list` / `details` / `balance` | Choose products, issue, and inspect virtual cards |
 | `card transactions` / `card 3ds latest` / `card 3ds latest_1h` | Inspect card transactions and 3DS challenges |
 | `card recharge` / `withdraw` / `withdrawals` / `withdrawal` | Add funds and withdraw card balance |
 | `agent-vc` | Issue a short-lived agent VC for a third party (`--audience`, `--challenge`) |
@@ -377,14 +377,20 @@ card API. The linked wallet must be present; otherwise card commands return
 `agent_not_linked` and you should run `fluxa-wallet link-wallet`.
 
 ```bash
-# One-time immutable cardholder setup for the linked account
-fluxa-wallet card holder create --first-name Alice --last-name Agent
+# Read the existing profile first; approved legacy holders can keep using it
 fluxa-wallet card holder me
+# Only if absent, create a profile from the real account owner's materials
+fluxa-wallet card holder create --profile @profile.json
+# Complete verificationUrl, then check the KYC status with holder me
+fluxa-wallet card holder update --profile @patch.json --revision 2
 
 # Cards: default list is current-agent only; --global shows all cards in the linked account
 fluxa-wallet card list
 fluxa-wallet card list --global
-fluxa-wallet card create --amount 25.00 --mandate mand_xxx
+fluxa-wallet card types
+fluxa-wallet card create --card-type-id <cardTypeId> --amount 25.00 --mandate mand_xxx
+# Continue the same issuance after a pending result
+fluxa-wallet card create --request-id <pendingRequestId> --mandate mand_xxx
 fluxa-wallet card details --id card_xxx
 fluxa-wallet card balance --id card_xxx
 fluxa-wallet card transactions --id card_xxx
@@ -394,6 +400,7 @@ fluxa-wallet card 3ds latest_1h --id card_xxx
 
 # Add or withdraw funds
 fluxa-wallet card recharge --id card_xxx --amount 10.00 --mandate mand_xxx
+fluxa-wallet card recharge --request-id <rechargeRequestId> --mandate mand_xxx
 fluxa-wallet card withdraw --id card_xxx
 fluxa-wallet card withdraw --id card_xxx --amount 5.00
 fluxa-wallet card withdrawals --id card_xxx
@@ -434,10 +441,48 @@ If the wallet answers that linked cards are not available, the user's wallet
 is not enabled for linked cards yet; ask them to check the Cards page in the
 FluxA wallet.
 
-`card create` and `card recharge` use the same mandate-backed x402 signing
-flow as `x402-v3`. A `payment_submitted` result means the payment was accepted
-and card service will finish issuance/recharge asynchronously; poll `card list`
-or `card balance`.
+All AgentCard calls, including the authentication challenge, use `/api/v2`.
+`card types` returns the published products with string public IDs, BINs, fees,
+limits, and availability. New issuance requires exactly one selector:
+`--card-type-id`, `--bin-id`, or `--bin`. An ambiguous BIN is rejected; no default
+product is substituted. Unknown fee/capability fields remain unknown. Existing
+cards can have `cardTypeId:null` and remain visible through the same endpoints.
+Transaction filters also accept `deposit` and `withdrawal`.
+
+A profile requires `firstName`, `lastName`, `email`, E.164 `phone`, and
+`address:{country,city,line1,postalCode,region?,line2?}`. Provide JSON inline or
+with `--profile @file.json`, or individual flags shown by command help. There is
+no default country or invented contact information. KYC responses include
+`kycStatus`, `verificationUrl`, and `nextAction`. Approved legacy holders with
+`source:"legacy"` / `kycStatus:"not_recorded"` may continue with their approved
+product without creating a new profile. `card holder update` accepts a partial
+profile; optional `--revision` sends an `If-Match` revision from `holder me`.
+
+`card create` and `card recharge` sign the returned x402 request using the
+existing mandate-backed signing protocol. AgentCard API version and x402
+protocol version are independent. A `pending_cardholder` request is not payable;
+the CLI polls that request and only signs when it becomes `pending_payment` with
+a payment request. A 202 `payment_submitted` result means settlement is pending.
+The background service finishes the work; use `card list` to see issued cards
+or `card balance` for a live recharge result. Card lists do not contain pending
+applications.
+
+The commands poll for up to 30 seconds by default. `--wait <seconds>` accepts
+0..300; zero skips waiting but still signs/completes an immediately payable
+request. Pending output contains the original `pendingRequestId`, `status`, and
+`continueCommand`. Continue using `card create --request-id ... --mandate ...`
+or `card recharge --request-id ... --mandate ...`; omit amount/product selectors.
+Recharge infers its card from the stored request, or accepts the original `--id`.
+Submitted payments are not automatically signed again. Terminal/action-required
+states return an error with the request ID. Errors after a request is created
+also preserve its ID. Do not repeat initiation as a payment retry.
+
+`403 card_waitlist_required` directs the user to `details.applicationUrl`, or to
+Wallet's Agent Cards page if absent. Prepaid approval is required even for
+accounts that already hold cards; Visa approval does not grant it. Retry
+initiation after approval and access synchronization. `503 card_access_unavailable`
+means access could not be checked; retry later. Neither rejection enters signing
+or completion. Existing card queries/recharges/withdrawals remain available.
 
 Successful `card ...` commands print card-service business data directly, not a
 CLI envelope. For example, `card list` prints the cards array, `card holder me`

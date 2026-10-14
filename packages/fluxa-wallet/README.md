@@ -87,19 +87,46 @@ with a signed `CARD_USD` mandate.
 
 | Command | Description |
 |---------|-------------|
-| `card create` | Issue a funded virtual card (`--amount`, `--mandate`) |
+| `card types` | List published products, BINs, fees, limits, and availability |
+| `card create` | Issue a card with one product selector, `--amount`, `--mandate`; continue with `--request-id` |
 | `card list` | List cards created by this agent (`--global` for the linked account) |
 | `card details` | Reveal PAN / CVV / expiry (`--id`) |
 | `card balance` | Refresh & show card balance (`--id`) |
 | `card transactions` | List card transaction history (`--id`, optional filters) |
 | `card 3ds latest` | Show the latest 3DS challenge (`--id`) |
 | `card 3ds latest_1h` | Show 3DS challenges from the last hour (`--id`) |
-| `card holder create` | Set up the account cardholder once (`--first-name`, `--last-name`) |
-| `card holder me` | Show the account cardholder |
-| `card recharge` | Add funds to a card (`--id`, `--amount`, `--mandate`) |
+| `card holder create` | Create a complete account profile and start KYC (`--profile @profile.json` or individual fields) |
+| `card holder update` | Partially update the profile (`--profile @patch.json`, optional `--revision`) |
+| `card holder me` | Show the account profile, KYC status, verification URL, and next action |
+| `card recharge` | Add funds (`--id`, `--amount`, `--mandate`); continue with `--request-id` |
 | `card withdraw` | Withdraw card balance (`--id`, optional `--amount`) |
 | `card withdrawals` | List card withdrawals (`--id`) |
 | `card withdrawal` | Get one card withdrawal (`--id`, `--withdrawal-id`) |
+
+Card calls use `/api/v2` with a challenge-bound Agent VC. A new issuance must
+select exactly one of `--card-type-id`, `--bin-id`, or `--bin`; get string IDs
+from `card types`. Unknown fees remain unknown. Catalog availability does not
+grant account Prepaid access, and Visa approval does not grant Prepaid access.
+
+Create/recharge wait for up to 30 seconds by default (`--wait 0..300`). `--wait 0`
+skips waiting; a payable request still gets signed and completed. If review or
+settlement remains pending, output contains `pendingRequestId`, `status`, and
+`continueCommand`. Continue with the same command and `--request-id`; omit the
+original amount/product selector. Recharge infers its card ID from the request,
+or accepts the original `--id`. A submitted payment is only polled, never signed
+again automatically. Use `card list` to see issued cards and `card balance` to
+refresh a recharge result. Card lists contain cards, not pending applications.
+
+A `card_waitlist_required` error returns the application URL when available.
+Apply once in Wallet and retry after Prepaid approval/synchronization. A
+`card_access_unavailable` error means retry later. Neither error starts payment.
+
+`profile.json` contains `firstName`, `lastName`, `email`, E.164 `phone`, and
+`address:{country,city,line1,postalCode,region?,line2?}`. Use the real account
+owner's materials. Creation starts KYC; complete the returned `verificationUrl`
+and check `card holder me`. An approved legacy holder (`source:"legacy"`,
+`kycStatus:"not_recorded"`) can continue with its approved product without
+creating a new profile. Updates are partial; `--revision` sends `If-Match`.
 
 ### Identity
 
@@ -132,9 +159,14 @@ fluxa-wallet linked-card mandates --host www.amazon.com --amount 3000
 fluxa-wallet linked-card subcard --mandate mand_xxx
 fluxa-wallet headless-checkout --mandate mand_xxx --attempt wpa_xxx --billing @billing.json
 
-# AgentCard: one-time holder setup, then issue a card
-fluxa-wallet card holder create --first-name Alice --last-name Agent
-fluxa-wallet card create --amount 25.00 --mandate mand_xxx
+# AgentCard v2: inspect the existing holder before creating a profile
+fluxa-wallet card holder me
+# Only if absent: use the real account owner's profile and complete verificationUrl
+fluxa-wallet card holder create --profile @profile.json
+fluxa-wallet card types
+fluxa-wallet card create --card-type-id <cardTypeId> --amount 25.00 --mandate mand_xxx
+# If still pending, continue the original request (no new purchase intent)
+fluxa-wallet card create --request-id <pendingRequestId> --mandate mand_xxx
 fluxa-wallet card list
 fluxa-wallet card list --global
 fluxa-wallet card transactions --id card_xxx
@@ -189,3 +221,29 @@ Exit code `0` = success, `1` = failure.
 ## License
 
 Apache-2.0
+
+## Manual npm release
+
+Run from the repository root. The CLI package version is in
+`packages/fluxa-wallet/package.json`; the root package is the separate MCP package.
+
+```bash
+npm ci
+npm test
+node packages/fluxa-wallet/bin/fluxa-wallet.js --version
+cd packages/fluxa-wallet
+npm pack --dry-run
+npm whoami --registry https://registry.npmjs.org
+# If not logged in:
+npm login --registry https://registry.npmjs.org
+npm publish --access public --registry https://registry.npmjs.org
+npm view @fluxa-pay/fluxa-wallet@0.5.2 version --registry https://registry.npmjs.org
+npm install -g @fluxa-pay/fluxa-wallet@0.5.2 --registry https://registry.npmjs.org
+fluxa-wallet --version
+fluxa-wallet card create --help
+```
+
+`npm test` builds both packages and runs mocked card-flow/CLI tests. Verify the
+pack output contains `bin/fluxa-wallet.js` before publishing. This releases
+`@fluxa-pay/fluxa-wallet` only; MCP publication and wallet Skill installation
+updates are separate. Repository Skill changes must also be installed by consumers.

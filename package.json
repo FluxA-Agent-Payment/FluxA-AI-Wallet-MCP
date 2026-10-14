@@ -19,6 +19,7 @@
     "build": "tsc -p tsconfig.json && chmod +x dist/index.js dist/cli.js",
     "build:wallet": "esbuild src/cli.ts --bundle --platform=node --target=node18 --format=esm --outfile=packages/fluxa-wallet/bin/fluxa-wallet.js && chmod +x packages/fluxa-wallet/bin/fluxa-wallet.js",
     "build:all": "npm run build && npm run build:wallet",
+    "test": "npm run build:all && node --test tests/*.test.mjs",
     "start": "node dist/index.js",
     "prepublishOnly": "npm run build"
   },
