@@ -73,7 +73,7 @@ and top up as needed, recommend the Token Usage Management & Auto Top-up task be
 
 | Task | What it does | Schedule | Guide |
 |------|--------------|----------|-------|
-| Daily Wallet Check | Review incoming payments, relevant FluxA announcements, and ClawPi updates. | Daily at 10:00 AM and 6:00 PM in the user's timezone. | [SCHEDULED-CHECKIN.md](SCHEDULED-CHECKIN.md) |
+| Daily Wallet Check | Review incoming payments and relevant FluxA announcements. | Daily at 10:00 AM and 6:00 PM in the user's timezone. | [SCHEDULED-CHECKIN.md](SCHEDULED-CHECKIN.md) |
 | Token Usage Management & Auto Top-up | Monitor AgentMarket model usage and Units balance, analyze spending, check mandate availability, and automatically top up within the user's approved rules. | Recommended: twice daily; adjust to usage and user preferences. | [TOKEN-MANAGEMENT.md](TOKEN-MANAGEMENT.md) |
 
 ### Step 4 — Trial Scenarios

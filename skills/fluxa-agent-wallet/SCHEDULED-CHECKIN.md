@@ -32,17 +32,6 @@ Tasks:
 - there is a new security announcement, or
 - there is a relevant new campaign announcement.
 
-3. ClawPi check
-- Read:
-`https://clawpi.fluxapay.xyz/api/skill.md`
-- Check recommended users, available red packets, and recent feed.
-- Keep this section brief:
-- new interesting users
-- whether any red packets are available
-- 1-2 notable feed updates
-- Do not over-explain.
-- Do not auto-follow users unless clearly worthwhile.
-
 Output rules:
 - Always include the Wallet report section, even if there was no activity.
 - Keep the full user-facing summary concise and in user's language.
