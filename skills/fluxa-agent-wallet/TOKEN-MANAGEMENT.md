@@ -1,7 +1,8 @@
 # Token Usage Management & Auto Top-up
 
 Set up a recurring task to check the user's model usage, analyze spending,
-monitor the balance, and automatically top up within the user's authorization.
+manage API keys by business or function, recommend cost optimizations, and
+automatically top up within the user's authorization.
 Recommend checking twice daily in the user's timezone.
 
 ## 1. Supported Platforms
@@ -29,6 +30,14 @@ This task manages prepaid model Units, not monthly Token Plans.
 4. Obtain approval for the auto-top-up settings before enabling payments.
    Payments within those settings and a signed mandate do not require
    confirmation on every run.
+
+5. Recommend a separate AgentMarket API key for each business or function,
+   named clearly, such as `customer-support` or `document-extraction`.
+   Review `fluxa-wallet market keys list` first; reuse suitable keys or help
+   the user create one with `fluxa-wallet market keys create --name <name>`.
+   Record each key ID's purpose and confirm that the corresponding application
+   uses that key so its usage can be attributed correctly. Store the raw key
+   securely, never in the task's Markdown state or reports.
 
 ## 3. Recurring Checks
 
@@ -65,8 +74,39 @@ This task manages prepaid model Units, not monthly Token Plans.
 - Flag unusual spending, explain available usage trends, and recommend
   adjustments when needed. Updating the monthly estimate does not
   automatically increase spending authorization.
-- Notify the user about top-ups, anomalies, failures, or required approvals.
-  Stay quiet when nothing meaningful has changed.
+
+### API Key and Business Usage Report
+
+- Review named keys and report usage since the last check by business or
+  function: key name, models used, input/output token counts, and USD cost.
+  Break out each model when a business uses more than one.
+- Use actual key/model usage records or application telemetry. Key-list
+  spending deltas can show cost, but cannot reveal token counts or models;
+  the CLI's account-level `usageHistory` is not a per-key token report.
+  Mark unavailable fields and partial coverage explicitly rather than guessing.
+
+### Token Usage Optimization
+
+- Assess each business's task type, usage volume, quality requirements, and
+  current models. Identify work that a lower-cost model could handle well.
+  For example, routine customer support may suit an appropriately capable
+  DeepSeek model instead of a more expensive Claude model; verify the specific
+  models' capabilities and current prices rather than assuming by brand.
+- Check current AgentMarket rates with `fluxa-wallet market search --models`.
+  Convert the quoted Units rates into USD using the current conversion rate.
+  For each recommendation, compare costs for the same observed workload:
+  `estimated cost = input tokens / 1M × input USD rate + output tokens / 1M × output USD rate`.
+  Account for caching and other billed usage when available. Show current cost,
+  estimated alternative cost, savings in USD and percent, and a monthly
+  projection based on the observed usage rate. State the period and assumptions;
+  if token mix or prices are missing, explain what is needed for a reliable estimate.
+- Recommend a small quality evaluation before switching. Cost estimates assume
+  comparable workload and output quality; retries or longer outputs may reduce
+  savings. Suggest model changes to the user; do not switch applications automatically.
+
+Include the business usage report and actionable optimization suggestions in
+check-in updates, together with top-ups, anomalies, failures, or required approvals.
+Stay quiet when there is no new usage or other meaningful change.
 
 ## 4. Local State
 
@@ -76,4 +116,5 @@ with its absolute path so every run uses the same file.
 
 Include the monthly spending estimate, minimum balance, top-up amount,
 currency, schedule, mandate details, latest balance, recent usage summaries,
-and pending payment or approval status. Do not store credentials.
+key IDs and business mappings, per-key/model usage baselines, optimization
+estimates, and pending payment or approval status. Do not store credentials.
