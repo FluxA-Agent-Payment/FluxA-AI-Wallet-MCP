@@ -80,10 +80,20 @@ This task manages prepaid model Units, not monthly Token Plans.
 - Review named keys and report usage since the last check by business or
   function: key name, models used, input/output token counts, and USD cost.
   Break out each model when a business uses more than one.
-- Use actual key/model usage records or application telemetry. Key-list
-  spending deltas can show cost, but cannot reveal token counts or models;
-  the CLI's account-level `usageHistory` is not a per-key token report.
-  Mark unavailable fields and partial coverage explicitly rather than guessing.
+- Read the [AgentMarket Units Wallet Guide](https://agentmarket.fluxapay.xyz/api/llm/skills.md).
+  With an Agent VC, query `GET https://router.fluxapay.xyz/llm/keys` for key
+  IDs and names, and `GET https://router.fluxapay.xyz/llm/wallet/ledger?kind=spend&limit=100&offset=0`
+  for raw usage records. Page through the reporting period using `offset` and
+  `total`; group metering entries by `metadata.api_key_id` and `metadata.model`,
+  then map key IDs to businesses. Read tokens from `metadata.usage` and charged
+  Units from the metering entry's negative `amount` or `metadata.cost_breakdown.cost_credits`.
+- Keep cache usage separate and do not double-count reasoning tokens already
+  included in output tokens. Settlements and adjustments are not new model calls.
+  Records without a key ID must remain separately attributed, for example to
+  `metadata.agent_id`; mark missing metadata or partial coverage explicitly.
+- The CLI's `usageHistory` omits this metadata. Use the raw API for this report.
+  Despite their names, key API fields `spentCredits` and `spendCapCredits` are
+  Units, not MC; convert them using the official Units-to-USD rate.
 
 ### Token Usage Optimization
 
