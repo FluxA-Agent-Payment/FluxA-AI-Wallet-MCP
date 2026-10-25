@@ -47,6 +47,29 @@ fluxa-wallet <command> --help     # full options for any command
 | `mandate-create` | Create an intent mandate (`--desc`, `--amount`; `--currency CARD_USD` plus merchant flags for a linked-card mandate) |
 | `mandate-status` | Query a mandate by id (`--id`) |
 
+### AgentMarket model Units
+
+```bash
+fluxa-wallet market model remainingUsage
+fluxa-wallet market model usageHistory
+# New mandate: wait for the user to approve the authorization URL
+fluxa-wallet market model topup --bundle starter --usdc
+# Existing approved mandate: pay without creating or signing another mandate
+fluxa-wallet market model topup --bundle starter --mandate mand_xxx
+```
+
+With `--mandate`, the payment currency follows the mandate (USDC or Monetize
+Credits). An explicit `--usdc` or `--credit` must match it. The command checks
+mandate status, validity, and remaining allowance; the wallet enforces the
+payment authorization. Invalid mandates fail without creating a replacement.
+`--budget` and `--seconds` apply only to new mandates and cannot be combined
+with `--mandate`. Without `--mandate`, the default remains Monetize Credits.
+
+For scheduled top-ups, obtain approval of the trigger, bundle, currency, and
+spending scope first. A mandate alone does not authorize unrelated purchases.
+After an uncertain payment result, check usage history before retrying:
+re-running this command creates a new top-up order.
+
 ### Linked cards (VIC)
 
 The user links their own card in the wallet UI; the agent reads it and pays
@@ -237,13 +260,13 @@ npm whoami --registry https://registry.npmjs.org
 # If not logged in:
 npm login --registry https://registry.npmjs.org
 npm publish --access public --registry https://registry.npmjs.org
-npm view @fluxa-pay/fluxa-wallet@0.5.2 version --registry https://registry.npmjs.org
-npm install -g @fluxa-pay/fluxa-wallet@0.5.2 --registry https://registry.npmjs.org
+npm view @fluxa-pay/fluxa-wallet@0.5.3 version --registry https://registry.npmjs.org
+npm install -g @fluxa-pay/fluxa-wallet@0.5.3 --registry https://registry.npmjs.org
 fluxa-wallet --version
 fluxa-wallet card create --help
 ```
 
-`npm test` builds both packages and runs mocked card-flow/CLI tests. Verify the
+`npm test` builds both packages and runs mocked card-flow and CLI tests, including model top-ups. Verify the
 pack output contains `bin/fluxa-wallet.js` before publishing. This releases
 `@fluxa-pay/fluxa-wallet` only; MCP publication and wallet Skill installation
 updates are separate. Repository Skill changes must also be installed by consumers.

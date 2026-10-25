@@ -175,7 +175,7 @@ MARKETPLACE COMMANDS:
   plan-tool-use "<task>"    Recommend the models, APIs and skills for a task
   market search "<q>"       Discover resources (add --models or --vendors to scope)
   market model remainingUsage            Prepaid Units balance
-  market model topup [--bundle <slug>]   Buy a Units bundle via x402: --credit (default) or --usdc
+  market model topup [--bundle <slug>]   Buy Units via x402; --mandate <id> reuses an approved budget
   market model usageHistory              Spend and topup history
   market keys [create|update <id>|revoke <id>]   Manage fxa_live_ API keys (Agent VC only)
   market tokenplan list                  Token Plans held: allowance left, days left, id
@@ -568,23 +568,34 @@ Examples:
 
 The account's prepaid Units balance. One balance, spendable at any provider.`,
 
-  'market model topup': `Usage: fluxa-wallet market model topup [--bundle <slug>] [--credit | --usdc]
+  'market model topup': `Usage: fluxa-wallet market model topup [--bundle <slug>] [--credit | --usdc] [--mandate <id>]
 
 Buys Units with Monetize Credits (--credit, default) or on-chain Base USDC
-(--usdc). Creates a mandate in the selected currency, then pays the x402
-challenge after the user approves it.
+(--usdc). With --mandate, reuses that signed mandate without creating another
+or waiting for approval. Otherwise creates a mandate and waits for the user
+to approve it. Only spend within the user-approved scope.
 
 Options:
   --bundle <slug>     which tier to buy: starter (5 MC), mid (10), pro (25).
                       Defaults to starter. Units are sold as bundles on every
                       rail, so there is no arbitrary amount to name.
   --credit            pay with Monetize Credits (signs a FLUXA_MONETIZE_CREDITS
-                      mandate). Default when neither currency flag is passed.
+                      mandate). Default when no currency or mandate is given.
   --usdc              pay the challenge's on-chain Base USDC accept instead of
                       Monetize Credits (signs a USDC mandate). Errors if this
                       deployment does not offer USDC topups.
 
+  --mandate <id>      reuse an existing signed mandate. Without a currency flag,
+                      use its currency. Explicit flags must match the mandate.
+                      Invalid, expired, or insufficient mandates fail without
+                      creating a replacement or switching payment currency.
+  --budget <atomic>   budget for a NEW mandate (default: enough for the bundle).
+  --seconds <n>       validity of a NEW mandate (default: 28800 seconds).
+
 --credit and --usdc are mutually exclusive.
+--budget and --seconds cannot be combined with --mandate.
+
+Example: fluxa-wallet market model topup --bundle starter --mandate mand_xxx
 
 This command is the x402 rail, and it carries two currencies: Monetize Credits
 (--credit, the default) and on-chain Base USDC (--usdc). Full procedure:
@@ -2721,21 +2732,50 @@ async function cmdMarketTopup(positionals: string[], options: Record<string, str
   if (options.credit !== undefined && options.usdc !== undefined) {
     return { success: false, error: '--credit and --usdc are mutually exclusive. Choose one payment currency.' };
   }
+  if (options.mandate !== undefined && (!options.mandate.trim() || options.mandate === 'true')) {
+    return { success: false, error: '--mandate requires a mandate ID.' };
+  }
+  if (options.mandate !== undefined && (options.budget !== undefined || options.seconds !== undefined)) {
+    return { success: false, error: '--budget and --seconds create a new mandate; they cannot be used with --mandate.' };
+  }
   const auth = await ensureValidJWT();
   if (!auth) {
     return { success: false, error: 'FluxA Agent ID not initialized. Run "init" first.' };
   }
-  const payWithUsdc = options.usdc !== undefined;
-
   try {
+    let mandateId = options.mandate;
+    let existingMandate: Awaited<ReturnType<typeof getMandateStatus>>['mandate'];
+    let mandateCurrency = options.usdc !== undefined ? 'USDC' : 'FLUXA_MONETIZE_CREDITS';
+    if (mandateId) {
+      const result = await getMandateStatus(mandateId, auth.jwt);
+      existingMandate = result.mandate;
+      if (!existingMandate) {
+        return { success: false, error: result.message || `Cannot read mandate ${mandateId}.` };
+      }
+      if (existingMandate.status !== 'signed' || existingMandate.isEnabled === false) {
+        return { success: false, error: `Mandate ${mandateId} must be signed and enabled before reuse (status: ${existingMandate.status}).` };
+      }
+      const now = Date.now();
+      const from = Date.parse(existingMandate.validFrom);
+      const until = Date.parse(existingMandate.validUntil);
+      if (!Number.isFinite(from) || !Number.isFinite(until) || from > now || until <= now) {
+        return { success: false, error: `Mandate ${mandateId} is outside its validity window.` };
+      }
+      if (!['USDC', 'FLUXA_MONETIZE_CREDITS'].includes(existingMandate.currency)) {
+        return { success: false, error: `Mandate currency ${existingMandate.currency} is not supported for model topups.` };
+      }
+      if ((options.usdc !== undefined || options.credit !== undefined) && existingMandate.currency !== mandateCurrency) {
+        return { success: false, error: `Payment currency ${mandateCurrency} does not match mandate currency ${existingMandate.currency}.` };
+      }
+      mandateCurrency = existingMandate.currency;
+    }
+    const payWithUsdc = mandateCurrency === 'USDC';
+
     // 1. initiate — answers HTTP 402 with the x402 challenge on success
     const init = await topupInitiate({ bundle: options.bundle });
     console.error(`· order ${init.orderId}: ${init.costCredits} Monetize Credits -> ${Number(init.creditsToGrant).toLocaleString()} Units`);
 
-    // 2. mandate — --credit (or no currency flag) uses Monetize Credits; --usdc pays the challenge's
-    //    on-chain Base USDC accept instead. Both ride the same x402-v3 leg
-    //    below: it picks the accepts entry whose currency matches the mandate.
-    let mandateCurrency = 'FLUXA_MONETIZE_CREDITS';
+    // 2. Reuse the supplied mandate or create one in the selected currency.
     // budget must cover the cost (credits unit = MC x 100)
     let budget = options.budget ? Number(options.budget) : Math.max(500, Math.ceil(Number(init.costCredits) * 100));
     if (payWithUsdc) {
@@ -2755,35 +2795,51 @@ async function cmdMarketTopup(positionals: string[], options: Record<string, str
       budget = options.budget ? Number(options.budget) : Number(usdcAccept.maxAmountRequired);
       console.error(`· paying on-chain: ${(budget / 1e6).toFixed(2)} USDC on ${usdcAccept.network || DEFAULT_NETWORK}`);
     }
-    const seconds = options.seconds ? Number(options.seconds) : 28800;
-    const mc = await cmdMandateCreate({
-      desc: payWithUsdc ? `Prepay ${init.costCredits} MC of Units (paid in USDC)` : `Prepay ${init.costCredits} MC of Units`,
-      amount: String(budget),
-      seconds: String(seconds),
-      currency: mandateCurrency,
-    });
-    if (!mc.success) return mc;
-    const mandateId: string = mc.data.mandateId;
-    const authUrl: string | undefined = mc.data.authorizationUrl;
+    if (existingMandate) {
+      const accepts = JSON.parse(init.rawBody)?.accepts;
+      const accept = Array.isArray(accepts) && accepts.find((a: any) =>
+        a.scheme === 'exact' &&
+        getCurrencyFromAsset(a.asset || DEFAULT_ASSET, a.network || DEFAULT_NETWORK) === mandateCurrency
+      );
+      const amount = accept?.maxAmountRequired;
+      if (typeof amount !== 'string' || !/^\d+$/.test(amount) || BigInt(amount) <= 0n) {
+        return { success: false, error: `Topup challenge has no valid ${mandateCurrency} payment amount.` };
+      }
+      if (!/^\d+$/.test(existingMandate.remainingAmount) || BigInt(existingMandate.remainingAmount) < BigInt(amount)) {
+        return { success: false, error: `Mandate ${mandateId} has insufficient remaining allowance for this topup.` };
+      }
+      console.error(`· reusing mandate ${mandateId} (${mandateCurrency})`);
+    } else {
+      const seconds = options.seconds ? Number(options.seconds) : 28800;
+      const mc = await cmdMandateCreate({
+        desc: payWithUsdc ? `Prepay ${init.costCredits} MC of Units (paid in USDC)` : `Prepay ${init.costCredits} MC of Units`,
+        amount: String(budget),
+        seconds: String(seconds),
+        currency: mandateCurrency,
+      });
+      if (!mc.success) return mc;
+      mandateId = mc.data.mandateId;
+      const authUrl: string | undefined = mc.data.authorizationUrl;
 
-    // 3. sign — the human approves the mandate URL; we poll until it's signed
-    console.error(`\n  Sign the spending mandate (budget ${budget} ${mandateCurrency}, valid ${seconds}s)`);
-    if (authUrl) console.error(`  ${authUrl}`);
-    console.error('  open the link, approve, then this continues automatically...\n');
-    const READY = new Set(['signed', 'active', 'authorized', 'approved']);
-    let signed = false;
-    for (let i = 0; i < 60; i++) {
-      await new Promise((r) => setTimeout(r, 2000));
-      try {
-        const s = await getMandateStatus(mandateId, auth.jwt);
-        const st = s.mandate?.status;
-        if (st && READY.has(st)) { signed = true; break; }
-      } catch { /* transient — keep polling */ }
+      // 3. sign — the human approves the mandate URL; we poll until it's signed
+      console.error(`\n  Sign the spending mandate (budget ${budget} ${mandateCurrency}, valid ${seconds}s)`);
+      if (authUrl) console.error(`  ${authUrl}`);
+      console.error('  open the link, approve, then this continues automatically...\n');
+      const READY = new Set(['signed', 'active', 'authorized', 'approved']);
+      let signed = false;
+      for (let i = 0; i < 60; i++) {
+        await new Promise((r) => setTimeout(r, 2000));
+        try {
+          const s = await getMandateStatus(mandateId, auth.jwt);
+          const st = s.mandate?.status;
+          if (st && READY.has(st)) { signed = true; break; }
+        } catch { /* transient — keep polling */ }
+      }
+      if (!signed) {
+        return { success: false, error: `mandate not signed in time — approve the link, then re-run with --mandate ${mandateId}.` };
+      }
+      console.error('  mandate signed');
     }
-    if (!signed) {
-      return { success: false, error: 'mandate not signed in time — re-run once you have approved the link.' };
-    }
-    console.error('  mandate signed');
 
     // 4. sign the payment over the FULL 402 body via the wallet's proven x402-v3
     const paid = await cmdX402V3({ mandate: mandateId, payload: init.rawBody });

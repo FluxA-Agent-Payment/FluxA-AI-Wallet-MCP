@@ -1441,6 +1441,7 @@ export interface MandateStatusResponse {
   mandate?: {
     mandateId: string;
     status: string;
+    isEnabled?: boolean;
     naturalLanguage: string;
     category?: string;
     currency: string;

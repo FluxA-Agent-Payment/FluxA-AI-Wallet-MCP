@@ -349,9 +349,9 @@ ${c.bold('market')} ${c.dim('— what you\'re working with')}
   ${c.bold('Prepaid model Units')}
     ${c.cyan('market model remainingUsage')}                shared balance and recent burn rate
     ${c.cyan('market model usageHistory')}                  spend and topup history
-    ${c.cyan('market model topup [--bundle <slug>] [--credit | --usdc]')}
+    ${c.cyan('market model topup [--bundle <slug>] [--credit | --usdc] [--mandate <id>]')}
       buy Units: starter (default), mid, or pro; Credits (default) or Base USDC
-      --credit and --usdc are mutually exclusive; user mandate approval is required
+      --mandate reuses a signed budget and its currency; otherwise user approval is required
 
   ${c.bold('API keys')} (Agent VC required)
     ${c.cyan('market keys list')}                           list keys (alias: ${c.cyan('market keys')})
@@ -429,8 +429,10 @@ ${c.bold('Models — shared prepaid Units')}
     ${c.cyan('fluxa-wallet market model usageHistory')}       spend and topup history
     ${c.cyan('fluxa-wallet market model topup --bundle starter --credit')}   fund the shared balance
   Bundles: starter (default), mid, pro. Choose --credit (default) or --usdc for
-  Base USDC; the flags are mutually exclusive. Confirm the spend, then open the
-  authorization link and approve the mandate to complete the topup.
+  Base USDC; the flags are mutually exclusive. Add --mandate <id> to reuse an
+  approved budget; its currency is used unless an explicit matching flag is given.
+  Without --mandate, open the authorization link and approve the new mandate.
+  Only spend within the user-approved scope.
 `,
   tokenplan: () => `
 ${c.bold('Token Plans — monthly model allowance')}

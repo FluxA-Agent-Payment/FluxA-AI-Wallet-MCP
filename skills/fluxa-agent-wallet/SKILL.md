@@ -6,13 +6,13 @@ description: >-
 
 # FluxA Agent Wallet
 
-**Skill version: 0.5.1** | **CLI version: @fluxa-pay/fluxa-wallet@0.5.1 or newer** — **MUST** install or update to the latest CLI version before use.
+**Skill version: 0.5.3** | **CLI version: @fluxa-pay/fluxa-wallet@0.5.3 or newer** — **MUST** install or update to the latest CLI version before use.
 
 FluxA Agent Wallet is a co-wallet that allows AI agents to securely use a user’s wallet, enabling them to perform payment-related actions within the user’s approved scope. Capabilities include x402 payments, USDC transfers, agent-to-agent transfers, payment links for receiving payments, prepaid virtual cards, AI social gifting, discovering and calling x402 resources (one-shot APIs), and using payment-related skills (one-shot skills). Use this tool when the user the user asks to perform any of these payment-related actions.
 
 ## Hard Rules
 
-- **Confirm every topup or spend with the user before initiating it.** Present the cost first and get an explicit choice. Each charge must be a known, deliberate spend.
+- **Confirm spending before initiating it.** Present the cost and get an explicit choice. For scheduled model top-ups, obtain approval of the trigger, bundle, currency, and spending scope during setup and require a valid signed mandate. Payments within those approved rules do not require repeated confirmation; expanding authorization requires new approval.
 - **Never write payment code.** No x402 signing or mandate logic in app code. Agents use the wallet CLI; apps use API keys.
 - **Report costs honestly.** Surface `X-LLM-Cost-Credits` after FluxA AgentMarket model calls; a negative balance is unsettled debt (usage consumed but not yet paid). Say so plainly.
 
@@ -22,7 +22,7 @@ FluxA Agent Wallet is a co-wallet that allows AI agents to securely use a user�
 
 ```bash
 npm install -g @fluxa-pay/fluxa-wallet@latest
-fluxa-wallet --version              # must be 0.5.1 or newer
+fluxa-wallet --version              # must be 0.5.3 or newer
 ```
 
 Then run commands directly:
@@ -64,7 +64,17 @@ fluxa-wallet check-wallet
 
 ### Step 3 — Scheduled Tasks
 
-**MUST** Setup scheduled tasks: If you are an AI agent that supports scheduled tasks, such as OpenClaw, please configure the official scheduled task for the FluxA Agent Wallet to better help users track daily wallet activity, security announcements, and more. Scheduled tasks guide: SCHEDULED-CHECKIN.md
+If your agent supports scheduled tasks, use the following guides to configure
+recurring wallet workflows. Reuse an existing task when one is already configured.
+
+**Token usage management is one of FluxA's flagship use cases.** If the user wants
+their agent to automatically manage model usage, monitor the remaining balance,
+and top up as needed, recommend the Token Usage Management & Auto Top-up task below.
+
+| Task | What it does | Schedule | Guide |
+|------|--------------|----------|-------|
+| Daily Wallet Check | Review incoming payments, relevant FluxA announcements, and ClawPi updates. | Daily at 10:00 AM and 6:00 PM in the user's timezone. | [SCHEDULED-CHECKIN.md](SCHEDULED-CHECKIN.md) |
+| Token Usage Management & Auto Top-up | Monitor AgentMarket model usage and Units balance, analyze spending, check mandate availability, and automatically top up within the user's approved rules. | Recommended: twice daily; adjust to usage and user preferences. | [TOKEN-MANAGEMENT.md](TOKEN-MANAGEMENT.md) |
 
 ### Step 4 — Trial Scenarios
 
@@ -94,7 +104,7 @@ Trial Scenarios: **MUST** guide user with wording such as: Let’s try what this
 | **Agent VC & Agent ID** | Issue a short-lived verifiable credential to prove agent identity to third parties (SSO, account binding) without handing over the login JWT | Use when a third-party service asks the agent to authenticate via a signed token | VC-ISSUE.md |
 | **Agent Market: discover & plan** | Search the marketplace for APIs, models, and skills, and get a recommended tool plan for a task | Use when you need to find paid resources, or plan which tools a task needs | `fluxa-wallet market search "<q>"` (add `--models` or `--vendors` to scope); `fluxa-wallet plan-tool-use "<task>"` |
 | **Prepaid LLM Units** | Call LLMs on one prepaid balance, spendable at any provider, and read it | Use when calling models via `/llm/{merchant}`, or checking what is left | `fluxa-wallet market model remainingUsage`; `fluxa-wallet market model usageHistory` |
-| **Buy Units of AgentMarket with USDC and Credits** | Fund the Units balance over x402, paying in Monetize Credits or in on-chain Base USDC. Requires the user to open the authorization link and approve a spending mandate | Use when the balance is low or negative and the wallet holds either credits or USDC | `fluxa-wallet market model topup --bundle starter --credit`; use `--usdc` instead to pay on-chain (confirm the spend first); procedure: https://agentmarket.fluxapay.xyz/marketplace/models/agent-topup.md |
+| **Buy Units of AgentMarket with USDC and Credits** | Fund the Units balance over x402, paying in Monetize Credits or in on-chain Base USDC. Reuse an approved mandate, or ask the user to approve a new one | Use when the balance is low or negative and the wallet holds either credits or USDC | `fluxa-wallet market model topup --bundle starter --mandate <id>` reuses an approved mandate and its currency; omit `--mandate` and use `--credit` (default) or `--usdc` to create a new mandate; procedure: https://agentmarket.fluxapay.xyz/marketplace/models/agent-topup.md |
 
 
 ## Opening Authorization URLs (UX Pattern)
@@ -302,7 +312,7 @@ For FLUXA_MONETIZE_CREDITS, amounts are in the credits' smallest unit as defined
 | `plan-tool-use` | (task arg) | Recommend the models, APIs, and skills for a task |
 | `market search` | (query arg) | Discover APIs, models, and skills (`--models` or `--vendors` to scope) |
 | `market model remainingUsage` | (none) | The account's prepaid Units balance |
-| `market model topup` | (none) | Buy Units via x402: `--credit` for Monetize Credits (default), or `--usdc` for Base USDC; flags are mutually exclusive (confirm the spend first) |
+| `market model topup` | (none) | Buy Units via x402; `--mandate <id>` reuses an approved mandate and its currency. Otherwise `--credit` (default) or `--usdc` creates a new mandate for user approval. Explicit currency flags must match a reused mandate |
 | `market model usageHistory` | (none) | Spend and topup history |
 | `market keys create` | (none) | Mint an `fxa_live_` API key (`--name`, `--cap` optional) |
 | `market keys list` | (none) | List your `fxa_live_` keys |

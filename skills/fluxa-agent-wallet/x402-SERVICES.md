@@ -114,9 +114,12 @@ fluxa-wallet market model remainingUsage
 # Spending history
 fluxa-wallet market model usageHistory
 
-# Top up (ONLY after explicit user confirmation)
+# Top up after user confirmation (creates a new mandate)
 fluxa-wallet market model topup --credit  # pays with Monetize Credits (default)
 fluxa-wallet market model topup --usdc    # pays with on-chain USDC on Base
+
+# Reuse a signed mandate within the user-approved scope
+fluxa-wallet market model topup --bundle starter --mandate mand_xxx
 ```
 
 Pick the tier with `--bundle <slug>`: `starter` (5 MC), `mid` (10), `pro` (25). Defaults to `starter`.
@@ -127,7 +130,14 @@ topup 402 offers that rail when the deployment accepts USDC. Either way it is
 the x402 rail, written out at
 `https://agentmarket.fluxapay.xyz/marketplace/models/agent-topup.md`.
 `--credit` and `--usdc` are mutually exclusive.
-**Always confirm a top-up with the user first.**
+With `--mandate`, the currency follows the mandate; explicit currency flags
+must match it. Invalid or insufficient mandates fail without creating another
+mandate. Without `--mandate`, the CLI creates a new mandate and waits for approval.
+
+**Confirm one-off top-ups with the user first.** Scheduled top-ups within the
+user's approved trigger, bundle, currency, and spending scope can reuse a signed
+mandate without repeated confirmation. Check usage history before retrying an
+uncertain payment; re-running the command creates a new order.
 
 Full credential setup, operations, top-up protocol, and error handling:
 
