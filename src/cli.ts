@@ -2774,7 +2774,7 @@ async function cmdMarketTopup(positionals: string[], options: Record<string, str
 
     // 1. initiate — answers HTTP 402 with the x402 challenge on success
     const init = await topupInitiate({ bundle: options.bundle });
-    console.error(`· order ${init.orderId}: $${init.costCredits} -> ${init.balanceToGrant.toFixed(2)} Balance`);
+    console.error(`· order ${init.orderId}: $${init.costCredits} -> $${init.balanceToGrant.toFixed(2)} Balance`);
 
     // 2. Reuse the supplied mandate or create one in the selected currency.
     // budget must cover the cost (credits unit = MC x 100)
@@ -2813,7 +2813,7 @@ async function cmdMarketTopup(positionals: string[], options: Record<string, str
     } else {
       const seconds = options.seconds ? Number(options.seconds) : 28800;
       const mc = await cmdMandateCreate({
-        desc: payWithUsdc ? `Top up ${init.balanceToGrant.toFixed(2)} AgentMarket Balance (paid in USDC)` : `Top up ${init.balanceToGrant.toFixed(2)} AgentMarket Balance`,
+        desc: payWithUsdc ? `Top up $${init.balanceToGrant.toFixed(2)} AgentMarket Balance (paid in USDC)` : `Top up $${init.balanceToGrant.toFixed(2)} AgentMarket Balance`,
         amount: String(budget),
         seconds: String(seconds),
         currency: mandateCurrency,
@@ -2856,7 +2856,7 @@ async function cmdMarketTopup(positionals: string[], options: Record<string, str
     await recordAudit({ event: 'market_topup', order_id: init.orderId, mandate_id: mandateId, balance_added: added, ...(payWithUsdc ? { rail: 'usdc' } : {}) });
     return {
       success: true,
-      raw: `+${added.toFixed(2)} Balance · balance ${after.toFixed(2)}`,
+      raw: `+$${added.toFixed(2)} Balance · balance $${after.toFixed(2)}`,
     };
   } catch (err: any) {
     return { success: false, error: err?.message || 'topup failed' };

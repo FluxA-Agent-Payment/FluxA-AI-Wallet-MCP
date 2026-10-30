@@ -60,7 +60,7 @@ const bal = (balance: unknown, units?: unknown): number =>
 const fmtBal = (v: number): string => {
   const a = Math.abs(v);
   const s = a.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: a < 1 ? 5 : 2 });
-  return (v < 0 ? '-' : '') + s;
+  return (v < 0 ? '-$' : '$') + s;
 };
 const perM = (v: unknown): string => (v == null ? '?' : `$${Number(Number(v).toPrecision(4))}`);
 // The planner brain occasionally HTML-escapes angle brackets in free text
