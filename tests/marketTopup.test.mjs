@@ -85,7 +85,7 @@ test('model topup reuses approved mandates without requesting another authorizat
         reset(currency);
         const result = await run('--bundle', 'starter', '--mandate', 'mand_test', ...(explicit ? [currency === 'USDC' ? '--usdc' : '--credit'] : []));
         assert.equal(result.code, 0, result.stdout + result.stderr);
-        assert.match(result.stdout, /500,000 Units/);
+        assert.match(result.stdout, /\+\$5\.00 Balance/);
         assert.equal(creations().length, 0);
         assert.equal(payments().length, 1);
         assert.equal(payments()[0].body.mandateId, 'mand_test');

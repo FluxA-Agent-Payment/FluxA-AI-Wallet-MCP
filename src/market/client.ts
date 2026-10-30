@@ -3,7 +3,7 @@
 //
 // Ported from the standalone planner CLI (cli/planner.mjs). These are the
 // consumer/agent-facing commands: discover resources, inspect model rates,
-// check prepaid Units balances, manage fxa_live_ API keys, and get tool-use
+// check the prepaid Balance, manage fxa_live_ API keys, and get tool-use
 // recommendations. Creator commands (`api *`) are NOT here — they belong to a
 // separate `monetize` CLI.
 //
@@ -52,6 +52,17 @@ const c = {
 const KIND: Record<string, string> = { model: c.cyan('model'), api: c.lime('api  '), skill: c.green('skill') };
 const pad = (s: any, n: number): string => { s = String(s); return s.length > n ? s.slice(0, n - 1) + '…' : s.padEnd(n); };
 const usd = (units: number): string => { const v = (units || 0) * UNIT_USD; return v < 0.01 ? `$${v.toFixed(4)}` : `$${v.toFixed(2)}`; };
+// AgentMarket amounts are in Balance ($1 = 1 Balance, up to 5 decimals).
+// Servers before the Balance fields shipped answer in Units only, so each read
+// takes the Balance field and falls back to converting the old Units one.
+const bal = (balance: unknown, units?: unknown): number =>
+  balance != null && Number.isFinite(Number(balance)) ? Number(balance) : Number(units || 0) * UNIT_USD;
+const fmtBal = (v: number): string => {
+  const a = Math.abs(v);
+  const s = a.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: a < 1 ? 5 : 2 });
+  return (v < 0 ? '-$' : '$') + s;
+};
+const perM = (v: unknown): string => (v == null ? '?' : `$${Number(Number(v).toPrecision(4))}`);
 // The planner brain occasionally HTML-escapes angle brackets in free text
 // (e.g. "&lt;merchant&gt;"); un-escape the common entities for terminal output.
 // &amp; is undone LAST so "&amp;lt;" doesn't collapse into "<".
@@ -172,8 +183,9 @@ async function cmdModels(vendor: string): Promise<string> {
   if (!models.length) return c.dim('  no models');
   const lines: string[] = [];
   for (const m of models) {
-    const inU = m.rates_units_per_mtok?.input_tokens, outU = m.rates_units_per_mtok?.output_tokens;
-    lines.push(`  ${c.bold(pad(`${m.provider}/${m.id}`, 32))} ${c.gray(pad(m.display_name || '', 26))} ${c.dim(`${inU ?? '?'}/${outU ?? '?'} Units/Mtok in/out`)}`);
+    // `rates` is dollars per 1M tokens, drawn from the Balance.
+    const inR = m.rates?.input_tokens, outR = m.rates?.output_tokens;
+    lines.push(`  ${c.bold(pad(`${m.provider}/${m.id}`, 32))} ${c.gray(pad(m.display_name || '', 26))} ${c.dim(`${perM(inR)}/${perM(outR)} per 1M in/out`)}`);
   }
   return lines.join('\n');
 }
@@ -183,18 +195,18 @@ async function cmdVendors(): Promise<string> {
   const vendors = data.vendors || [];
   if (!vendors.length) return c.dim('  no vendors');
   const lines: string[] = [];
-  lines.push('  ' + c.dim(pad('slug', 22) + pad('name', 22) + pad('models', 9) + pad('bundles', 9) + 'price (Units/Mtok)'));
+  lines.push('  ' + c.dim(pad('slug', 22) + pad('name', 22) + pad('models', 9) + pad('bundles', 9) + 'price ($/1M tokens)'));
   for (const v of vendors) {
     const pr = v.priceRange;
-    const price = pr && Number.isFinite(pr.min) ? (pr.min === pr.max ? `${pr.min}` : `${pr.min}-${pr.max}`) : c.dim('—');
+    const price = pr && Number.isFinite(pr.min) ? (pr.min === pr.max ? perM(pr.min) : `${perM(pr.min)}-${perM(pr.max)}`) : c.dim('—');
     lines.push(`  ${c.bold(pad(v.slug, 22))}${c.gray(pad(v.name || '', 22))}${pad(String(v.modelCount ?? 0), 9)}${pad(String(v.bundleCount ?? 0), 9)}${price}`);
   }
   return lines.join('\n');
 }
 
-// --- commands: prepaid Units -------------------------------------------------
+// --- commands: prepaid Balance -----------------------------------------------
 /**
- * Units are ONE balance per account, spendable at any provider.
+ * The Balance is ONE per account, spendable at any provider.
  *
  * This took a vendor and printed a merchant column, from when balances were
  * per vendor. They are not, and the server stopped pretending: it now answers
@@ -204,12 +216,16 @@ async function cmdVendors(): Promise<string> {
 async function cmdRemainingUsage(): Promise<string> {
   const { data } = await http(`${PROXY}/llm/wallet/balances`, { auth: true });
   const a = data.balance ?? (data.accounts || [])[0];
-  if (!a) return c.dim('  no Units yet — `fluxa-wallet market model topup` to start');
-  const low = a.balance < (a.burn7dPerDay || 0) * 3;
-  const status = a.balance < 0 ? c.red('owed ' + usd(-a.balance)) : low ? c.red('low') : c.green('ok');
+  if (!a) return c.dim('  no Balance yet — `fluxa-wallet market model topup` to start');
+  const available = bal(a.available, a.balance);
+  const burn = bal(a.burnPerDay, a.burn7dPerDay);
+  const owed = bal(a.owed, a.pendingSettlement);
+  const low = available < burn * 3;
+  const status = owed > 0 ? c.red('owed ' + fmtBal(owed)) : low ? c.red('low') : c.green('ok');
   return [
-    '  ' + c.dim(pad('balance', 18) + pad('≈ USD', 12) + pad('7d/day', 12) + 'status'),
-    `  ${pad((a.balance ?? 0).toLocaleString() + ' Units', 18)}${pad(usd(a.balance), 12)}${pad((a.burn7dPerDay ?? 0).toLocaleString(), 12)}${status}`,
+    '  ' + c.dim(pad('balance', 18) + pad('spent/day (7d)', 16) + 'status'),
+    `  ${pad(fmtBal(available), 18)}${pad(fmtBal(burn), 16)}${status}`,
+    c.dim('  $1 = 1 Balance'),
   ].join('\n');
 }
 
@@ -220,16 +236,32 @@ async function cmdUsageHistory(): Promise<string> {
   const entries = data.entries || [];
   if (!entries.length) return c.dim('  no ledger entries yet');
   const lines: string[] = [];
-  lines.push('  ' + c.dim(pad('when', 22) + pad('type', 12) + pad('amount', 14) + 'balance after'));
+  lines.push('  ' + c.dim(pad('when', 22) + pad('type', 12) + pad('change', 14) + 'balance after'));
   for (const e of entries) {
-    const amt = (e.amount > 0 ? c.green('+') : c.red('')) + e.amount.toLocaleString();
-    lines.push(`  ${pad(new Date(e.ts).toISOString().replace('T', ' ').slice(0, 19), 22)}${pad(e.type, 12)}${pad(amt, 14 + (tty ? 9 : 0))}${(e.balanceAfter ?? '').toLocaleString()}`);
+    const change = bal(e.change, e.amount);
+    const amt = (change > 0 ? c.green('+') : c.red('')) + fmtBal(change);
+    lines.push(`  ${pad(new Date(e.ts).toISOString().replace('T', ' ').slice(0, 19), 22)}${pad(e.type, 12)}${pad(amt, 14 + (tty ? 9 : 0))}${fmtBal(bal(e.balanceRemaining, e.balanceAfter))}`);
   }
   return lines.join('\n');
 }
 
 // --- commands: API key management (Agent-VC only) ---------------------------
-const capLabel = (mc: number | null | undefined) => (mc == null || mc <= 0 ? c.dim('uncapped') : `${mc} MC`);
+// Key limits are in Balance (`spendLimit`, `spent`). The old fields were in
+// Units, and this used to print them as MC, so a "50 MC" key really had a
+// $0.0005 limit.
+const limitOf = (k: any): number | null => {
+  const v = k.spendLimit !== undefined ? k.spendLimit : k.spendCapCredits == null ? null : Number(k.spendCapCredits) * UNIT_USD;
+  return v == null || v <= 0 ? null : Number(v);
+};
+const limitLabel = (v: number | null) => (v == null ? c.dim('no limit') : fmtBal(v));
+/** --limit <Balance>; --cap is the old name, same unit ($1 = 1 Balance). */
+const limitBody = (opts: { limit?: string; cap?: string }): Record<string, number> | null => {
+  const raw = opts.limit ?? opts.cap;
+  if (raw == null) return null;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) die('--limit must be a number of Balance ($1 = 1), or 0 for no limit');
+  return { spendLimit: n };
+};
 
 async function keysList(): Promise<string> {
   const { data } = await http(`${PROXY}/llm/keys`, { auth: 'vc' });
@@ -237,35 +269,35 @@ async function keysList(): Promise<string> {
   if (!keys.length) return c.dim('  no API keys yet — `fluxa-wallet market keys create` to mint one');
   const lines: string[] = [];
   // ids are full UUIDs (never truncated — you need them for update/revoke)
-  lines.push('  ' + c.dim(pad('id', 38) + pad('name', 16) + pad('prefix', 16) + pad('cap', 11) + pad('spent', 11) + 'status'));
+  lines.push('  ' + c.dim(pad('id', 38) + pad('name', 16) + pad('prefix', 16) + pad('limit', 11) + pad('spent', 11) + 'status'));
   for (const k of keys) {
     const status = k.revokedAt ? c.red('revoked') : c.green('active');
-    lines.push(`  ${pad(k.id, 38)}${pad(k.name || '—', 16)}${pad(k.keyPrefix || '', 16)}${pad(capLabel(k.spendCapCredits), 11)}${pad((k.spentCredits ?? 0) + ' MC', 11)}${status}`);
+    lines.push(`  ${pad(k.id, 38)}${pad(k.name || '—', 16)}${pad(k.keyPrefix || '', 16)}${pad(limitLabel(limitOf(k)), 11)}${pad(fmtBal(bal(k.spent, k.spentCredits)), 11)}${status}`);
   }
   return lines.join('\n');
 }
 
-async function keysCreate(opts: { name?: string; cap?: string }): Promise<string> {
+async function keysCreate(opts: { name?: string; limit?: string; cap?: string }): Promise<string> {
   const body: any = {};
   if (opts.name) body.name = opts.name;
-  if (opts.cap != null) body.spendCapCredits = Number(opts.cap);
+  Object.assign(body, limitBody(opts));
   const { data } = await http(`${PROXY}/llm/keys`, { method: 'POST', auth: 'vc', body });
   const lines: string[] = [];
-  lines.push(c.green('✓') + ` created key ${c.bold(data.name || data.id)} · cap ${capLabel(data.spendCapCredits)}`);
+  lines.push(c.green('✓') + ` created key ${c.bold(data.name || data.id)} · limit ${limitLabel(limitOf(data))}`);
   lines.push(c.dim(`  id: ${data.id}   ${c.dim('(use it to update/revoke)')}`));
   lines.push(`\n  ${c.bold('raw key — shown once, store it now:')}\n  ${c.lime(data.rawKey)}\n`);
   lines.push(c.dim('  use it:  export FLUXA_KEY=' + data.rawKey));
   return lines.join('\n');
 }
 
-async function keysUpdate(id: string, opts: { name?: string; cap?: string }): Promise<string> {
-  if (!id) die('usage: fluxa-wallet market keys update <id> [--name <n>] [--cap <MC>]');
+async function keysUpdate(id: string, opts: { name?: string; limit?: string; cap?: string }): Promise<string> {
+  if (!id) die('usage: fluxa-wallet market keys update <id> [--name <n>] [--limit <Balance>]');
   const body: any = {};
   if (opts.name != null) body.name = opts.name;
-  if (opts.cap != null) body.spendCapCredits = Number(opts.cap); // --cap 0 clears the cap
-  if (!Object.keys(body).length) die('nothing to update — pass --name and/or --cap');
+  Object.assign(body, limitBody(opts)); // --limit 0 clears the limit
+  if (!Object.keys(body).length) die('nothing to update — pass --name and/or --limit');
   const { data } = await http(`${PROXY}/llm/keys/${id}`, { method: 'PATCH', auth: 'vc', body });
-  return c.green('✓') + ` updated ${c.bold(data.name || data.id)} · cap ${capLabel(data.spendCapCredits)}`;
+  return c.green('✓') + ` updated ${c.bold(data.name || data.id)} · limit ${limitLabel(limitOf(data))}`;
 }
 
 async function keysRevoke(id: string): Promise<string> {
@@ -332,8 +364,8 @@ ${c.bold('market')} ${c.dim('— what you\'re working with')}
     ${KIND.skill}  Skills        — packaged multi-step routines
 
   ${c.bold('Money')}
-    1 Unit = $0.00001 · 100,000 Units = $1 = 1 Monetize Credit (MC)
-    One ${c.bold('account-wide')} prepaid Units balance is shared across providers. ${c.cyan('fluxa-wallet market model topup --bundle starter')} to prefund.
+    $1 = 1 Balance
+    One ${c.bold('account-wide')} prepaid Balance is shared across providers. ${c.cyan('fluxa-wallet market model topup --bundle starter')} to prefund.
 
   ${c.bold('Auth')}  an ${c.dim('fxa_live_')} key OR an auto-minted agent VC from your wallet identity.
   ${c.bold('Bases')} platform ${c.dim(new URL(PLATFORM).host)} · proxy ${c.dim(new URL(PROXY).host)}
@@ -355,10 +387,10 @@ ${c.bold('market')} ${c.dim('— what you\'re working with')}
 
   ${c.bold('API keys')} (Agent VC required)
     ${c.cyan('market keys list')}                           list keys (alias: ${c.cyan('market keys')})
-    ${c.cyan('market keys create [--name <n>] [--cap <MC>]')} mint a key; raw key shown once
-    ${c.cyan('market keys update <id> [--name <n>] [--cap <MC>]')} change name or spend cap
+    ${c.cyan('market keys create [--name <n>] [--limit <Balance>]')} mint a key; raw key shown once
+    ${c.cyan('market keys update <id> [--name <n>] [--limit <Balance>]')} change name or spending limit
     ${c.cyan('market keys revoke <id>')}                    revoke a key immediately
-      --cap 0 clears the cap
+      --limit 0 clears the limit
 
   ${c.bold('Token Plans')}
     ${c.cyan('market tokenplan buy <plan>')}                 create a USDC checkout link
@@ -378,13 +410,13 @@ ${c.bold('market')} ${c.dim('— what you\'re working with')}
   Topics: ${c.dim(Object.keys(INFO).join(', '))}
   Command options: ${c.cyan('fluxa-wallet market <command> --help')}
 `,
-  units: () => `
-${c.bold('Units & credits')}
-  1 Unit = $0.00001 (USD).  100,000 Units = $1 = 1 Monetize Credit (MC).
-  · Per-call API/skill prices are quoted in USD; model rates in Units per 1M tokens.
-  · Your prepaid Units balance is ${c.bold('shared across providers')}.
-  · Topups use fixed bundles: ${c.cyan('--bundle starter|mid|pro')} (default: starter).
-  · Use ${c.cyan('--credit')} (default) for Monetize Credits or ${c.cyan('--usdc')} for Base USDC; 1 MC grants 100,000 Units.
+  balance: () => `
+${c.bold('Balance')}
+  $1 = 1 Balance, whether you pay from the FluxA wallet or in USDC.
+  · API prices and model rates are in dollars (model rates per 1M tokens), paid from the Balance.
+  · Your Balance is ${c.bold('shared across providers')}.
+  · Topups use fixed bundles: ${c.cyan('--bundle mini|starter|mid|pro')} (default: starter).
+  · Use ${c.cyan('--credit')} (default) to pay from the FluxA wallet's balance or ${c.cyan('--usdc')} for Base USDC.
 `,
   auth: () => `
 ${c.bold('Auth')}
@@ -401,10 +433,10 @@ ${c.bold('API keys — programmatic management')} ${c.dim('(Agent VC only)')}
   to a sub-process without you minting one by hand. ${c.bold('Requires an Agent VC')} — a metered
   fxa_live_ key is refused (it must not mint uncapped siblings or revoke others).
     ${c.cyan('fluxa-wallet market keys list')}                           list your keys (alias: market keys; prefixes only)
-    ${c.cyan('fluxa-wallet market keys create --name <n> --cap <MC>')}   mint one; raw key shown ONCE
-    ${c.cyan('fluxa-wallet market keys update <id> --cap <MC>')}         change name / spend cap (${c.dim('--cap 0')} clears)
+    ${c.cyan('fluxa-wallet market keys create --name <n> --limit <Balance>')}   mint one; raw key shown ONCE
+    ${c.cyan('fluxa-wallet market keys update <id> --limit <Balance>')}         change name / limit (${c.dim('--limit 0')} clears)
     ${c.cyan('fluxa-wallet market keys revoke <id>')}                    revoke (immediate, irreversible)
-  Spend caps (in MC) gate metered LLM usage on that key only. To rotate: create
+  Spend limits (in Balance) gate metered LLM usage on that key only. To rotate: create
   the new key, hand it off, ${c.bold('then')} revoke the old — never leave zero working keys.
 `,
   pay: () => `
@@ -463,7 +495,8 @@ ${c.bold('Skills')}
 };
 
 function cmdInfo(topic?: string): string {
-  const key = (topic || 'overview').toLowerCase();
+  // "units" was this topic's name before AgentMarket showed amounts as Balance.
+  const key = (topic || 'overview').toLowerCase().replace(/^units$/, 'balance');
   const render = INFO[key];
   if (!render) {
     die(`unknown topic: ${topic}\n  topics: ${Object.keys(INFO).filter((k) => k !== 'overview').join(', ')}`);
@@ -475,16 +508,17 @@ function cmdInfo(topic?: string): string {
 // The two marketplace-proxy calls of the topup flow. The money-moving middle
 // (mandate signing + x402-v3) is orchestrated by the wallet CLI in-process
 // using its own proven primitives; these helpers only talk to the proxy.
-// The Units catalogue, universal across merchants. Used for the default and
+// The Balance bundles, universal across merchants. Used for the default and
 // for the error hint; the server is the authority and 404s an unknown slug.
-export const TOPUP_BUNDLES = ['starter', 'mid', 'pro'] as const;
+export const TOPUP_BUNDLES = ['mini', 'starter', 'mid', 'pro'] as const;
 export const DEFAULT_BUNDLE = 'starter';
 
 export interface TopupChallenge {
   orderId: string;
   resource: string;
   costCredits: number;
-  creditsToGrant: number;
+  /** Balance the order grants ($1 = 1 Balance). */
+  balanceToGrant: number;
   rawBody: string;
 }
 
@@ -515,11 +549,11 @@ export async function topupInitiate(opts: { bundle?: string } = {}): Promise<Top
   if (res.status !== 402) die(`topup initiate ${res.status} — ${text.slice(0, 200)}`);
   let ch: any; try { ch = JSON.parse(text); } catch { die('topup initiate did not return JSON'); }
   if (!ch.resource || !ch.orderId) die('topup initiate missing orderId/resource');
-  return { orderId: ch.orderId, resource: ch.resource, costCredits: ch.costCredits, creditsToGrant: ch.creditsToGrant, rawBody: text };
+  return { orderId: ch.orderId, resource: ch.resource, costCredits: ch.costCredits, balanceToGrant: bal(ch.balanceToGrant, ch.creditsToGrant), rawBody: text };
 }
 
 // POST the finalize resource URL with the signed X-Payment token (no bearer).
-export async function topupFinalize(resourceUrl: string, xPayment: string): Promise<{ creditsAdded?: number; balance?: number }> {
+export async function topupFinalize(resourceUrl: string, xPayment: string): Promise<{ added?: number; balanceRemaining?: number; creditsAdded?: number; balance?: number }> {
   let res: Response;
   try {
     res = await fetch(resourceUrl, { method: 'POST', headers: { accept: 'application/json', 'X-Payment': xPayment } });
@@ -680,7 +714,7 @@ async function cmdTokenplanOrder(orderId: string): Promise<string> {
         : `  seat     ${c.dim(`${data.plan.seatStatus ?? 'pending'}, step ${data.plan.provisioningStep}/4`)}`,
     );
   } else if (data.status === 'settled') {
-    lines.push(`  units    +${Number(data.creditsToGrant).toLocaleString()}  balance ${Number(data.balance).toLocaleString()}`);
+    lines.push(`  balance  +${fmtBal(bal(data.balanceToGrant, data.creditsToGrant))}`);
   }
   return lines.join('\n');
 }
@@ -714,10 +748,10 @@ export async function runMarketCommand(
         raw = await keysList();
         break;
       case 'market keys create':
-        raw = await keysCreate({ name: options.name, cap: options.cap });
+        raw = await keysCreate({ name: options.name, limit: options.limit, cap: options.cap });
         break;
       case 'market keys update':
-        raw = await keysUpdate(positionals[0], { name: options.name, cap: options.cap });
+        raw = await keysUpdate(positionals[0], { name: options.name, limit: options.limit, cap: options.cap });
         break;
       case 'market keys revoke':
         raw = await keysRevoke(positionals[0]);

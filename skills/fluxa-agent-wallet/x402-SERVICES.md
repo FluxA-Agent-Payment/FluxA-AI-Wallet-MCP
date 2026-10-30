@@ -75,17 +75,16 @@ Returns a `models[]` array. Each entry:
 | `id` | Model ID to pass as `"model"` (e.g. `anthropic/claude-opus-4.6`, `openai/gpt-5.5`, `deepseek-v4-flash`) |
 | `displayName` | Human-readable name |
 | `categories` | `text`, `thinking` |
-| `inputUnitsPer1M` / `outputUnitsPer1M` | Price in **Units per 1M tokens** |
+| `inputPer1M` / `outputPer1M` | Price in **dollars per 1M tokens**, paid from the Balance |
 | `urls.merchantGuide` | Per-provider integration guide (`.../models/<provider>/skills.md`) |
 
 Some providers front many models behind one endpoint, so a single `provider` can serve models from several vendors (Claude, GPT, Gemini, DeepSeek, and more).
 
-## Pricing Units
+## Pricing
 
-Model pricing is denominated in **Units** (a.k.a. FLUXA_MONETIZE_CREDITS), **not** raw USDC:
+Model prices are in dollars per 1M tokens, paid from the AgentMarket **Balance** ($1 = 1 Balance; topped up from the FluxA wallet, in USDC or by card).
 
-- `1 Unit = $0.00001` → `100,000 Units = $1`
-- Example: Claude Sonnet 4.6 at `300,000` input / `1,500,000` output Units per 1M tokens = **$3 in / $15 out** per 1M tokens.
+- Example: Claude Sonnet 4.6 at `3` input / `15` output = **$3 in / $15 out** per 1M tokens.
 
 ## Calling a Model
 
@@ -101,11 +100,11 @@ curl -X POST https://router.fluxapay.xyz/llm/<provider>/v1/chat/completions \
 ```
 
 - `<credential>` = an `fxa_live_` key (mint one with `fluxa-wallet market keys create`), or an **Agent VC** for agents (see [VC-ISSUE.md](VC-ISSUE.md)).
-- Non-streaming responses return `X-LLM-Cost-Credits` (Units charged) and `X-LLM-Balance` (Units remaining) headers. Streaming calls are metered after the stream closes (no headers).
+- Non-streaming responses return `X-LLM-Cost` (what the call cost) and `X-LLM-Balance-Remaining` headers, both in Balance. Streaming calls are metered after the stream closes (no headers).
 
-## Billing Model (prepaid Units, not per-call x402)
+## Billing Model (prepaid Balance, not per-call x402)
 
-Unlike a Bazaar endpoint (one x402 signature per call), the model endpoint meters against a **prepaid Units balance**. Calls succeed until unsettled debt crosses a threshold, at which point the **next call returns HTTP 402** — then settle or top up.
+Unlike a Bazaar endpoint (one x402 signature per call), the model endpoint meters against the **prepaid Balance**. Calls succeed until unsettled debt crosses a threshold, at which point the **next call returns HTTP 402** — then settle or top up.
 
 ```bash
 # Balance

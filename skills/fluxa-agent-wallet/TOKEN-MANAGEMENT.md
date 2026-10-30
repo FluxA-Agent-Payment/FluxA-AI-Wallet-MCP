@@ -11,7 +11,7 @@ Recommend checking twice daily in the user's timezone.
   Wallet CLI provided by the FluxA Wallet skill.
 - **Other platforms:** OpenRouter and other platforms are not yet supported.
 
-This task manages prepaid model Units, not monthly Token Plans.
+This task manages the prepaid AgentMarket Balance, not monthly Token Plans.
 
 ## 2. First Run
 
@@ -43,10 +43,10 @@ This task manages prepaid model Units, not monthly Token Plans.
 
 ### Balance and Auto Top-up
 
-- Check the AgentMarket Units balance with
+- Check the AgentMarket Balance with
   `fluxa-wallet market model remainingUsage`.
-- Convert Units into USD using the current official conversion rate.
-  Units are model consumption credits, not token counts or wallet USDC.
+- $1 = 1 Balance. The Balance is prepaid model and API spend, not token
+  counts or wallet USDC.
 - If the balance is below the approved minimum, purchase the configured
   top-up bundle using the user's authorized mandate:
   `fluxa-wallet market model topup --bundle <bundle> --mandate <id>`.
@@ -80,20 +80,19 @@ This task manages prepaid model Units, not monthly Token Plans.
 - Review named keys and report usage since the last check by business or
   function: key name, models used, input/output token counts, and USD cost.
   Break out each model when a business uses more than one.
-- Read the [AgentMarket Units Wallet Guide](https://agentmarket.fluxapay.xyz/api/llm/skills.md).
+- Read the [AgentMarket Balance Guide](https://agentmarket.fluxapay.xyz/api/llm/skills.md).
   With an Agent VC, query `GET https://router.fluxapay.xyz/llm/keys` for key
   IDs and names, and `GET https://router.fluxapay.xyz/llm/wallet/ledger?kind=spend&limit=100&offset=0`
   for raw usage records. Page through the reporting period using `offset` and
   `total`; group metering entries by `metadata.api_key_id` and `metadata.model`,
-  then map key IDs to businesses. Read tokens from `metadata.usage` and charged
-  Units from the metering entry's negative `amount` or `metadata.cost_breakdown.cost_credits`.
+  then map key IDs to businesses. Read tokens from `metadata.usage` and the charged
+  amount from the metering entry's negative `change` (in Balance, $1 = 1 Balance).
 - Keep cache usage separate and do not double-count reasoning tokens already
   included in output tokens. Settlements and adjustments are not new model calls.
   Records without a key ID must remain separately attributed, for example to
   `metadata.agent_id`; mark missing metadata or partial coverage explicitly.
 - The CLI's `usageHistory` omits this metadata. Use the raw API for this report.
-  Despite their names, key API fields `spentCredits` and `spendCapCredits` are
-  Units, not MC; convert them using the official Units-to-USD rate.
+  Key API fields `spent` and `spendLimit` are in Balance ($1 = 1 Balance).
 
 ### Token Usage Optimization
 
@@ -103,7 +102,7 @@ This task manages prepaid model Units, not monthly Token Plans.
   DeepSeek model instead of a more expensive Claude model; verify the specific
   models' capabilities and current prices rather than assuming by brand.
 - Check current AgentMarket rates with `fluxa-wallet market search --models`.
-  Convert the quoted Units rates into USD using the current conversion rate.
+  Rates are quoted in dollars per 1M tokens.
   For each recommendation, compare costs for the same observed workload:
   `estimated cost = input tokens / 1M × input USD rate + output tokens / 1M × output USD rate`.
   Account for caching and other billed usage when available. Show current cost,
