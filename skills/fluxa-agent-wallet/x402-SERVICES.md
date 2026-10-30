@@ -82,7 +82,7 @@ Some providers front many models behind one endpoint, so a single `provider` can
 
 ## Pricing
 
-Model prices are in dollars per 1M tokens, paid from the AgentMarket **Balance** ($1 = 1 Balance; topped up with Monetize Credits, USDC or a card).
+Model prices are in dollars per 1M tokens, paid from the AgentMarket **Balance** ($1 = 1 Balance; topped up from the FluxA wallet, in USDC or by card).
 
 - Example: Claude Sonnet 4.6 at `3` input / `15` output = **$3 in / $15 out** per 1M tokens.
 

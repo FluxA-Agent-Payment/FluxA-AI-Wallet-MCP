@@ -570,19 +570,19 @@ The account's prepaid Balance ($1 = 1 Balance). One Balance, spendable at any pr
 
   'market model topup': `Usage: fluxa-wallet market model topup [--bundle <slug>] [--credit | --usdc] [--mandate <id>]
 
-Tops up the Balance with Monetize Credits (--credit, default) or on-chain Base USDC
-(--usdc). With --mandate, reuses that signed mandate without creating another
+Tops up the Balance from the FluxA wallet's balance (--credit, default) or in
+on-chain Base USDC (--usdc). With --mandate, reuses that signed mandate without creating another
 or waiting for approval. Otherwise creates a mandate and waits for the user
 to approve it. Only spend within the user-approved scope.
 
 Options:
-  --bundle <slug>     which tier to buy: mini (1 MC), starter (5), mid (10),
-                      pro (25). Defaults to starter. Balance is sold as bundles on every
+  --bundle <slug>     which tier to buy: mini ($1), starter ($5), mid ($10),
+                      pro ($25). Defaults to starter. Balance is sold as bundles on every
                       rail, so there is no arbitrary amount to name.
-  --credit            pay with Monetize Credits (signs a FLUXA_MONETIZE_CREDITS
-                      mandate). Default when no currency or mandate is given.
-  --usdc              pay the challenge's on-chain Base USDC accept instead of
-                      Monetize Credits (signs a USDC mandate). Errors if this
+  --credit            pay from the FluxA wallet's balance (signs a
+                      FLUXA_MONETIZE_CREDITS mandate). Default when no currency or mandate is given.
+  --usdc              pay the challenge's on-chain Base USDC accept instead of the
+                      wallet's balance (signs a USDC mandate). Errors if this
                       deployment does not offer USDC topups.
 
   --mandate <id>      reuse an existing signed mandate. Without a currency flag,
@@ -597,8 +597,8 @@ Options:
 
 Example: fluxa-wallet market model topup --bundle starter --mandate mand_xxx
 
-This command is the x402 rail, and it carries two currencies: Monetize Credits
-(--credit, the default) and on-chain Base USDC (--usdc). Full procedure:
+This command is the x402 rail, and it pays two ways: from the FluxA wallet's
+balance (--credit, the default) or in on-chain Base USDC (--usdc). Full procedure:
 https://agentmarket.fluxapay.xyz/marketplace/models/agent-topup.md`,
 
   'market model usageHistory': `Usage: fluxa-wallet market model usageHistory
@@ -2727,7 +2727,7 @@ async function cmdMarketTopup(positionals: string[], options: Record<string, str
   if (options.credits !== undefined) {
     return {
       success: false,
-      error: `--credits <amount> is no longer supported: Balance is sold as bundles (${TOPUP_BUNDLES.join(' | ')}). Use --bundle <slug> and --credit to pay with Monetize Credits.`,
+      error: `--credits <amount> is no longer supported: Balance is sold as bundles (${TOPUP_BUNDLES.join(' | ')}). Use --bundle <slug> (add --credit or --usdc to choose how to pay).`,
     };
   }
   if (options.credit !== undefined && options.usdc !== undefined) {
@@ -2774,7 +2774,7 @@ async function cmdMarketTopup(positionals: string[], options: Record<string, str
 
     // 1. initiate — answers HTTP 402 with the x402 challenge on success
     const init = await topupInitiate({ bundle: options.bundle });
-    console.error(`· order ${init.orderId}: ${init.costCredits} Monetize Credits -> ${init.balanceToGrant.toFixed(2)} Balance`);
+    console.error(`· order ${init.orderId}: $${init.costCredits} -> ${init.balanceToGrant.toFixed(2)} Balance`);
 
     // 2. Reuse the supplied mandate or create one in the selected currency.
     // budget must cover the cost (credits unit = MC x 100)
@@ -2789,7 +2789,7 @@ async function cmdMarketTopup(positionals: string[], options: Record<string, str
         getCurrencyFromAsset(a.asset || DEFAULT_ASSET, a.network || DEFAULT_NETWORK) === 'USDC'
       );
       if (!usdcAccept) {
-        return { success: false, error: 'this deployment does not offer USDC topups (no "base" accept in the 402) — use --credit instead of --usdc to pay with Monetize Credits.' };
+        return { success: false, error: 'this deployment does not offer USDC topups (no "base" accept in the 402) — use --credit instead of --usdc to pay from the FluxA wallet balance.' };
       }
       mandateCurrency = 'USDC';
       // USDC budget is in 6-decimal atomic units, straight from the accept.

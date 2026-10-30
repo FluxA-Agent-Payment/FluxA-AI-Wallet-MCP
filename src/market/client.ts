@@ -254,7 +254,7 @@ const limitOf = (k: any): number | null => {
   return v == null || v <= 0 ? null : Number(v);
 };
 const limitLabel = (v: number | null) => (v == null ? c.dim('no limit') : fmtBal(v));
-/** --limit <Balance>; --cap is the old name, documented in MC ($1 = 1 MC = 1 Balance). */
+/** --limit <Balance>; --cap is the old name, same unit ($1 = 1 Balance). */
 const limitBody = (opts: { limit?: string; cap?: string }): Record<string, number> | null => {
   const raw = opts.limit ?? opts.cap;
   if (raw == null) return null;
@@ -364,8 +364,8 @@ ${c.bold('market')} ${c.dim('— what you\'re working with')}
     ${KIND.skill}  Skills        — packaged multi-step routines
 
   ${c.bold('Money')}
-    1 Unit = $0.00001 · 100,000 Units = $1 = 1 Monetize Credit (MC)
-    One ${c.bold('account-wide')} prepaid Units balance is shared across providers. ${c.cyan('fluxa-wallet market model topup --bundle starter')} to prefund.
+    $1 = 1 Balance
+    One ${c.bold('account-wide')} prepaid Balance is shared across providers. ${c.cyan('fluxa-wallet market model topup --bundle starter')} to prefund.
 
   ${c.bold('Auth')}  an ${c.dim('fxa_live_')} key OR an auto-minted agent VC from your wallet identity.
   ${c.bold('Bases')} platform ${c.dim(new URL(PLATFORM).host)} · proxy ${c.dim(new URL(PROXY).host)}
@@ -412,11 +412,11 @@ ${c.bold('market')} ${c.dim('— what you\'re working with')}
 `,
   balance: () => `
 ${c.bold('Balance')}
-  $1 = 1 Balance. 1 Monetize Credit (MC) or 1 USDC buys 1 Balance.
+  $1 = 1 Balance, whether you pay from the FluxA wallet or in USDC.
   · API prices and model rates are in dollars (model rates per 1M tokens), paid from the Balance.
   · Your Balance is ${c.bold('shared across providers')}.
   · Topups use fixed bundles: ${c.cyan('--bundle mini|starter|mid|pro')} (default: starter).
-  · Use ${c.cyan('--credit')} (default) for Monetize Credits or ${c.cyan('--usdc')} for Base USDC.
+  · Use ${c.cyan('--credit')} (default) to pay from the FluxA wallet's balance or ${c.cyan('--usdc')} for Base USDC.
 `,
   auth: () => `
 ${c.bold('Auth')}
@@ -436,7 +436,7 @@ ${c.bold('API keys — programmatic management')} ${c.dim('(Agent VC only)')}
     ${c.cyan('fluxa-wallet market keys create --name <n> --limit <Balance>')}   mint one; raw key shown ONCE
     ${c.cyan('fluxa-wallet market keys update <id> --limit <Balance>')}         change name / limit (${c.dim('--limit 0')} clears)
     ${c.cyan('fluxa-wallet market keys revoke <id>')}                    revoke (immediate, irreversible)
-  Spend caps (in MC) gate metered LLM usage on that key only. To rotate: create
+  Spend limits (in Balance) gate metered LLM usage on that key only. To rotate: create
   the new key, hand it off, ${c.bold('then')} revoke the old — never leave zero working keys.
 `,
   pay: () => `
