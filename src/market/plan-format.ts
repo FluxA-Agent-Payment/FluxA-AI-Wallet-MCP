@@ -36,7 +36,7 @@ export function planLines(plan: any, h: PlanHelpers): { lines: string[]; total: 
         const k = h.kind(o.kind);
         const tag = o === lead ? '  ' + h.lime('recommended') : '';
         lines.push(
-          `    ${k}  ${h.bold(h.pad(o.slug, 34))} ${h.dim(h.pad(h.unesc(o.detail || ''), 24))} ${h.lime('~' + (o.units || 0).toLocaleString() + ' Units')}${tag}`,
+          `    ${k}  ${h.bold(h.pad(o.slug, 34))} ${h.dim(h.pad(h.unesc(o.detail || ''), 24))} ${h.lime('~' + h.usd(o.units || 0))}${tag}`,
         );
       }
     }
@@ -45,13 +45,13 @@ export function planLines(plan: any, h: PlanHelpers): { lines: string[]; total: 
       total += t.units || 0;
       const k = h.kind(t.kind);
       lines.push(
-        `    ${k}  ${h.bold(h.pad(t.slug, 36))} ${h.dim(h.pad(h.unesc(t.detail || ''), 30))} ${h.lime('~' + (t.units || 0).toLocaleString() + ' Units')}`,
+        `    ${k}  ${h.bold(h.pad(t.slug, 36))} ${h.dim(h.pad(h.unesc(t.detail || ''), 30))} ${h.lime('~' + h.usd(t.units || 0))}`,
       );
     }
   }
 
   lines.push(h.gray('    ' + '─'.repeat(78)));
-  lines.push(`    ${h.bold('est')} ${h.lime('~' + total.toLocaleString() + ' Units')} ${h.dim('(~' + h.usd(total) + ')')}`);
+  lines.push(`    ${h.bold('est')} ${h.lime('~' + h.usd(total))}`);
   if (plan.instructions) {
     lines.push('');
     lines.push('  ' + h.dim(h.unesc(plan.instructions)));
