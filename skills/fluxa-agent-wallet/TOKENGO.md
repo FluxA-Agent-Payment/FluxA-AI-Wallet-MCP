@@ -7,13 +7,16 @@ commands and signed mandates continue to control all payments.
 
 ## Connect the user's agent
 
-- Wallet entry: https://agentwallet.fluxapay.xyz/?tab=tokengo (TokenGo UI rollout
-  may still be in preview).
+- Wallet dev entry: https://agentwallet.fluxapay-qa.xyz/?tab=tokengo .
+  TokenGo is initially released to wallet dev; the production-wallet UI is not
+  released yet. Wallet dev intentionally uses TokenGo production, with its own
+  owner namespace.
 - Service: https://tokengo-production-04a9.up.railway.app
 - Read the live [TokenGo Skill](https://tokengo-production-04a9.up.railway.app/skill.md)
   and [API reference](https://tokengo-production-04a9.up.railway.app/api-reference.md)
   before registering data. Use the service URL from the user's handoff when
-  operating a different environment; do not mix staging and production.
+  operating a different deployment; use only its explicitly configured wallet
+  app identities.
 
 The wallet handoff contains a one-use, 15-minute pairing code. Pairing lets this
 agent read and maintain the owner's TokenGo records, and the owner can disconnect
