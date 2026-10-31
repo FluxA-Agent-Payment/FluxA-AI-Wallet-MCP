@@ -6,7 +6,7 @@ description: >-
 
 # FluxA Agent Wallet
 
-**Skill version: 0.5.3** | **CLI version: @fluxa-pay/fluxa-wallet@0.5.3 or newer** — **MUST** install or update to the latest CLI version before use.
+**Skill version: 0.5.4** | **CLI version: @fluxa-pay/fluxa-wallet@0.5.3 or newer** — **MUST** install or update to the latest CLI version before use.
 
 FluxA Agent Wallet is a co-wallet that allows AI agents to securely use a user’s wallet, enabling them to perform payment-related actions within the user’s approved scope. Capabilities include x402 payments, USDC transfers, agent-to-agent transfers, payment links for receiving payments, prepaid virtual cards, AI social gifting, discovering and calling x402 resources (one-shot APIs), and using payment-related skills (one-shot skills). Use this tool when the user the user asks to perform any of these payment-related actions.
 
@@ -70,6 +70,10 @@ recurring wallet workflows. Reuse an existing task when one is already configure
 **Token usage management is one of FluxA's flagship use cases.** If the user wants
 their agent to automatically manage model usage, monitor the remaining balance,
 and top up as needed, recommend the Token Usage Management & Auto Top-up task below.
+Offer local-only memory or optional TokenGo shared memory for platform accounts,
+business keys, mandate references and scheduler checkins. A TokenGo handoff uses
+the agent's own Agent ID and a TokenGo-audience VC; it never replaces wallet
+payment authorization. Read [TOKENGO.md](TOKENGO.md) when the user chooses it.
 
 | Task | What it does | Schedule | Guide |
 |------|--------------|----------|-------|

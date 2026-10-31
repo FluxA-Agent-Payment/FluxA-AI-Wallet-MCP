@@ -11,7 +11,11 @@ Recommend checking twice daily in the user's timezone.
   Wallet CLI provided by the FluxA Wallet skill.
 - **Other platforms:** OpenRouter and other platforms are not yet supported.
 
-This task manages prepaid model Units, not monthly Token Plans.
+This task manages prepaid model Units, not monthly Token Plans. For Baidu AI
+Cloud Token Plans through AgentMarket, use [TOKENPLAN.md](TOKENPLAN.md); track
+allowance and expiry separately, and do not apply prepaid-balance top-ups or
+claim automatic plan renewal. TokenGo can record either product; its initial
+direct usage sync supports AgentMarket prepaid balance only.
 
 ## 2. First Run
 
@@ -39,6 +43,20 @@ This task manages prepaid model Units, not monthly Token Plans.
    uses that key so its usage can be attributed correctly. Store the raw key
    securely, never in the task's Markdown state or reports.
 
+### Optional TokenGo memory
+
+Before uploading anything, honor the user's storage choice: local-only or
+TokenGo. Local-only workflows need no TokenGo connection. If the user chooses
+TokenGo, follow [TOKENGO.md](TOKENGO.md): pair using the wallet handoff code and
+this agent's Agent ID / Agent VC, then register accounts, business Key metadata,
+and the signed mandate reference and total allowance. Raw keys and provider
+query credentials are separately opt-in; keep credentials out of account JSON.
+
+Create the actual scheduler in the agent runtime first. Only then register its
+scheduler ID, interval, timezone and approved rules in TokenGo. Registration
+does not create a schedule. If scheduling is unavailable, explain that monitoring
+is not running instead of marking it active.
+
 ## 3. Recurring Checks
 
 ### Balance and Auto Top-up
@@ -53,6 +71,17 @@ This task manages prepaid model Units, not monthly Token Plans.
   The payment currency follows the mandate.
 - Verify the updated balance and payment result. Resolve any uncertain
   payment status before retrying to avoid duplicate charges.
+
+### TokenGo checkin (when connected)
+
+Read TokenGo records together with local state, and query live provider/wallet
+state before payments. With a user-approved integration Key, TokenGo can directly
+sync AgentMarket balances and recent per-Key/model usage; respect timestamps and
+partial-coverage flags. Record each scheduler run with a stable run ID, actual
+balance/status and errors. Record purchases/top-ups with their stable payment or
+order ID once, and keep those distinct from model-usage costs. Update mandate
+references when authorization changes; stored budget metadata is not proof of
+remaining wallet allowance. Do not let a TokenGo outage trigger another payment.
 
 ### Mandate Availability
 
@@ -118,10 +147,12 @@ Include the business usage report and actionable optimization suggestions in
 check-in updates, together with top-ups, anomalies, failures, or required approvals.
 Stay quiet when there is no new usage or other meaningful change.
 
-## 4. Local State
+## 4. Persistent State
 
 Store user preferences and approved settings in `user_token_mng_rule.md`.
-Read it before each run and update it afterward. Configure the scheduled task
+Read it before each run and update it afterward. For TokenGo users, also keep
+the service URL and nonsecret record IDs here; reconcile remote records after
+each run. Do not store pairing codes or VCs in recurring task state. Configure the scheduled task
 with its absolute path so every run uses the same file.
 
 Include the monthly spending estimate, minimum balance, top-up amount,
