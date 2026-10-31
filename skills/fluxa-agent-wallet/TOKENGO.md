@@ -4,6 +4,7 @@ Use when the user chooses TokenGo or hands off token management from the wallet.
 Local-only storage remains supported. Payments still use the Wallet CLI and a
 valid signed mandate; a TokenGo registry entry is not payment authorization.
 
+Wallet: https://app.fluxapay.xyz/?tab=tokengo
 Wallet dev: https://agentwallet.fluxapay-qa.xyz/?tab=tokengo
 Agent-only guide: https://tokengo.fluxapay.xyz/llms.txt
 
