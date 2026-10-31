@@ -25,7 +25,7 @@ This document uses the **CLI** method.
 ## End-to-End Flow
 
 ```
-1. Create an intent mandate → user signs at authorizationUrl
+1. Reuse a signed mandate, or create one → send the link, wait until signed
 2. Agent hits paid API → receives HTTP 402
 3. Agent inspects 402 response:
    - Has PAYMENT-REQUIRED header? → x402 v2 (use header value as payload)
@@ -40,15 +40,15 @@ This document uses the **CLI** method.
 
 ## Step 0 — Mandate Planning
 
-Before create intent mandate, mandate planning must be completed to estimate the required budget. read MANDATE-PLANNING.md
+Before creating an intent mandate, size the budget with the rule in [MANDATE-PLANNING.md](MANDATE-PLANNING.md) (3x the task estimate, $1 to $5, 7 days), and reuse a signed mandate from `fluxa-wallet mandates` if one has enough remaining. With a reusable mandate, skip to Step 3.
 
 ## Step 1 — Create Intent Mandate
 
 ```bash
 fluxa-wallet mandate-create \
-  --desc "Spend up to 0.10 USDC for Polymarket recommendations for 30 days" \
-  --amount 100000 \
-  --seconds 2592000 \
+  --desc "Spend up to 1 USDC for Polymarket recommendations for 7 days" \
+  --amount 1000000 \
+  --seconds 604800 \
   --category trading_data
 ```
 
@@ -77,17 +77,25 @@ fluxa-wallet mandate-create \
 }
 ```
 
-**Opening the authorization URL** (see [SKILL.md](SKILL.md) — "Opening Authorization URLs"):
+**Send the link right away.** Don't ask "may I spend?" or whether to open the link: the user's signature on the link is the approval. Send the payment message from [MANDATE-PLANNING.md](MANDATE-PLANNING.md) with `authorizationUrl` as a clickable link (and run `open "<authorizationUrl>"` if you can open a browser for the user). Then go straight to Step 2 in the same turn.
 
-1. Ask the user using `AskUserQuestion`:
-   - Question: "I need to open the authorization URL to sign the spending mandate."
-   - Options: ["Yes, open the link", "No, show me the URL"]
+## Step 2 — Wait Until Signed
 
-2. If YES: Run `open "<authorizationUrl>"` to open in their browser
+Right after sending the link, wait for the signature without waiting for the user to reply. **Never ask the user to reply "done" or "signed".**
 
-3. Wait for user to confirm they've signed (TTL: 10 minutes), then proceed to Step 2.
+```bash
+fluxa-wallet mandate-status --id "$MANDATE_ID" --wait 100
+```
 
-## Step 2 — Check Mandate Status
+`--wait` blocks until the mandate is `signed`, `rejected` or `expired` and prints the final state (exit code 0 only when signed). Each run blocks at most 100 seconds, which stays under most agents' command timeouts. If it ends with `"code": "wait_timeout"`, run it again, up to 6 runs in total (10 minutes, the link's lifetime).
+
+- `signed` → continue to Step 3 at once.
+- `rejected` → stop and tell the user the payment was declined.
+- `expired`, or still pending after 10 minutes → tell the user the link expired and offer a fresh one.
+
+`mandate-create --wait <seconds>` also exists: it creates the mandate, prints `{"event":"authorization_required","mandateId":…,"authorizationUrl":…}` as one JSON line, then blocks. Most chat agents only see a command's output when it finishes, so prefer `mandate-create` without `--wait`, send the link, then `mandate-status --wait`.
+
+### Mandate status reference
 
 **Important:** Use `--id`, not `--mandate`:
 
@@ -95,7 +103,7 @@ fluxa-wallet mandate-create \
 fluxa-wallet mandate-status --id mand_xxxxxxxxxxxxx
 ```
 
-**Output:**
+**Output (signed):**
 
 ```json
 {
@@ -117,7 +125,7 @@ fluxa-wallet mandate-status --id mand_xxxxxxxxxxxxx
 }
 ```
 
-Wait until `mandate.status` is `"signed"`.
+`remainingAmount` is what is left to spend.
 
 ## Step 3 — Handle 402 Response & Make Payment
 
@@ -217,6 +225,8 @@ curl -H "PAYMENT-SIGNATURE: <paymentPayloadB64>" \
   https://laso.finance/auth
 ```
 
+When the task is done, give the user the result and what was actually spent (the sum of the payments made, not the budget).
+
 ## Mandate Ownership Caveat
 
 Mandates are tied to the agent that created them. A mandate created via CLI belongs to the CLI's configured agent, while a mandate created via API belongs to the API-authenticated agent (identified by JWT).
@@ -271,10 +281,10 @@ fi
 | `Invalid payload: missing accepts array` | Payload is incomplete or malformed | Pass the **complete** 402 payload including `accepts` array |
 | `Invalid --payload: not valid JSON or base64-encoded JSON` | Payload is neither valid JSON nor valid base64 | Check the payload string |
 | `Invalid v2 payload: missing resource.url` | v2 payload missing `resource.url` object | Ensure the v2 payload has `resource: { url: "..." }` |
-| `mandate_not_signed` | User hasn't signed yet | Ask user to open `authorizationUrl` |
+| `mandate_not_signed` | User hasn't signed yet | Wait with `mandate-status --id <id> --wait 100` (Step 2) |
 | `mandate_expired` | Time window passed | Create a new mandate |
-| `mandate_budget_exceeded` | Budget exhausted | Create a new mandate with higher limit |
-| `mandate_insufficient_budget` | Payment amount exceeds remaining budget | Create a new mandate with higher limit |
+| `mandate_budget_exceeded` | Budget exhausted | Create a new mandate sized with MANDATE-PLANNING.md and send the payment message |
+| `mandate_insufficient_budget` | Payment amount exceeds remaining budget | Create a new mandate sized with MANDATE-PLANNING.md and send the payment message |
 | `mandate_not_found` | Mandate ID doesn't exist or belongs to different agent | Verify mandate ID and agent identity |
 | `currency_mismatch` / `No accepts entry matches mandate currency` | v1: 402 payload has no entry for the mandate's currency | Ensure the mandate currency matches one of the 402 `accepts` currencies |
 | `no_supported_payment_option` | v2: no `accepts` entry matches supported assets | Check that the 402 server supports Base USDC |

@@ -16,6 +16,7 @@ import {
   getCurrencyFromAsset,
   createIntentMandate,
   getMandateStatus,
+  type MandateStatusResponse,
   requestX402V3Payment,
   requestX402V2Payment,
   createPaymentLink,
@@ -283,8 +284,12 @@ OPTIONS FOR 'mandate-create':
   --category <category>     Category (default: general)
   --currency <currency>     Currency (default: USDC). Supported: USDC, XRP, FLUXA_MONETIZE_CREDITS
 
+  --wait <seconds>          Block until signed / rejected / expired (1..900); prints the
+                            authorization link as a JSON line first
+
 OPTIONS FOR 'mandate-status':
   --id <mandate_id>         Mandate ID to query (required)
+  --wait <seconds>          Block until signed / rejected / expired (1..900). Exit 0 only when signed
 
 OPTIONS FOR 'x402-v3':
   --mandate <mandate_id>    Mandate ID (required)
@@ -910,6 +915,11 @@ Options:
   --seconds <duration>    Validity duration in seconds (default: 28800 = 8h)
   --category <category>   Category (default: general)
   --currency <currency>   Currency (default: USDC)
+  --wait <seconds>        After creating, block until the user signs, rejects, or the
+                          link expires (1..900). Prints {"event":"authorization_required",
+                          "mandateId","authorizationUrl"} as one JSON line on stdout first,
+                          then the final mandate state. Exit 0 only when signed.
+                          Not for CARD_USD.
 
 Supported currencies: USDC, XRP, FLUXA_MONETIZE_CREDITS, CARD_USD
   Aliases accepted: credits, fluxa-monetize-credits, fluxa-monetize-credit, card, card-usd
@@ -989,15 +999,19 @@ merchant side.
 Example:
   fluxa-wallet headless-checkout --mandate mand_xxxxx --attempt wpa_xxxxx --billing @billing.json`,
 
-  'mandate-status': `Usage: fluxa-wallet mandate-status --id <mandate_id>
+  'mandate-status': `Usage: fluxa-wallet mandate-status --id <mandate_id> [--wait <seconds>]
 
 Query mandate status.
 
 Options:
   --id <mandate_id>   Mandate ID to query (required). Use --id, NOT --mandate.
+  --wait <seconds>    Block until the mandate is signed, rejected or expired
+                      (1..900), then print the final state. Exit 0 only when
+                      signed; code "wait_timeout" if time runs out.
 
-Example:
-  fluxa-wallet mandate-status --id mand_xxxxxxxxxxxxx`,
+Examples:
+  fluxa-wallet mandate-status --id mand_xxxxxxxxxxxxx
+  fluxa-wallet mandate-status --id mand_xxxxxxxxxxxxx --wait 100`,
 
   'x402-v3': `Usage: fluxa-wallet x402-v3 --mandate <mandate_id> --payload <json>
 
@@ -2269,6 +2283,12 @@ async function cmdMandateCreate(options: Record<string, string>): Promise<Comman
     }
   }
 
+  const wait = parseWaitSeconds(options.wait);
+  if (wait && typeof wait === 'object') return { success: false, error: wait.error };
+  if (typeof wait === 'number' && currency === CARD_USD_CURRENCY) {
+    return { success: false, error: '--wait is not supported for CARD_USD mandates; poll "linked-card subcard --mandate <id>" until isReady=true' };
+  }
+
   // CARD_USD (linked card) mandates need the merchant / VIC scope. Validate it
   // locally so a bad flag fails with a field-level message before any call.
   let ext;
@@ -2333,6 +2353,15 @@ async function cmdMandateCreate(options: Record<string, string>): Promise<Comman
         ...(result.code ? { code: result.code } : {}),
         data: result,
       };
+    }
+
+    if (typeof wait === 'number' && result.status === 'ok' && result.mandateId) {
+      // Print the link before blocking, as one JSON line on stdout, so the
+      // agent (or a wrapper) can hand it to the user while the wait runs.
+      console.log(JSON.stringify({ event: 'authorization_required', mandateId: result.mandateId, authorizationUrl: result.authorizationUrl }));
+      if (result.authorizationUrl) console.error(`Waiting up to ${wait}s for the user to sign: ${result.authorizationUrl}`);
+      const waited = await waitForMandate(result.mandateId, auth.jwt, wait);
+      return { ...waited, data: { mandateId: result.mandateId, authorizationUrl: result.authorizationUrl, ...(waited.data || {}) } };
     }
 
     return {
@@ -2550,6 +2579,66 @@ async function cmdHeadlessCheckout(options: Record<string, string>): Promise<Com
   }
 }
 
+// --wait support for mandate-create / mandate-status. Statuses that end the wait:
+// READY means the user signed; FAILED means the link can no longer be signed.
+const MANDATE_READY_STATUSES = new Set(['signed', 'active', 'authorized', 'approved']);
+const MANDATE_FAILED_STATUSES = new Set(['rejected', 'declined', 'revoked', 'expired', 'cancelled', 'canceled']);
+const MAX_MANDATE_WAIT_SECONDS = 900;
+
+function parseWaitSeconds(raw: string | undefined): number | null | { error: string } {
+  if (raw === undefined) return null;
+  const n = Number(raw);
+  if (!/^\d+$/.test(String(raw)) || !Number.isInteger(n) || n < 1 || n > MAX_MANDATE_WAIT_SECONDS) {
+    return { error: `--wait must be a whole number of seconds from 1 to ${MAX_MANDATE_WAIT_SECONDS}` };
+  }
+  return n;
+}
+
+function mandatePollIntervalMs(): number {
+  const n = Number(process.env.FLUXA_MANDATE_POLL_MS);
+  return Number.isFinite(n) && n > 0 ? n : 3000;
+}
+
+/**
+ * Poll a mandate until it is signed, rejected / expired, or `waitSeconds` pass.
+ * Success only when signed; otherwise the result carries the last state seen.
+ */
+async function waitForMandate(mandateId: string, jwt: string, waitSeconds: number): Promise<CommandResult> {
+  const deadline = Date.now() + waitSeconds * 1000;
+  const interval = mandatePollIntervalMs();
+  let last: MandateStatusResponse | undefined;
+  let lastError: string | undefined;
+  for (;;) {
+    try {
+      last = await getMandateStatus(mandateId, jwt);
+      lastError = undefined;
+      if (last.status !== 'ok') {
+        return { success: false, data: last, error: last.message || 'Mandate status query failed' };
+      }
+      const st = last.mandate?.status;
+      if (st && MANDATE_READY_STATUSES.has(st)) {
+        await recordAudit({ event: 'mandate_wait', mandate_id: mandateId, status: st });
+        return { success: true, data: last };
+      }
+      if (st && MANDATE_FAILED_STATUSES.has(st)) {
+        await recordAudit({ event: 'mandate_wait', mandate_id: mandateId, status: st });
+        return { success: false, code: `mandate_${st}`, data: last, error: `Mandate ${mandateId} is ${st}. Create a new mandate and send the user a fresh link.` };
+      }
+    } catch (err: any) {
+      lastError = err?.message || 'Mandate status query failed'; // transient: keep polling
+    }
+    if (Date.now() + interval > deadline) break;
+    await new Promise((r) => setTimeout(r, interval));
+  }
+  await recordAudit({ event: 'mandate_wait', mandate_id: mandateId, status: last?.mandate?.status || 'unknown', timed_out: true });
+  return {
+    success: false,
+    code: 'wait_timeout',
+    data: last,
+    error: `Mandate ${mandateId} was not signed within ${waitSeconds}s (status: ${last?.mandate?.status || 'unknown'}${lastError ? `; last error: ${lastError}` : ''}). Check again with mandate-status --id ${mandateId}, or create a new mandate if the link expired.`,
+  };
+}
+
 async function cmdMandateStatus(options: Record<string, string>): Promise<CommandResult> {
   const mandateId = options.id;
 
@@ -2560,6 +2649,9 @@ async function cmdMandateStatus(options: Record<string, string>): Promise<Comman
     };
   }
 
+  const wait = parseWaitSeconds(options.wait);
+  if (wait && typeof wait === 'object') return { success: false, error: wait.error };
+
   const auth = await ensureValidJWT();
   if (!auth) {
     return {
@@ -2567,6 +2659,8 @@ async function cmdMandateStatus(options: Record<string, string>): Promise<Comman
       error: 'FluxA Agent ID not initialized. Run "init" first.',
     };
   }
+
+  if (typeof wait === 'number') return waitForMandate(mandateId, auth.jwt, wait);
 
   try {
     const result = await getMandateStatus(mandateId, auth.jwt);

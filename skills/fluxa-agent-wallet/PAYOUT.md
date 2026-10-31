@@ -55,15 +55,17 @@ fluxa-wallet payout \
 }
 ```
 
-**Opening the approval URL** (see [SKILL.md](SKILL.md) — "Opening Authorization URLs"):
+**Send the approval link right away** as a clickable link (and run `open "<approvalUrl>"` if you can open a browser for the user). Don't ask whether to open it, and don't ask the user to reply "done": right after sending it, poll `payout-status` (below) until the status is `succeeded`, `failed` or `expired`:
 
-1. Ask the user using `AskUserQuestion`:
-   - Question: "I need to open the approval URL to authorize this payout."
-   - Options: ["Yes, open the link", "No, show me the URL"]
+```bash
+for i in $(seq 1 20); do
+  s=$(fluxa-wallet payout-status --id "$PAYOUT_ID" | jq -r '.data.status')
+  [ "$s" = "succeeded" ] || [ "$s" = "failed" ] || [ "$s" = "expired" ] && break
+  sleep 5
+done; echo "$s"
+```
 
-2. If YES: Run `open "<approvalUrl>"` to open in their browser
-
-3. Wait for user to confirm they've approved, then poll status in Step 2.
+Each run takes at most 100 seconds, under most agents' command timeouts; run it again while the status is `pending_authorization` or `processing`. If it is still `pending_authorization` after 10 minutes (6 runs), tell the user the link expired and offer a fresh payout.
 
 ### Query Payout Status
 
@@ -131,11 +133,11 @@ if echo "$RESULT" | jq -e '.success' > /dev/null 2>&1; then
   APPROVAL_URL=$(echo "$RESULT" | jq -r '.data.approvalUrl')
   echo "Please approve at: $APPROVAL_URL"
 
-  # Poll for completion
-  while true; do
+  # Poll for completion (at most 10 minutes)
+  for i in $(seq 1 120); do
     STATUS=$($CLI payout-status --id "$PAYOUT_ID" | jq -r '.data.status')
     echo "Status: $STATUS"
-    [ "$STATUS" = "succeeded" ] || [ "$STATUS" = "failed" ] && break
+    [ "$STATUS" = "succeeded" ] || [ "$STATUS" = "failed" ] || [ "$STATUS" = "expired" ] && break
     sleep 5
   done
 else

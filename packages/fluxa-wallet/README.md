@@ -44,8 +44,8 @@ fluxa-wallet <command> --help     # full options for any command
 |---------|-------------|
 | `x402` | Execute an x402 payment (delegates to v3; `--mandate`, `--payload`) |
 | `x402-v3` | Execute an x402 v2/v3 payment (`--mandate`, `--payload`) |
-| `mandate-create` | Create an intent mandate (`--desc`, `--amount`; `--currency CARD_USD` plus merchant flags for a linked-card mandate) |
-| `mandate-status` | Query a mandate by id (`--id`) |
+| `mandate-create` | Create an intent mandate (`--desc`, `--amount`; `--currency CARD_USD` plus merchant flags for a linked-card mandate; `--wait <seconds>` prints the link, then blocks until signed) |
+| `mandate-status` | Query a mandate by id (`--id`); `--wait <seconds>` blocks until signed, rejected or expired |
 
 ### AgentMarket model Units
 
@@ -260,8 +260,8 @@ npm whoami --registry https://registry.npmjs.org
 # If not logged in:
 npm login --registry https://registry.npmjs.org
 npm publish --access public --registry https://registry.npmjs.org
-npm view @fluxa-pay/fluxa-wallet@0.5.3 version --registry https://registry.npmjs.org
-npm install -g @fluxa-pay/fluxa-wallet@0.5.3 --registry https://registry.npmjs.org
+npm view @fluxa-pay/fluxa-wallet@0.5.4 version --registry https://registry.npmjs.org
+npm install -g @fluxa-pay/fluxa-wallet@0.5.4 --registry https://registry.npmjs.org
 fluxa-wallet --version
 fluxa-wallet card create --help
 ```
