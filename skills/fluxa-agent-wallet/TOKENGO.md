@@ -1,70 +1,55 @@
 # TokenGo shared memory
 
-Use when the user chooses TokenGo from the wallet's “copy to my bot” flow or
-asks to share token-management records with TokenGo. Local-only management
-remains supported. TokenGo is a registry and usage-query service; wallet CLI
-commands and signed mandates continue to control all payments.
+Use when the user chooses TokenGo or hands off token management from the wallet.
+Local-only storage remains supported. Payments still use the Wallet CLI and a
+valid signed mandate; a TokenGo registry entry is not payment authorization.
 
-## Connect the user's agent
+Wallet dev: https://agentwallet.fluxapay-qa.xyz/?tab=tokengo
+Agent-only guide: https://tokengo.fluxapay.xyz/llms.txt
 
-- Wallet dev entry: https://agentwallet.fluxapay-qa.xyz/?tab=tokengo .
-  TokenGo is initially released to wallet dev; the production-wallet UI is not
-  released yet. Wallet dev intentionally uses TokenGo production, with its own
-  owner namespace.
-- Service: https://tokengo-production-04a9.up.railway.app
-- Read the live [TokenGo Skill](https://tokengo-production-04a9.up.railway.app/skill.md)
-  and [API reference](https://tokengo-production-04a9.up.railway.app/api-reference.md)
-  before registering data. Use the service URL from the user's handoff when
-  operating a different deployment; use only its explicitly configured wallet
-  app identities.
+Read that live guide for authentication, schemas and the helper script before
+calling TokenGo. Use your own Agent ID and audience=tokengo Agent VC. The first
+successful request automatically opens an account. There is no connection code
+or pairing step. A machine-obtained nonce binds the VC to the request and prevents
+replay; this exchange needs no human interaction. Never send a login JWT or reuse
+a TokenGo VC against Wallet or AgentMarket.
 
-The wallet handoff contains a one-use, 15-minute pairing code. Pairing lets this
-agent read and maintain the owner's TokenGo records, and the owner can disconnect
-it from TokenGo. A copied budget is not a signed payment authorization.
+Signed VC wallet-verified email and wallet_address claims associate records with
+the verified wallet owner. Without those claims an agent still gets an isolated
+account; link the user's wallet with the standard Wallet skill workflow if they
+want to see the records in the wallet UI. Never invent or submit an owner claim.
+Wallet dev and production access the same TokenGo service; only matching verified
+owner identities can see the same data.
 
-Use the current Agent ID from `fluxa-wallet status`. For each API request obtain
-a fresh challenge from `/v1/auth/challenge` bound to agent ID, method, path and
-SHA-256 body hash. Issue `fluxa-wallet agent-vc --audience tokengo --challenge
-<nonce> --ttl 300`, then send the VC with `X-Agent-ID`. See the live helper at
-`/agent-client.mjs`; it uses the installed CLI and keeps login JWTs private.
-Do not reuse TokenGo VCs against Wallet or AgentMarket. Do not send the agent's
-login JWT to TokenGo. Expired pairing needs a fresh code, not repeated retries.
+Use the handoff's budget purpose, initial recharge amount (UI default USD 10),
+automatic recharge threshold and per-recharge amount. Match the actual bundle,
+price and currency with the user before payment. Reuse a suitable signed mandate;
+when a new one is needed, its total allowance does not reset monthly. Execute
+initial recharge only within the approved rules and mandate, then set up the real
+scheduler. The initial payment is not evidence that a recurring task exists.
 
-## Register only what the user chose to share
+Register accounts, per-business Key metadata, budget purpose/total/mandate/expiry,
+initialTopupUsd, thresholdUsd and topupUsd. Raw key and integration-key uploads
+are separately optional. Credentials must not appear in account JSON or notes.
+TokenGo omits secrets in replies; keep recoverable originals in the user's secure
+store. Dedicated AgentMarket query keys are not provider-enforced read-only.
 
-1. Platform account: provider, alias and noncredential JSON account metadata.
-2. Business Key: alias, provider Key ID, account reference, purpose, business
-   type, optional budget. `rawKey` upload is optional and separately approved.
-3. Budget: signed FluxA mandate ID, total allowance, expiry and account reference.
-   The server derives the agent ID from the VC. The amount does not reset monthly.
-4. Purchase or top-up events: actual amount, timestamp and stable payment/order ID.
-5. Monitor: actual scheduler ID, interval/timezone and approved trigger/amount.
-   Only register after scheduling succeeds; check in on every actual run.
+Record completed recharges once using stable payment/order IDs: type=topup,
+trigger=initial for the first recharge; trigger=automatic for scheduled ones.
+Record manual purchases as manual. Do not report uncertain or failed payments as
+completed spending. TokenGo's budget tab lists budgets and automatic recharge
+records separately from model consumption. Query actual wallet authorization
+before any payment; registered remaining budget is only a reported total.
 
-Credentials belong only in the dedicated encrypted secret fields, never in
-`accountInfo`, descriptions or plain Markdown. TokenGo API replies omit secret
-values, and initial API has no secret-export endpoint; keep originals recoverable
-in the user's secure store.
+Register a monitor only after creating a real scheduler in the agent runtime.
+Post checkins on every real run, including errors and required approvals. A
+monitor awaits its first checkin and becomes overdue after 1.5 × its interval.
+Stopping the registry entry does not stop the actual runtime scheduler.
 
-For direct AgentMarket balance/usage reads, the user may provide a dedicated
-integration Key. AgentMarket currently does not enforce a read-only scope on it;
-do not promise read-only privileges or treat zero spend cap as disabling spend.
-TokenGo itself calls only provider read endpoints. Without a query Key, keep
-balance unknown and report agent-observed usage rather than inventing a value.
+With an uploaded integration key, TokenGo directly reads AgentMarket balance and
+up to 1,000 recent usage records. Respect timestamps, partial coverage, and
+unattributed calls. Preserve nonsecret events during outages and reconcile later
+with the same IDs. A TokenGo outage must not cause a duplicate purchase.
 
-## Check in and reconcile
-
-`POST /v1/accounts/{id}/sync` reads balance and up to the latest 1,000 ledger
-records. `GET /v1/overview` returns records and cached per-Key/model usage.
-Treat partial coverage and stale timestamps explicitly; don't count top-ups,
-settlements or adjustments as new model calls. Preserve unattributed records.
-
-Post checkins for successes, low balances, errors and required approvals using
-stable run IDs. TokenGo shows “awaiting checkin” until a real report arrives and
-marks a monitor overdue after 1.5 × its interval. A registry entry alone is not
-evidence that a scheduler is running. Stop the real scheduler when disabling
-monitoring; changing the registry entry does not stop the runtime task.
-
-During a TokenGo outage, preserve nonsecret events locally and reconcile later
-with the same event IDs. Check payment status before retrying any uncertain
-purchase. TokenGo failures do not grant permission to change payment rules.
+Only AgentMarket setup is enabled in the current UI. Baidu AI Cloud, AiHubMix and
+OpenRouter are Coming soon; do not start those flows from a TokenGo handoff.

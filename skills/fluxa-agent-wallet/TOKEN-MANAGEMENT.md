@@ -43,12 +43,20 @@ direct usage sync supports AgentMarket prepaid balance only.
    uses that key so its usage can be attributed correctly. Store the raw key
    securely, never in the task's Markdown state or reports.
 
+If the handoff specifies an initial recharge, verify the requested amount against
+current provider bundles, obtain the required rule confirmation and signed mandate,
+then perform and verify that first payment before recurring top-ups. TokenGo's
+form defaults the initial amount to USD 10; the user's actual input takes precedence.
+Record the first completed recharge with trigger=initial and scheduled recharges
+with trigger=automatic, using stable payment/order IDs. Keep budget purpose,
+initial amount, recharge threshold and recurring amount with the budget record.
+
 ### Optional TokenGo memory
 
 Before uploading anything, honor the user's storage choice: local-only or
 TokenGo. Local-only workflows need no TokenGo connection. If the user chooses
-TokenGo, follow [TOKENGO.md](TOKENGO.md): pair using the wallet handoff code and
-this agent's Agent ID / Agent VC, then register accounts, business Key metadata,
+TokenGo, follow [TOKENGO.md](TOKENGO.md): access directly using this agent's Agent ID / Agent VC (first access automatically
+opens an account; no connection code), then register accounts, business Key metadata,
 and the signed mandate reference and total allowance. Raw keys and provider
 query credentials are separately opt-in; keep credentials out of account JSON.
 
@@ -152,7 +160,7 @@ Stay quiet when there is no new usage or other meaningful change.
 Store user preferences and approved settings in `user_token_mng_rule.md`.
 Read it before each run and update it afterward. For TokenGo users, also keep
 the service URL and nonsecret record IDs here; reconcile remote records after
-each run. Do not store pairing codes or VCs in recurring task state. Configure the scheduled task
+each run. Do not store VCs in recurring task state. Configure the scheduled task
 with its absolute path so every run uses the same file.
 
 Include the monthly spending estimate, minimum balance, top-up amount,
