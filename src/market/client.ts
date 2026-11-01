@@ -546,10 +546,22 @@ export async function topupFinalize(resourceUrl: string, xPayment: string): Prom
 // current at /marketplace/tokenplans/topup.md; a second copy here would drift
 // from it the first time either changed.
 
-const planStatus = (s: string): string =>
-  s === 'active' ? c.green('active')
-  : s === 'awaiting_provisioning' ? c.red('setting up')
-  : c.dim(s);
+// `state` is the outcome the server reports for buyers (setting_up,
+// setup_delayed, active, ended, failed). Servers from before it existed send
+// only the internal `status`, so that is mapped onto the same words.
+const planStateOf = (s: any): string =>
+  s.state
+  ?? (s.status === 'active' ? 'active'
+    : s.status === 'awaiting_provisioning' ? (s.lastError ? 'setup_delayed' : 'setting_up')
+    : s.status === 'expired' || s.status === 'cancelled' ? 'ended'
+    : s.status);
+
+const planStatus = (state: string): string =>
+  state === 'active' ? c.green('active')
+  : state === 'setting_up' ? c.dim('setting up')
+  : state === 'setup_delayed' ? c.red('setup delayed')
+  : state === 'failed' ? c.red('failed')
+  : c.dim(state);
 
 async function cmdTokenplanList(): Promise<string> {
   const { data } = await http(`${PROXY}/llm/tokenplan/subscription`, { auth: true });
@@ -568,10 +580,11 @@ async function cmdTokenplanList(): Promise<string> {
       : `${Number(s.creditsRemaining).toLocaleString()} / ${Number(s.creditsTotal ?? 0).toLocaleString()}`;
     const days = s.daysRemaining == null ? c.dim('—') : String(s.daysRemaining);
     lines.push(`  ${pad(s.planSlug, 26)}${pad(left, 22)}${pad(days, 7)}${c.dim(s.id)}`);
-    if (s.lastError) lines.push('    ' + c.red(s.lastError));
+    // Our sentence for the buyer. Never the raw provider error.
+    if (s.notice) lines.push('    ' + c.red(s.notice));
   }
   lines.push('');
-  lines.push('  ' + c.dim('status: ') + subs.map((s: any) => planStatus(s.status)).join(c.dim(', ')));
+  lines.push('  ' + c.dim('status: ') + subs.map((s: any) => planStatus(planStateOf(s))).join(c.dim(', ')));
   return lines.join('\n');
 }
 
@@ -677,8 +690,9 @@ async function cmdTokenplanOrder(orderId: string): Promise<string> {
     lines.push(
       data.plan.ready
         ? `  seat     ${c.green('ready')}  ${c.dim('— `market tokenplan list` for the key')}`
-        : `  seat     ${c.dim(`${data.plan.seatStatus ?? 'pending'}, step ${data.plan.provisioningStep}/4`)}`,
+        : `  seat     ${planStatus(planStateOf({ state: data.plan.state, status: data.plan.seatStatus }))}`,
     );
+    if (!data.plan.ready && data.plan.notice) lines.push('           ' + c.red(data.plan.notice));
   } else if (data.status === 'settled') {
     lines.push(`  units    +${Number(data.creditsToGrant).toLocaleString()}  balance ${Number(data.balance).toLocaleString()}`);
   }

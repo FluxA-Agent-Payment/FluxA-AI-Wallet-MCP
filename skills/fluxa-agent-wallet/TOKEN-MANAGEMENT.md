@@ -123,7 +123,7 @@ remaining wallet allowance. Do not let a TokenGo outage trigger another payment.
   for raw usage records. Page through the reporting period using `offset` and
   `total`; group metering entries by `metadata.api_key_id` and `metadata.model`,
   then map key IDs to businesses. Read tokens from `metadata.usage` and charged
-  Units from the metering entry's negative `amount` or `metadata.cost_breakdown.cost_credits`.
+  Units from the metering entry's negative `amount`.
 - Keep cache usage separate and do not double-count reasoning tokens already
   included in output tokens. Settlements and adjustments are not new model calls.
   Records without a key ID must remain separately attributed, for example to
