@@ -62,7 +62,7 @@ fluxa-wallet check-wallet
 ```
 
 - `linked: true` → proceed to Step 3
-- `linked: false` → run `fluxa-wallet link-wallet` to get a URL, then ask the user to open it using the “Opening Authorization URLs” UX pattern below.
+- `linked: false` → run `fluxa-wallet link-wallet` and send the user its `linkUrl` (with the task's cost, if you were invoked for a paid task). Then re-run `fluxa-wallet check-wallet` every few seconds until `linked: true` (up to 10 minutes) and continue. Don't ask the user to reply "done".
 
 Steps 3 and 4 are only for when the user is installing this skill or asks what the wallet can do. When you were invoked for a specific task (for example a paid API call), skip them and do the task.
 
@@ -231,7 +231,7 @@ x402 APIs (including every FluxA AgentMarket API) are paid per call. Ask for one
   ```
 
 - **Then wait and continue on your own** (`mandate-status --wait`), run the calls, and report the result with the actual spend.
-- **Pay with the wallet the user linked.** When `fluxa-wallet check-wallet` says the wallet is linked, don't ask the user how to pay. Don't swap the paid API the user asked for for a free alternative (web search, public pages), and don't show results from other sources before the paid call.
+- **Pay with the FluxA Wallet, set it up if needed.** Don't ask the user how to pay. If the CLI is missing or the agent has no Agent ID, install and `init` yourself (Setup Steps 1 and 2); if the wallet isn't linked, send the `link-wallet` link and wait for `linked: true`. Use a FluxA API key only if the user already gave you one. Don't swap the paid API the user asked for for a free alternative (web search, public pages), and don't show results from other sources before the paid call.
 
 ```
 User: Use ExampleData to look up these two companies.
