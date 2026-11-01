@@ -93,7 +93,7 @@ fluxa-wallet mandate-create \
 fluxa-wallet mandate-status --id mand_xxxxxxxxxxxxx --wait 100
 ```
 
-`--wait` blocks until the mandate is `signed`, `rejected` or `expired` (exit code 0 only when signed). Each run blocks at most 100 seconds, under most agents' command timeouts; if it ends with `"code": "wait_timeout"`, run it again, up to 10 minutes in total. If it is `rejected`, tell the user; if it `expired`, offer a fresh link.
+`--wait` blocks until the mandate is `signed`, `rejected` or `expired` (exit code 0 only when signed). `100` is an example: pick a number of seconds that stays under your own command timeout (up to 900). If it ends with `"code": "wait_timeout"`, run it again, up to 10 minutes in total. If it is `rejected`, tell the user; if it `expired`, offer a fresh link.
 
 **Output:**
 
