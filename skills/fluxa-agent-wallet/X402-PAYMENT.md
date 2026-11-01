@@ -40,13 +40,13 @@ This document uses the **CLI** method.
 
 ## Step 0 — Mandate Planning
 
-Before creating an intent mandate, size the budget with the rule in [MANDATE-PLANNING.md](MANDATE-PLANNING.md) (3x the task estimate, $1 to $5, 7 days), and reuse a signed mandate from `fluxa-wallet mandates` if one has enough remaining. With a reusable mandate, skip to Step 3.
+Before creating an intent mandate, size the budget with the rule in [MANDATE-PLANNING.md](MANDATE-PLANNING.md) (at least 100 calls, 7 days), and reuse a signed mandate from `fluxa-wallet mandates` if one has enough remaining. With a reusable mandate, skip to Step 3.
 
 ## Step 1 — Create Intent Mandate
 
 ```bash
 fluxa-wallet mandate-create \
-  --desc "Spend up to 1 USDC for Polymarket recommendations for 7 days" \
+  --desc "Spend up to 1 USDC (100 calls) for Polymarket recommendations for 7 days" \
   --amount 1000000 \
   --seconds 604800 \
   --category trading_data

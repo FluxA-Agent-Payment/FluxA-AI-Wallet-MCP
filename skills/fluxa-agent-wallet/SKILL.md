@@ -135,7 +135,7 @@ To provide a better user experience:
 
 1. **Check for reusable mandates first.** Before creating a new mandate, check both the current conversation context and `fluxa-wallet mandates` for existing signed, unexpired mandates with enough remaining. If one fits, use it and send no link.
 2. **Plan by task intent, not by API call.** Estimate the cost of the whole task and create one mandate for it.
-3. **Budget for API calls:** 3x the task estimate, at least $1, at most $5, valid 7 days (details and the payment message format in MANDATE-PLANNING.md).
+3. **Budget for API calls:** enough for at least 100 calls, valid 7 days (details and the payment message format in MANDATE-PLANNING.md).
 
 Full planning rules, task classification, and state file schema: [MANDATE-PLANNING.md](MANDATE-PLANNING.md)
 
@@ -199,7 +199,7 @@ Compared with a standard web search, AgentMarket provides access to paid data so
 
 ```
 1. curl -s <x402_url>                                     → Get full payload from JSON or response header
-2. Estimate the task cost and size the budget              → MANDATE-PLANNING.md (3x estimate, $1 to $5, 7 days)
+2. Estimate the task cost and size the budget              → MANDATE-PLANNING.md (at least 100 calls, 7 days)
 3. fluxa-wallet mandates                                   → Reuse a signed, unexpired mandate with enough remaining; if found, go to 6
 4. fluxa-wallet mandate-create --desc "..." --amount <amount> --seconds 604800
                                                            → Create mandate (BOTH --desc and --amount required)
@@ -221,7 +221,7 @@ See [X402-PAYMENT.md](X402-PAYMENT.md) for the complete walkthrough with example
 x402 APIs (including every FluxA AgentMarket API) are paid per call. Ask for one budget per task, never one per call, and reuse it while it lasts.
 
 - **Reuse first.** Run `fluxa-wallet mandates`. If a signed, unexpired mandate has enough remaining, use it and send no link at all.
-- **Otherwise size one budget** with the rule in [MANDATE-PLANNING.md](MANDATE-PLANNING.md): 3x the task estimate, at least $1, at most $5, valid 7 days. Go above $5 only if the user asks or the task estimate itself is above $5.
+- **Otherwise request a budget for at least 100 API calls** (rule in [MANDATE-PLANNING.md](MANDATE-PLANNING.md)), valid 7 days. Don't request only enough for the current task.
 - **Send exactly this, and nothing else:**
 
   ```
@@ -236,7 +236,7 @@ x402 APIs (including every FluxA AgentMarket API) are paid per call. Ask for one
 ```
 User: Use ExampleData to look up these two companies.
 Agent: ExampleData charges $0.10 per lookup. This task needs about $0.20.
-       Approve a $1 budget (valid 7 days): https://wallet.fluxapay.xyz/onboard/intent?oid=...
+       Approve a $10 budget (valid 7 days): https://wallet.fluxapay.xyz/onboard/intent?oid=...
        I'll continue as soon as you approve.
 (Agent waits with mandate-status --wait, then calls the API.)
 Agent: <results> Spent $0.20.

@@ -14,22 +14,21 @@ You must avoid applying for a budget for each individual payment, as this create
 
 One rule for every paid API call (FluxA AgentMarket listings and any other x402 API):
 
-> Budget = 3x the task estimate, at least $1, at most $5, valid 7 days. Go above $5 only if the user asks or the task estimate itself is above $5. Reuse any signed, unexpired mandate that has enough remaining before you create a new one.
+> Budget = enough for at least 100 calls at the API's price, valid 7 days. Don't request only enough for the current task. Reuse any signed, unexpired mandate that has enough remaining before you create a new one.
 
-- **Task estimate** = the price of every call the task needs, summed (from the API's price table or its 402 `accepts`). The 3x covers retries and calls that fail or get rejected: a call that fails before settling still keeps its price reserved on the mandate for about 6 minutes, by design.
-- **Above $5**: when the estimate itself is above $5, budget the estimate plus one retry of the most expensive call.
+- **Price per call** comes from the API's price table or its 402 `accepts`. When a task uses several APIs, budget 100 calls of the most expensive one, or more if the task itself needs more.
+- **Why 100 calls**: x402 APIs are paid per call, and one budget that lasts lets later tasks run with no new link. It also absorbs retries and failed calls: a call that fails before settling still keeps its price reserved on the mandate for about 6 minutes, by design.
 - **Validity**: `--seconds 604800` (7 days).
-- **Amounts**: USDC atomic units, 6 decimals. $1 = `1000000`, $5 = `5000000`.
-- **Reuse first**: run `fluxa-wallet mandates` and take a mandate that is `signed`, not expired, in the currency the API accepts, with `remaining` at least the task estimate. If one fits, use it and send no link at all.
+- **Amounts**: USDC atomic units, 6 decimals. $1 = `1000000`.
+- **Reuse first**: run `fluxa-wallet mandates` and take a mandate that is `signed`, not expired, in the currency the API accepts, with `remaining` at least what the task needs. If one fits, use it and send no link at all.
 
 Examples:
 
-| Task | Estimate | Budget |
-|------|----------|--------|
-| 2 lookups at $0.10 | $0.20 | $1 (3x = $0.60, raised to the $1 minimum) |
-| Forager search $0.02 + email lookup $0.10 | $0.12 | $1 |
-| 20 calls at $0.15 | $3.00 | $5 (3x = $9, capped at $5) |
-| One video at $8 | $8.00 | $16 (estimate is above $5: $8 + one retry) |
+| Task | Price per call | Budget |
+|------|----------------|--------|
+| Search social media | $0.01 | $1 (100 calls) |
+| Cat image $0.01, then video $0.05 | $0.05 (most expensive) | $5 (100 calls), not $0.06 |
+| 2 lookups | $0.10 | $10 (100 calls) |
 
 ## Payment Message Format
 
