@@ -47,6 +47,21 @@ fluxa-wallet <command> --help     # full options for any command
 | `mandate-create` | Create an intent mandate (`--desc`, `--amount`; `--currency CARD_USD` plus merchant flags for a linked-card mandate; `--wait <seconds>` prints the link, then blocks until signed) |
 | `mandate-status` | Query a mandate by id (`--id`); `--wait <seconds>` blocks until signed, rejected or expired |
 
+#### Waiting for a mandate signature (`--wait`, 0.5.4+)
+
+`mandate-create` and `mandate-status` take `--wait <seconds>` (1 to 900). The
+command keeps polling until the mandate is `signed`, `rejected` or `expired`,
+then prints the final state. Before, agents had to poll with their own script.
+
+```bash
+fluxa-wallet mandate-status --id mand_xxx --wait 100   # exit 0 only when signed
+```
+
+Exit code is 0 only when signed. Otherwise `code` is `wait_timeout` (still
+pending; run it again), `mandate_rejected` or `mandate_expired`.
+`mandate-create --wait` first prints `{"event":"authorization_required","mandateId":…,"authorizationUrl":…}`
+as one JSON line, so the link can be shown before it blocks. Not for `CARD_USD`.
+
 ### AgentMarket model Units
 
 ```bash
