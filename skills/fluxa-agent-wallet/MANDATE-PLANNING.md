@@ -8,27 +8,45 @@ You **MUST** to clearly define the purpose of this budget so the user knows what
 
 When applying for the budget, you may already know the exact number of payments and amounts (for example, calling an image generation api three times). or you may not know the exact payments in advance, and the spending will only be determined dynamically during task execution, including the number of transactions and total cost. both cases are allowed. you just need to apply for a reasonable budget.
 
-You must avoid applying for a budget for each individual payment, as this creates a poor user experience. Plan one budget for the whole task, and reuse it for later tasks while it lasts.
+You must avoid applying for a budget for each individual payment, as this creates a poor user experience. You should analyze the user’s intent and determine whether a reusable budget can be requested so related tasks can use the same budget. For example: recurring video production for operations, or ongoing fund transfers to friends.
 
-## Budget Rule for x402 / AgentMarket API Calls
+## Task Classification
 
-One rule for every paid API call (FluxA AgentMarket listings and any other x402 API):
+Before creating a mandate, classify the current task:
 
-> Budget = enough for at least 100 calls at the API's price, valid 7 days. Don't request only enough for the current task. Reuse any signed, unexpired mandate that has enough remaining before you create a new one.
+### Type 1 — Single-Step Task
 
-- **Price per call** comes from the API's price table or its 402 `accepts`. When a task uses several APIs, budget 100 calls of the most expensive one, or more if the task itself needs more.
-- **Why 100 calls**: x402 APIs are paid per call, and one budget that lasts lets later tasks run with no new link. It also absorbs retries and failed calls: a call that fails before settling still keeps its price reserved on the mandate for about 6 minutes, by design.
-- **Validity**: `--seconds 604800` (7 days).
-- **Amounts**: USDC atomic units, 6 decimals. $1 = `1000000`.
-- **Reuse first**: run `fluxa-wallet mandates` and take a mandate that is `signed`, not expired, in the currency the API accepts, with `remaining` at least what the task needs. If one fits, use it and send no link at all.
+A one-off action with a known, fixed cost.
 
-Examples:
+**Examples:**
+- Single USDC transfer
+- Pay one payment link
 
-| Task | Price per call | Budget |
-|------|----------------|--------|
-| Search social media | $0.01 | $1 (100 calls) |
-| Cat image $0.01, then video $0.05 | $0.05 (most expensive) | $5 (100 calls), not $0.06 |
-| 2 lookups | $0.10 | $10 (100 calls) |
+**Strategy:** Request the exact cost. Do not add buffer — the user should see the actual amount being spent.
+
+Paid x402 API calls (including FluxA AgentMarket APIs) are not Type 1, even a single call: request a budget for at least 100 calls, as in SKILL.md "Common Flow: Paying to x402 APIs".
+
+### Type 2 — Multi-Step Workflow
+
+A task that requires multiple paid API calls in sequence.
+
+**Examples:**
+- Auth → get-card → get-card-data (Laso)
+- Discover API → pay → generate → poll result (Banana/Seedance)
+- Search x402 services → call multiple APIs to compare results
+
+**Strategy:** Estimate the **total cost across all steps** before creating the mandate. Include retry buffer (1 extra attempt per step). Create **one mandate** covering the entire workflow — do NOT create a new mandate per step.
+
+### Type 3 — Recurring / Long-Term Task
+
+A task the user will repeat regularly or that the agent expects to do again.
+
+**Examples:**
+- Frequent small API calls to the same service
+- Regular ClawPI posting
+- Periodic data queries
+
+**Strategy:** Create a reusable mandate with longer validity (`--seconds`, e.g., 7 days = 604800, 30 days = 2592000), covering expected usage over the period.
 
 ## Payment Message Format
 
@@ -40,19 +58,13 @@ Approve a ${budget} budget (valid 7 days): {authorizationUrl}
 I'll continue as soon as you approve.
 ```
 
-Then, in the same turn, wait for the signature (`fluxa-wallet mandate-status --id <mandateId> --wait 100`, repeated until signed, see [X402-PAYMENT.md](X402-PAYMENT.md)) and run the calls. Do not ask "may I spend?" first: signing the link is the approval. Do not offer several budget options, and do not explain this policy unless the user asks.
-
-After the task, report what was actually spent (sum of the calls made), not the budget.
-
-## Other Payments (transfers, payouts, payment links)
-
-The rule above is for API calls. For a one-off transfer, payout, or payment link with a known amount, request the exact amount, no buffer: the user should see what is being sent. For recurring transfers the user asks for (for example a weekly payout), create one reusable mandate covering the expected period (`--seconds`, e.g. 7 days = 604800, 30 days = 2592000).
+Then wait for the signature yourself (`fluxa-wallet mandate-status --id <mandateId> --wait 100`, see [X402-PAYMENT.md](X402-PAYMENT.md)). Don't ask "may I spend?" first, and don't ask the user to reply "done". A call that fails before settling keeps its price reserved on the mandate for about 6 minutes, by design; the 100-call budget absorbs it.
 
 ## Mandate Reuse Protocol
 
 **MUST check for reusable mandates before creating a new one.**
 
-Check these sources, in order:
+Check these sources:
 
 ### Source 1 — Current Conversation Context
 
@@ -60,7 +72,7 @@ Check if any mandate has already been created or used in the current conversatio
 
 ### Source 2 — The wallet
 
-Run `fluxa-wallet mandates`. It lists every mandate of this agent with limit / spent / remaining, across conversations. Take one that is `signed`, not expired, in the right currency, with enough `remaining`.
+Run `fluxa-wallet mandates`. It lists this agent's mandates with limit / spent / remaining, across conversations.
 
 ### Source 3 — Local State File
 

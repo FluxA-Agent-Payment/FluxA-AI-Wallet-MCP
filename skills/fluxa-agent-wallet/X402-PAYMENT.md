@@ -25,7 +25,7 @@ This document uses the **CLI** method.
 ## End-to-End Flow
 
 ```
-1. Reuse a signed mandate, or create one → send the link, wait until signed
+1. Create an intent mandate → user signs at authorizationUrl
 2. Agent hits paid API → receives HTTP 402
 3. Agent inspects 402 response:
    - Has PAYMENT-REQUIRED header? → x402 v2 (use header value as payload)
@@ -40,15 +40,15 @@ This document uses the **CLI** method.
 
 ## Step 0 — Mandate Planning
 
-Before creating an intent mandate, size the budget with the rule in [MANDATE-PLANNING.md](MANDATE-PLANNING.md) (at least 100 calls, 7 days), and reuse a signed mandate from `fluxa-wallet mandates` if one has enough remaining. With a reusable mandate, skip to Step 3.
+Before create intent mandate, mandate planning must be completed to estimate the required budget. read MANDATE-PLANNING.md
 
 ## Step 1 — Create Intent Mandate
 
 ```bash
 fluxa-wallet mandate-create \
-  --desc "Spend up to 1 USDC (100 calls) for Polymarket recommendations for 7 days" \
-  --amount 1000000 \
-  --seconds 604800 \
+  --desc "Spend up to 0.10 USDC for Polymarket recommendations for 30 days" \
+  --amount 100000 \
+  --seconds 2592000 \
   --category trading_data
 ```
 
