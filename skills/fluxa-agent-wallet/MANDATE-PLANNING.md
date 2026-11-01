@@ -16,7 +16,7 @@ One rule for every paid API call (FluxA AgentMarket listings and any other x402 
 
 > Budget = 3x the task estimate, at least $1, at most $5, valid 7 days. Go above $5 only if the user asks or the task estimate itself is above $5. Reuse any signed, unexpired mandate that has enough remaining before you create a new one.
 
-- **Task estimate** = the price of every call the task needs, summed (from the API's price table or its 402 `accepts`). The 3x covers retries and calls that fail or get rejected.
+- **Task estimate** = the price of every call the task needs, summed (from the API's price table or its 402 `accepts`). The 3x covers retries and calls that fail or get rejected: a call that fails before settling still keeps its price reserved on the mandate for about 6 minutes, by design.
 - **Above $5**: when the estimate itself is above $5, budget the estimate plus one retry of the most expensive call.
 - **Validity**: `--seconds 604800` (7 days).
 - **Amounts**: USDC atomic units, 6 decimals. $1 = `1000000`, $5 = `5000000`.
