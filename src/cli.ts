@@ -176,7 +176,7 @@ MARKETPLACE COMMANDS:
   plan-tool-use "<task>"    Recommend the models, APIs and skills for a task
   market search "<q>"       Discover resources (add --models or --vendors to scope)
   market model remainingUsage            Prepaid Balance ($1 = 1 Balance)
-  market model topup [--bundle <slug>]   Top up the Balance via x402; --mandate <id> reuses an approved budget
+  market model topup [--bundle <slug> | --amount <usd>]   Top up the Balance via x402; --mandate <id> reuses an approved budget
   market model usageHistory              Spend and topup history
   market keys [create|update <id>|revoke <id>]   Manage fxa_live_ API keys (Agent VC only)
   market tokenplan list                  Token Plans held: allowance left, days left, id
@@ -573,7 +573,7 @@ Examples:
 
 The account's prepaid Balance ($1 = 1 Balance). One Balance, spendable at any provider.`,
 
-  'market model topup': `Usage: fluxa-wallet market model topup [--bundle <slug>] [--credit | --usdc] [--mandate <id>]
+  'market model topup': `Usage: fluxa-wallet market model topup [--bundle <slug> | --amount <dollars>] [--credit | --usdc] [--mandate <id>]
 
 Tops up the Balance from the FluxA wallet's balance (--credit, default) or in
 on-chain Base USDC (--usdc). With --mandate, reuses that signed mandate without creating another
@@ -582,8 +582,10 @@ to approve it. Only spend within the user-approved scope.
 
 Options:
   --bundle <slug>     which tier to buy: mini ($1), starter ($5), mid ($10),
-                      pro ($25). Defaults to starter. Balance is sold as bundles on every
-                      rail, so there is no arbitrary amount to name.
+                      pro ($25). Defaults to starter.
+  --amount <dollars>  top up any amount instead of a bundle, $1 to $1,000 with
+                      up to 2 decimals ($1 = 1 Balance). Cannot be combined with
+                      --bundle.
   --credit            pay from the FluxA wallet's balance (signs a
                       FLUXA_MONETIZE_CREDITS mandate). Default when no currency or mandate is given.
   --usdc              pay the challenge's on-chain Base USDC accept instead of the
@@ -2821,11 +2823,19 @@ async function cmdMarketTopup(positionals: string[], options: Record<string, str
   if (options.credits !== undefined) {
     return {
       success: false,
-      error: `--credits <amount> is no longer supported: Balance is sold as bundles (${TOPUP_BUNDLES.join(' | ')}). Use --bundle <slug> (add --credit or --usdc to choose how to pay).`,
+      error: `--credits <amount> is no longer supported. Use --bundle <slug> (${TOPUP_BUNDLES.join(' | ')}) or --amount <dollars> (add --credit or --usdc to choose how to pay).`,
     };
   }
   if (options.credit !== undefined && options.usdc !== undefined) {
     return { success: false, error: '--credit and --usdc are mutually exclusive. Choose one payment currency.' };
+  }
+  if (options.amount !== undefined && options.bundle !== undefined) {
+    return { success: false, error: '--bundle and --amount are mutually exclusive. Buy a bundle or name an amount.' };
+  }
+  // Checked here as well as on the server so a typo fails before any auth or
+  // order. The server stays the authority on the limits.
+  if (options.amount !== undefined && !/^\$?\d+(\.\d{1,2})?$/.test(options.amount.trim())) {
+    return { success: false, error: '--amount takes dollars with up to 2 decimals, e.g. --amount 12.50.' };
   }
   if (options.mandate !== undefined && (!options.mandate.trim() || options.mandate === 'true')) {
     return { success: false, error: '--mandate requires a mandate ID.' };
@@ -2867,7 +2877,11 @@ async function cmdMarketTopup(positionals: string[], options: Record<string, str
     const payWithUsdc = mandateCurrency === 'USDC';
 
     // 1. initiate — answers HTTP 402 with the x402 challenge on success
-    const init = await topupInitiate({ bundle: options.bundle });
+    const init = await topupInitiate(
+      options.amount !== undefined
+        ? { amount: options.amount.trim().replace(/^\$/, '') }
+        : { bundle: options.bundle },
+    );
     console.error(`· order ${init.orderId}: $${init.costCredits} -> $${init.balanceToGrant.toFixed(2)} Balance`);
 
     // 2. Reuse the supplied mandate or create one in the selected currency.

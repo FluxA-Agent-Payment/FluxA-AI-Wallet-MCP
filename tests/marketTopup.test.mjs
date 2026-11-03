@@ -12,7 +12,7 @@ const jwt = `e30.${Buffer.from(JSON.stringify({ exp: 4102444800 })).toString('ba
 
 test('model topup reuses approved mandates without requesting another authorization', async t => {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'fluxa-topup-test-'));
-  let calls, mandate, accepts, paymentResult, lookupMissing;
+  let calls, mandate, accepts, paymentResult, lookupMissing, initiateBody;
   const server = http.createServer(async (req, res) => {
     try {
       let text = '';
@@ -24,7 +24,7 @@ test('model topup reuses approved mandates without requesting another authorizat
       if (req.url.startsWith('/api/mandates/agent/')) {
         result = lookupMissing ? { status: 'error', message: 'Mandate not found' } : { status: 'ok', mandate };
       } else if (req.url === '/llm/topup/initiate') {
-        assert.deepEqual(body, { packageSlug: 'starter' });
+        assert.deepEqual(body, initiateBody);
         res.statusCode = 402;
         result = { orderId: 'order_test', resource: `${url}/llm/topup/order_test/finalize`, costCredits: 5, creditsToGrant: 500000, accepts };
       } else if (req.url === '/api/mandates/create-intent') {
@@ -55,6 +55,7 @@ test('model topup reuses approved mandates without requesting another authorizat
   });
   const reset = (currency = 'USDC') => {
     calls = [];
+    initiateBody = { packageSlug: 'starter' };
     lookupMissing = false;
     mandate = { mandateId: 'mand_test', status: 'signed', isEnabled: true, currency, remainingAmount: '20000000', validFrom: '2020-01-01T00:00:00Z', validUntil: '2100-01-01T00:00:00Z' };
     accepts = [
@@ -142,13 +143,21 @@ test('model topup reuses approved mandates without requesting another authorizat
     assert.equal(payments().length, 0);
   });
 
-  for (const flags of [['--mandate'], ['--mandate', ''], ['--mandate', 'mand_test', '--budget', '100'], ['--mandate', 'mand_test', '--seconds', '3600'], ['--usdc', '--credit']]) {
+  for (const flags of [['--mandate'], ['--mandate', ''], ['--mandate', 'mand_test', '--budget', '100'], ['--mandate', 'mand_test', '--seconds', '3600'], ['--usdc', '--credit'], ['--amount', '5', '--bundle', 'mid'], ['--amount', 'five'], ['--amount', '5.001'], ['--amount', '-5']]) {
     await t.test(`reject invalid options ${flags.join(' ')}`, async () => {
       reset();
       assert.equal((await run(...flags)).code, 1);
       assert.equal(calls.length, 0);
     });
   }
+
+  await t.test('--amount sends the typed dollar amount instead of a bundle', async () => {
+    reset(); initiateBody = { amount: '5.00' };
+    const result = await run('--amount', '$5.00', '--mandate', 'mand_test');
+    assert.equal(result.code, 0, result.stdout + result.stderr);
+    assert.equal(calls.filter(c => c.path === '/llm/topup/initiate').length, 1);
+    assert.equal(payments().length, 1);
+  });
 
   await t.test('payment denial is returned without finalization or new mandate', async () => {
     reset(); paymentResult = { status: 'error', message: 'mandate budget changed' };

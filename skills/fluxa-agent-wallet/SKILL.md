@@ -330,7 +330,7 @@ For FLUXA_MONETIZE_CREDITS, amounts are in the credits' smallest unit as defined
 | `plan-tool-use` | (task arg) | Recommend the models, APIs, and skills for a task |
 | `market search` | (query arg) | Discover APIs, models, and skills (`--models` or `--vendors` to scope) |
 | `market model remainingUsage` | (none) | The account's prepaid Balance ($1 = 1 Balance) |
-| `market model topup` | (none) | Top up the Balance via x402; `--mandate <id>` reuses an approved mandate and its currency. Otherwise `--credit` (default) or `--usdc` creates a new mandate for user approval. Explicit currency flags must match a reused mandate |
+| `market model topup` | (none) | Top up the Balance via x402: `--bundle <slug>` (mini, starter, mid, pro) or `--amount <dollars>` ($1 to $1,000, CLI 0.5.4+); `--mandate <id>` reuses an approved mandate and its currency. Otherwise `--credit` (default) or `--usdc` creates a new mandate for user approval. Explicit currency flags must match a reused mandate |
 | `market model usageHistory` | (none) | Spend and topup history |
 | `market keys create` | (none) | Mint an `fxa_live_` API key (`--name`, `--limit <Balance>` optional) |
 | `market keys list` | (none) | List your `fxa_live_` keys |
