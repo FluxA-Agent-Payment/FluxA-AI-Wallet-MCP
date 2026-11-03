@@ -174,8 +174,8 @@ COMMANDS:
 MARKETPLACE COMMANDS:
   plan-tool-use "<task>"    Recommend the models, APIs and skills for a task
   market search "<q>"       Discover resources (add --models or --vendors to scope)
-  market model remainingUsage            Prepaid Units balance
-  market model topup [--bundle <slug>]   Buy Units via x402; --mandate <id> reuses an approved budget
+  market model remainingUsage            Prepaid Balance ($1 = 1 Balance)
+  market model topup [--bundle <slug>]   Top up the Balance via x402; --mandate <id> reuses an approved budget
   market model usageHistory              Spend and topup history
   market keys [create|update <id>|revoke <id>]   Manage fxa_live_ API keys (Agent VC only)
   market tokenplan list                  Token Plans held: allowance left, days left, id
@@ -566,23 +566,23 @@ Examples:
 
   'market model remainingUsage': `Usage: fluxa-wallet market model remainingUsage
 
-The account's prepaid Units balance. One balance, spendable at any provider.`,
+The account's prepaid Balance ($1 = 1 Balance). One Balance, spendable at any provider.`,
 
   'market model topup': `Usage: fluxa-wallet market model topup [--bundle <slug>] [--credit | --usdc] [--mandate <id>]
 
-Buys Units with Monetize Credits (--credit, default) or on-chain Base USDC
-(--usdc). With --mandate, reuses that signed mandate without creating another
+Tops up the Balance from the FluxA wallet's balance (--credit, default) or in
+on-chain Base USDC (--usdc). With --mandate, reuses that signed mandate without creating another
 or waiting for approval. Otherwise creates a mandate and waits for the user
 to approve it. Only spend within the user-approved scope.
 
 Options:
-  --bundle <slug>     which tier to buy: starter (5 MC), mid (10), pro (25).
-                      Defaults to starter. Units are sold as bundles on every
+  --bundle <slug>     which tier to buy: mini ($1), starter ($5), mid ($10),
+                      pro ($25). Defaults to starter. Balance is sold as bundles on every
                       rail, so there is no arbitrary amount to name.
-  --credit            pay with Monetize Credits (signs a FLUXA_MONETIZE_CREDITS
-                      mandate). Default when no currency or mandate is given.
-  --usdc              pay the challenge's on-chain Base USDC accept instead of
-                      Monetize Credits (signs a USDC mandate). Errors if this
+  --credit            pay from the FluxA wallet's balance (signs a
+                      FLUXA_MONETIZE_CREDITS mandate). Default when no currency or mandate is given.
+  --usdc              pay the challenge's on-chain Base USDC accept instead of the
+                      wallet's balance (signs a USDC mandate). Errors if this
                       deployment does not offer USDC topups.
 
   --mandate <id>      reuse an existing signed mandate. Without a currency flag,
@@ -597,8 +597,8 @@ Options:
 
 Example: fluxa-wallet market model topup --bundle starter --mandate mand_xxx
 
-This command is the x402 rail, and it carries two currencies: Monetize Credits
-(--credit, the default) and on-chain Base USDC (--usdc). Full procedure:
+This command is the x402 rail, and it pays two ways: from the FluxA wallet's
+balance (--credit, the default) or in on-chain Base USDC (--usdc). Full procedure:
 https://agentmarket.fluxapay.xyz/marketplace/models/agent-topup.md`,
 
   'market model usageHistory': `Usage: fluxa-wallet market model usageHistory
@@ -608,7 +608,7 @@ Spend and topup history for the account.`,
   'market tokenplan': `Usage: fluxa-wallet market tokenplan <buy <plan> | order <id> | list | key <id> | usage <id> | models | redeem <code> --yes | claim <code> --yes>
 
 A Token Plan is one flat monthly allowance on the provider's own endpoint, as
-opposed to per-call Units on ours. The key these commands return is the
+opposed to per-call Balance on ours. The key these commands return is the
 PROVIDER's: it does not authenticate at /llm/{merchant}, and an fxa_live_ key
 does not authenticate at the provider.
 
@@ -637,16 +637,17 @@ Manage your fxa_live_ API keys (requires an Agent VC, not a metered key).
 
 Options (create/update):
   --name <name>       Key name
-  --cap <MC>          Spend cap in Monetize Credits (--cap 0 clears it)
+  --limit <Balance>   Spending limit in Balance, $1 = 1 Balance (--limit 0 clears it).
+                      --cap is the old name and means the same.
 
 Examples:
-  fluxa-wallet market keys create --name ci --cap 50
+  fluxa-wallet market keys create --name ci --limit 50
   fluxa-wallet market keys revoke <id>`,
 
   'market info': `Usage: fluxa-wallet market info [topic]
 
 Show all marketplace commands, or explain a topic. No authentication required.
-Topics: overview (default), units, auth, pay, keys, models, tokenplan, skills.`,
+Topics: overview (default), balance, auth, pay, keys, models, tokenplan, skills.`,
 
   status: `Usage: fluxa-wallet status
 
@@ -2711,12 +2712,12 @@ async function cmdX402V3(options: Record<string, string>): Promise<CommandResult
   }
 }
 
-// Prepay Units to a merchant. Orchestrates the marketplace proxy legs
+// Top up the AgentMarket Balance. Orchestrates the marketplace proxy legs
 // (initiate/finalize in src/market/client) around the wallet's own proven
 // mandate + x402-v3 primitives — the in-process replacement for the planner's
 // shell-out to `fluxa-wallet`.
 async function cmdMarketTopup(positionals: string[], options: Record<string, string>): Promise<CommandResult> {
-  // No vendor argument. Units are one balance per account, spendable at any
+  // No vendor argument. The Balance is one per account, spendable at any
   // provider, so there was never a choice for the caller to make here -- the
   // argument only existed because the endpoint demanded one.
   //
@@ -2726,7 +2727,7 @@ async function cmdMarketTopup(positionals: string[], options: Record<string, str
   if (options.credits !== undefined) {
     return {
       success: false,
-      error: `--credits <amount> is no longer supported: Units are sold as bundles (${TOPUP_BUNDLES.join(' | ')}). Use --bundle <slug> and --credit to pay with Monetize Credits.`,
+      error: `--credits <amount> is no longer supported: Balance is sold as bundles (${TOPUP_BUNDLES.join(' | ')}). Use --bundle <slug> (add --credit or --usdc to choose how to pay).`,
     };
   }
   if (options.credit !== undefined && options.usdc !== undefined) {
@@ -2773,7 +2774,7 @@ async function cmdMarketTopup(positionals: string[], options: Record<string, str
 
     // 1. initiate — answers HTTP 402 with the x402 challenge on success
     const init = await topupInitiate({ bundle: options.bundle });
-    console.error(`· order ${init.orderId}: ${init.costCredits} Monetize Credits -> ${Number(init.creditsToGrant).toLocaleString()} Units`);
+    console.error(`· order ${init.orderId}: $${init.costCredits} -> $${init.balanceToGrant.toFixed(2)} Balance`);
 
     // 2. Reuse the supplied mandate or create one in the selected currency.
     // budget must cover the cost (credits unit = MC x 100)
@@ -2788,7 +2789,7 @@ async function cmdMarketTopup(positionals: string[], options: Record<string, str
         getCurrencyFromAsset(a.asset || DEFAULT_ASSET, a.network || DEFAULT_NETWORK) === 'USDC'
       );
       if (!usdcAccept) {
-        return { success: false, error: 'this deployment does not offer USDC topups (no "base" accept in the 402) — use --credit instead of --usdc to pay with Monetize Credits.' };
+        return { success: false, error: 'this deployment does not offer USDC topups (no "base" accept in the 402) — use --credit instead of --usdc to pay from the FluxA wallet balance.' };
       }
       mandateCurrency = 'USDC';
       // USDC budget is in 6-decimal atomic units, straight from the accept.
@@ -2812,7 +2813,7 @@ async function cmdMarketTopup(positionals: string[], options: Record<string, str
     } else {
       const seconds = options.seconds ? Number(options.seconds) : 28800;
       const mc = await cmdMandateCreate({
-        desc: payWithUsdc ? `Prepay ${init.costCredits} MC of Units (paid in USDC)` : `Prepay ${init.costCredits} MC of Units`,
+        desc: payWithUsdc ? `Top up $${init.balanceToGrant.toFixed(2)} AgentMarket Balance (paid in USDC)` : `Top up $${init.balanceToGrant.toFixed(2)} AgentMarket Balance`,
         amount: String(budget),
         seconds: String(seconds),
         currency: mandateCurrency,
@@ -2849,11 +2850,13 @@ async function cmdMarketTopup(positionals: string[], options: Record<string, str
 
     // 5. finalize — POST the resource URL with the payment token (no bearer)
     const fin = await topupFinalize(init.resource, xPayment);
-    const added = Number(fin.creditsAdded ?? init.creditsToGrant);
-    await recordAudit({ event: 'market_topup', order_id: init.orderId, mandate_id: mandateId, units_added: added, ...(payWithUsdc ? { rail: 'usdc' } : {}) });
+    // Balance fields first; older servers answer only in Units (100,000 = $1).
+    const added = fin.added != null ? Number(fin.added) : fin.creditsAdded != null ? Number(fin.creditsAdded) / 100_000 : init.balanceToGrant;
+    const after = fin.balanceRemaining != null ? Number(fin.balanceRemaining) : Number(fin.balance ?? 0) / 100_000;
+    await recordAudit({ event: 'market_topup', order_id: init.orderId, mandate_id: mandateId, balance_added: added, ...(payWithUsdc ? { rail: 'usdc' } : {}) });
     return {
       success: true,
-      raw: `+${added.toLocaleString()} Units · balance ${Number(fin.balance ?? 0).toLocaleString()} Units`,
+      raw: `+$${added.toFixed(2)} Balance · balance $${after.toFixed(2)}`,
     };
   } catch (err: any) {
     return { success: false, error: err?.message || 'topup failed' };
