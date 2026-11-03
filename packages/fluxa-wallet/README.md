@@ -47,7 +47,7 @@ fluxa-wallet <command> --help     # full options for any command
 | `mandate-create` | Create an intent mandate (`--desc`, `--amount`; `--currency CARD_USD` plus merchant flags for a linked-card mandate; `--wait <seconds>` prints the link, then blocks until signed) |
 | `mandate-status` | Query a mandate by id (`--id`); `--wait <seconds>` blocks until signed, rejected or expired |
 
-#### Waiting for a mandate signature (`--wait`, 0.5.4+)
+#### Waiting for a mandate signature (`--wait`, 0.5.6+)
 
 `mandate-create` and `mandate-status` take `--wait <seconds>` (1 to 900). The
 command keeps polling until the mandate is `signed`, `rejected` or `expired`,
@@ -275,8 +275,8 @@ npm whoami --registry https://registry.npmjs.org
 # If not logged in:
 npm login --registry https://registry.npmjs.org
 npm publish --access public --registry https://registry.npmjs.org
-npm view @fluxa-pay/fluxa-wallet@0.5.4 version --registry https://registry.npmjs.org
-npm install -g @fluxa-pay/fluxa-wallet@0.5.4 --registry https://registry.npmjs.org
+npm view @fluxa-pay/fluxa-wallet@0.5.6 version --registry https://registry.npmjs.org
+npm install -g @fluxa-pay/fluxa-wallet@0.5.6 --registry https://registry.npmjs.org
 fluxa-wallet --version
 fluxa-wallet card create --help
 ```

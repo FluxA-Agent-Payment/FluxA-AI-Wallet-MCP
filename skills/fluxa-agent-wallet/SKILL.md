@@ -6,7 +6,7 @@ description: >-
 
 # FluxA Agent Wallet
 
-**Skill version: 0.5.6** | **CLI version: @fluxa-pay/fluxa-wallet@0.5.4 or newer** — **MUST** install or update to the latest CLI version before use.
+**Skill version: 0.5.6** | **CLI version: @fluxa-pay/fluxa-wallet@0.5.6 or newer** — **MUST** install or update to the latest CLI version before use.
 
 FluxA Agent Wallet is a co-wallet that allows AI agents to securely use a user’s wallet, enabling them to perform payment-related actions within the user’s approved scope. Capabilities include x402 payments, USDC transfers, agent-to-agent transfers, payment links for receiving payments, prepaid virtual cards, AI social gifting, discovering and calling x402 resources (one-shot APIs), and using payment-related skills (one-shot skills). Use this tool when the user the user asks to perform any of these payment-related actions.
 
@@ -24,7 +24,7 @@ FluxA Agent Wallet is a co-wallet that allows AI agents to securely use a user�
 
 ```bash
 npm install -g @fluxa-pay/fluxa-wallet@latest
-fluxa-wallet --version              # must be 0.5.4 or newer
+fluxa-wallet --version              # must be 0.5.6 or newer
 ```
 
 Then run commands directly:
@@ -330,7 +330,7 @@ For FLUXA_MONETIZE_CREDITS, amounts are in the credits' smallest unit as defined
 | `plan-tool-use` | (task arg) | Recommend the models, APIs, and skills for a task |
 | `market search` | (query arg) | Discover APIs, models, and skills (`--models` or `--vendors` to scope) |
 | `market model remainingUsage` | (none) | The account's prepaid Balance ($1 = 1 Balance) |
-| `market model topup` | (none) | Top up the Balance via x402: `--bundle <slug>` (mini, starter, mid, pro) or `--amount <dollars>` ($1 to $1,000, CLI 0.5.4+); `--mandate <id>` reuses an approved mandate and its currency. Otherwise `--credit` (default) or `--usdc` creates a new mandate for user approval. Explicit currency flags must match a reused mandate |
+| `market model topup` | (none) | Top up the Balance via x402: `--bundle <slug>` (mini, starter, mid, pro) or `--amount <dollars>` ($1 to $1,000, CLI 0.5.6+); `--mandate <id>` reuses an approved mandate and its currency. Otherwise `--credit` (default) or `--usdc` creates a new mandate for user approval. Explicit currency flags must match a reused mandate |
 | `market model usageHistory` | (none) | Spend and topup history |
 | `market keys create` | (none) | Mint an `fxa_live_` API key (`--name`, `--limit <Balance>` optional) |
 | `market keys list` | (none) | List your `fxa_live_` keys |

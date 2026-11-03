@@ -17,7 +17,7 @@ import { registerDeletePaymentLinkTool } from './tools/deletePaymentLink.js';
 export async function startMcpServer() {
   const server = new McpServer({
     name: 'fluxa-ai-wallet-mcp',
-    version: '0.3.0',
+    version: '0.5.6',
     capabilities: {
       tools: {},
     },
