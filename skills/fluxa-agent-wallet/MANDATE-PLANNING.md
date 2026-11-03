@@ -21,11 +21,12 @@ A one-off action with a known, fixed cost.
 **Examples:**
 - Single USDC transfer
 - Pay one payment link
-- One API call with known price
 
 **Strategy:** 
 1. Request the exact cost. Do not add buffer — the user should see the actual amount being spent.
 2. Ask or suggest to the user whether a long term budget should be set up, so repeated approvals are not needed and you can complete related tasks autonomously.
+
+Paid x402 API calls (including FluxA AgentMarket APIs) are not Type 1, even a single call: request a budget for at least 100 calls, as in SKILL.md "Common Flow: Paying to x402 APIs".
 
 ### Type 2 — Multi-Step Workflow
 
@@ -49,17 +50,35 @@ A task the user will repeat regularly or that the agent expects to do again.
 
 **Strategy:** Create a reusable mandate with longer validity (`--seconds`, e.g., 7 days = 604800, 30 days = 2592000), covering expected usage over the period.
 
+## Payment Message Format
+
+When a new mandate is needed, create it right away and send the user exactly this, and nothing else:
+
+```
+{Provider} charges ${unit_price} per {unit}. This task needs about ${estimate}.
+Approve a ${budget} budget (valid {duration}): {authorizationUrl}
+I'll continue as soon as you approve.
+```
+
+`{duration}` is 7 days for a short-term task. For a background or recurring task, or when the user asks for a long-term budget, use the Type 3 validity (e.g. 30 days) and size the budget for the expected usage over that period.
+
+Then wait for the signature yourself (`fluxa-wallet mandate-status --id <mandateId> --wait 100`, see [X402-PAYMENT.md](X402-PAYMENT.md)). Don't ask "may I spend?" first, and don't ask the user to reply "done". A call that fails before settling keeps its price reserved on the mandate for about 6 minutes, by design; the 100-call budget absorbs it.
+
 ## Mandate Reuse Protocol
 
 **MUST check for reusable mandates before creating a new one.**
 
-Check these two sources:
+Check these sources:
 
 ### Source 1 — Current Conversation Context
 
 Check if any mandate has already been created or used in the current conversation. If a mandateId is available in context and was recently signed, verify it's still valid before creating a new one.
 
-### Source 2 — Local State File
+### Source 2 — The wallet
+
+Run `fluxa-wallet mandates`. It lists this agent's mandates with limit / spent / remaining, across conversations.
+
+### Source 3 — Local State File
 
 Read `~/.fluxa-ai-wallet-mcp/mandates.json` and look for a mandate where:
 - `status` is `"signed"`
@@ -69,7 +88,7 @@ Read `~/.fluxa-ai-wallet-mcp/mandates.json` and look for a mandate where:
 
 If a match is found, query its latest status via `mandate-status --id <mandateId>` to confirm it's still valid and has sufficient remaining budget. If confirmed → **reuse it**.
 
-If no match from either source → create a new mandate.
+If no source has a match → create a new mandate.
 
 ## Mandate State Persistence
 

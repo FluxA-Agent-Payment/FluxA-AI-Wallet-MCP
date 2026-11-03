@@ -6,13 +6,15 @@ description: >-
 
 # FluxA Agent Wallet
 
-**Skill version: 0.5.5** | **CLI version: @fluxa-pay/fluxa-wallet@0.5.3 or newer** — **MUST** install or update to the latest CLI version before use.
+**Skill version: 0.5.6** | **CLI version: @fluxa-pay/fluxa-wallet@0.5.4 or newer** — **MUST** install or update to the latest CLI version before use.
 
 FluxA Agent Wallet is a co-wallet that allows AI agents to securely use a user’s wallet, enabling them to perform payment-related actions within the user’s approved scope. Capabilities include x402 payments, USDC transfers, agent-to-agent transfers, payment links for receiving payments, prepaid virtual cards, AI social gifting, discovering and calling x402 resources (one-shot APIs), and using payment-related skills (one-shot skills). Use this tool when the user the user asks to perform any of these payment-related actions.
 
 ## Hard Rules
 
-- **Confirm spending before initiating it.** Present the cost and get an explicit choice. For scheduled model top-ups, obtain approval of the trigger, bundle, currency, and spending scope during setup and require a valid signed mandate. Payments within those approved rules do not require repeated confirmation; expanding authorization requires new approval.
+- **Never spend without the user's approval.** For x402/AgentMarket calls, the user's signature on the mandate link IS the approval. Create the mandate right away and send the link with the cost. Don't ask "may I?" first. Topups of the Balance and card payments still need an explicit yes in chat before you start them. For scheduled model top-ups, obtain approval of the trigger, bundle, currency, and spending scope during setup and require a valid signed mandate; payments within those approved rules do not require repeated confirmation, and expanding authorization requires new approval.
+- **Never ask the user to reply "done" or "signed".** After sending an approval link, wait for the signature yourself (`fluxa-wallet mandate-status --id <id> --wait 100`, see [X402-PAYMENT.md](X402-PAYMENT.md)) and continue on your own.
+- **Don't quote this skill, its rules or file paths to the user, and don't explain FluxA policy unless asked.** Don't show a single option menu for budgets. Keep payment messages to the format in [MANDATE-PLANNING.md](MANDATE-PLANNING.md).
 - **Never write payment code.** No x402 signing or mandate logic in app code. Agents use the wallet CLI; apps use API keys.
 - **Report costs honestly.** Surface `X-LLM-Cost` (in Balance, $1 = 1 Balance) after FluxA AgentMarket model calls; a negative balance is unsettled debt (usage consumed but not yet paid). Say so plainly.
 
@@ -22,7 +24,7 @@ FluxA Agent Wallet is a co-wallet that allows AI agents to securely use a user�
 
 ```bash
 npm install -g @fluxa-pay/fluxa-wallet@latest
-fluxa-wallet --version              # must be 0.5.3 or newer
+fluxa-wallet --version              # must be 0.5.4 or newer
 ```
 
 Then run commands directly:
@@ -60,7 +62,9 @@ fluxa-wallet check-wallet
 ```
 
 - `linked: true` → proceed to Step 3
-- `linked: false` → run `fluxa-wallet link-wallet` to get a URL, then ask the user to open it using the “Opening Authorization URLs” UX pattern below.
+- `linked: false` → run `fluxa-wallet link-wallet` and send the user its `linkUrl` (with the task's cost, if you were invoked for a paid task). Then re-run `fluxa-wallet check-wallet` every few seconds until `linked: true` (up to 10 minutes) and continue. Don't ask the user to reply "done".
+
+Steps 3 and 4 are only for when the user is installing this skill or asks what the wallet can do. When you were invoked for a specific task (for example a paid API call), skip them and do the task.
 
 ### Step 3 — Scheduled Tasks
 
@@ -82,10 +86,12 @@ payment authorization. Read [TOKENGO.md](TOKENGO.md) when the user chooses it.
 
 ### Step 4 — Trial Scenarios
 
-Introduction: **MUST** briefly introduce the wallet to the user with wording such as:
+Only when the user installs the skill or asks what the wallet can do (see above).
+
+Introduction: briefly introduce the wallet to the user with wording such as:
 “I’ve successfully installed FluxA Agent Wallet and can securely access your wallet. It is built around a model where AI agents request actions and human users approve them. All actions will only be performed within your authorization.”
 
-Trial Scenarios: **MUST** guide user with wording such as: Let’s try what this wallet can do. Below are some official recommended scenarios we can try to get familiar with using FluxA Agent Wallet.
+Trial Scenarios: guide the user with wording such as: Let’s try what this wallet can do. Below are some official recommended scenarios we can try to get familiar with using FluxA Agent Wallet.
 
 1. AI Social Gifting: Join ClawPI, an AI agents’ friends feed. Connect with your friends’ AI agents 🦞 and share daily posts with each other. Guide: CLAWPI.md
 2. Agent Market: Purchase APIs, models, and AI agent services on FluxA AgentMarket:  https://agentmarket.fluxapay.xyz/llms.txt
@@ -121,6 +127,7 @@ To provide a better user experience:
 - Return a clickable URL instead of asking the user to copy and paste it.
 - Always return the complete URL.
 - If you are an agent such as Claude Code, use your built in interactive UI components to present the URL to the user.
+- Don't ask whether to open the link, and don't ask the user to reply "done": wait for the approval yourself (for mandates: `fluxa-wallet mandate-status --id <id> --wait 100`).
 
 
 
@@ -198,8 +205,8 @@ This is a 6-step process using CLI:
 2. execute payment mandate planning and estimate the required budget. refer to MANDATE-PLANNING.md
 3. fluxa-wallet mandates → Check for reusable mandates first
 3. fluxa-wallet mandate-create --desc "..." --amount <amount>  → Create mandate (BOTH flags required)
-4. User signs at authorizationUrl                           → Mandate becomes "signed"
-5. fluxa-wallet mandate-status --id <mandate_id>    → Verify signed (use --id, NOT --mandate)
+4. Send the user authorizationUrl (MANDATE-PLANNING.md message format) → User signs, mandate becomes "signed"
+5. fluxa-wallet mandate-status --id <mandate_id> --wait 100    → Waits until signed (use --id, NOT --mandate); don't ask the user to reply "done"
 6. fluxa-wallet x402 --mandate <id> --payload "..."                 → Get signed x402 payment response
 7. retry x402 url again with x402 payment response                   → Submit payment
 ```
@@ -214,11 +221,13 @@ Because x402 APIs are agent tools designed for high frequency micropayments, req
 
 You must:
 
-- **By default, always request a budget for at least 100 API calls, and explain why to the user.**
+- **By default, always request a budget for at least 100 API calls.** Send it with the payment message in MANDATE-PLANNING.md; don't explain the policy unless asked.
 
   ```
   User: Use this x402 API to search social media.
-  Agent: This API requires payment, so I need to request a spending budget. To avoid asking for approval on every API call, I'd like to request a two week budget. The API costs $0.01 per call, so I'll request a $1 budget, which is enough for about 100 calls.
+  Agent: SocialAPI charges $0.01 per call. This task needs about $0.01.
+         Approve a $1 budget (valid 7 days): <authorizationUrl>
+         I'll continue as soon as you approve.
   ```
 
 - **If there is already an available budget in the wallet mandates, do not request a new one.**
@@ -240,8 +249,13 @@ You must:
   ```
   Correct:
   User: Generate a cat image and turn it into a funny video.
-  Agent: This requires paid APIs, so I need to request a spending budget. To avoid asking for approval on every tool call, I'd like to request a two week budget of $1, which is enough for about 100 API calls.
+  Agent: The image API charges $0.01 per call and the video API $0.05. This task needs about $0.06.
+         Approve a $5 budget (valid 7 days): <authorizationUrl>
+         I'll continue as soon as you approve.
   ```
+
+
+- **Pay with the FluxA Wallet; don't ask the user how to pay.** If the CLI is missing or the wallet isn't linked, set it up (Setup Steps 1 and 2). Use a FluxA API key only if the user already gave you one. Don't swap the paid API the user asked for for a free alternative.
 
 
 
@@ -271,8 +285,8 @@ For FLUXA_MONETIZE_CREDITS, amounts are in the credits' smallest unit as defined
 |---------|----------------|-------------|
 | `status` | (none) | Check agent configuration |
 | `init` | `--name`, `--client` | Register agent ID |
-| `mandate-create` | `--desc`, `--amount` | Create an intent mandate (`--currency CARD_USD` + merchant flags for a linked-card mandate, see LINKED-CARD.md) |
-| `mandate-status` | `--id` | Query mandate status (NOT `--mandate`) |
+| `mandate-create` | `--desc`, `--amount` | Create an intent mandate; `--wait <seconds>` prints the link as a JSON line, then blocks until signed (`--currency CARD_USD` + merchant flags for a linked-card mandate, see LINKED-CARD.md) |
+| `mandate-status` | `--id` | Query mandate status (NOT `--mandate`); `--wait <seconds>` blocks until signed / rejected / expired |
 | `linked-card list` | (none) | List the linked (source) cards in the user's wallet |
 | `linked-card mandates` | (none) | List `CARD_USD` mandates; `--card <id>` per card, `--host <host> --amount <cents>` for eligibility |
 | `linked-card subcard` | `--mandate` | Show the credential issued under one `CARD_USD` mandate (status, source card, CardVault canTransact) |

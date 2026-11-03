@@ -79,21 +79,21 @@ fluxa-wallet mandate-create \
 
 **Opening the authorization URL** (see [SKILL.md](SKILL.md) — "Opening Authorization URLs"):
 
-1. Ask the user using `AskUserQuestion`:
-   - Question: "I need to open the authorization URL to sign the spending mandate."
-   - Options: ["Yes, open the link", "No, show me the URL"]
+1. Send the user the payment message from [MANDATE-PLANNING.md](MANDATE-PLANNING.md) with `authorizationUrl` as a clickable link. Don't ask "may I spend?" or whether to open the link: signing it is the approval.
 
-2. If YES: Run `open "<authorizationUrl>"` to open in their browser
+2. If you can open a browser for the user, also run `open "<authorizationUrl>"`.
 
-3. Wait for user to confirm they've signed (TTL: 10 minutes), then proceed to Step 2.
+3. Go straight to Step 2 in the same turn and wait there (TTL: 10 minutes). Don't ask the user to reply "done" or "signed".
 
 ## Step 2 — Check Mandate Status
 
 **Important:** Use `--id`, not `--mandate`:
 
 ```bash
-fluxa-wallet mandate-status --id mand_xxxxxxxxxxxxx
+fluxa-wallet mandate-status --id mand_xxxxxxxxxxxxx --wait 100
 ```
+
+`--wait` blocks until the mandate is `signed`, `rejected` or `expired` (exit code 0 only when signed). `100` is an example: pick a number of seconds that stays under your own command timeout (up to 900). If it ends with `"code": "wait_timeout"`, run it again, up to 10 minutes in total. If it is `rejected`, tell the user; if it `expired`, offer a fresh link.
 
 **Output:**
 
@@ -271,7 +271,7 @@ fi
 | `Invalid payload: missing accepts array` | Payload is incomplete or malformed | Pass the **complete** 402 payload including `accepts` array |
 | `Invalid --payload: not valid JSON or base64-encoded JSON` | Payload is neither valid JSON nor valid base64 | Check the payload string |
 | `Invalid v2 payload: missing resource.url` | v2 payload missing `resource.url` object | Ensure the v2 payload has `resource: { url: "..." }` |
-| `mandate_not_signed` | User hasn't signed yet | Ask user to open `authorizationUrl` |
+| `mandate_not_signed` | User hasn't signed yet | Wait with `mandate-status --id <id> --wait 100` (Step 2) |
 | `mandate_expired` | Time window passed | Create a new mandate |
 | `mandate_budget_exceeded` | Budget exhausted | Create a new mandate with higher limit |
 | `mandate_insufficient_budget` | Payment amount exceeds remaining budget | Create a new mandate with higher limit |

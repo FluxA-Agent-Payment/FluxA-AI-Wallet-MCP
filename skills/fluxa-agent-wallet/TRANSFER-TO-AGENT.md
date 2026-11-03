@@ -53,13 +53,14 @@ Quick reference:
 
 ```
 0. curl -s "$UPL_URL"                                    → Get 402 payload
-1. execute payment mandate planning and estimate the required budget. refer to MANDATE-PLANNING.md
-2. mandate-create --desc "..." --amount <amount>         → Create mandate
-3. User signs at authorizationUrl                        → Mandate becomes "signed"
-4. mandate-status --id <mandate_id>                      → Verify signed
-5. x402 --mandate <id> --payload "$PAYLOAD"               → Get xPaymentB64
-6. curl -H "X-Payment: <token>" "$UPL_URL"              → Submit payment
+1. Size the mandate (MANDATE-PLANNING.md: exact amount for a one-off transfer); reuse one from `mandates` if it fits
+2. mandate-create --desc "..." --amount <amount>         → Create mandate, send the user authorizationUrl
+3. mandate-status --id <mandate_id> --wait 100           → Blocks until signed; re-run on wait_timeout (max 10 min)
+4. x402 --mandate <id> --payload "$PAYLOAD"               → Get xPaymentB64
+5. curl -H "X-Payment: <token>" "$UPL_URL"              → Submit payment
 ```
+
+Don't ask the user to reply "done" or "signed" after sending the link: step 3 detects the signature on its own.
 
 ## UPL Error Responses
 

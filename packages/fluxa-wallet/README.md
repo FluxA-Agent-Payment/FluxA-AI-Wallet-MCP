@@ -44,8 +44,23 @@ fluxa-wallet <command> --help     # full options for any command
 |---------|-------------|
 | `x402` | Execute an x402 payment (delegates to v3; `--mandate`, `--payload`) |
 | `x402-v3` | Execute an x402 v2/v3 payment (`--mandate`, `--payload`) |
-| `mandate-create` | Create an intent mandate (`--desc`, `--amount`; `--currency CARD_USD` plus merchant flags for a linked-card mandate) |
-| `mandate-status` | Query a mandate by id (`--id`) |
+| `mandate-create` | Create an intent mandate (`--desc`, `--amount`; `--currency CARD_USD` plus merchant flags for a linked-card mandate; `--wait <seconds>` prints the link, then blocks until signed) |
+| `mandate-status` | Query a mandate by id (`--id`); `--wait <seconds>` blocks until signed, rejected or expired |
+
+#### Waiting for a mandate signature (`--wait`, 0.5.4+)
+
+`mandate-create` and `mandate-status` take `--wait <seconds>` (1 to 900). The
+command keeps polling until the mandate is `signed`, `rejected` or `expired`,
+then prints the final state. Before, agents had to poll with their own script.
+
+```bash
+fluxa-wallet mandate-status --id mand_xxx --wait 100   # exit 0 only when signed
+```
+
+Exit code is 0 only when signed. Otherwise `code` is `wait_timeout` (still
+pending; run it again), `mandate_rejected` or `mandate_expired`.
+`mandate-create --wait` first prints `{"event":"authorization_required","mandateId":…,"authorizationUrl":…}`
+as one JSON line, so the link can be shown before it blocks. Not for `CARD_USD`.
 
 ### AgentMarket model Units
 
@@ -260,8 +275,8 @@ npm whoami --registry https://registry.npmjs.org
 # If not logged in:
 npm login --registry https://registry.npmjs.org
 npm publish --access public --registry https://registry.npmjs.org
-npm view @fluxa-pay/fluxa-wallet@0.5.3 version --registry https://registry.npmjs.org
-npm install -g @fluxa-pay/fluxa-wallet@0.5.3 --registry https://registry.npmjs.org
+npm view @fluxa-pay/fluxa-wallet@0.5.4 version --registry https://registry.npmjs.org
+npm install -g @fluxa-pay/fluxa-wallet@0.5.4 --registry https://registry.npmjs.org
 fluxa-wallet --version
 fluxa-wallet card create --help
 ```
