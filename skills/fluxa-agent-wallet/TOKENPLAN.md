@@ -1,11 +1,11 @@
 # Token Plan
 
 A Token Plan is a month of model calls on one flat allowance, bought once. It is
-the alternative to prepaid Units: Units meter every call against the account's
-balance, a plan does not meter at all until the allowance runs out.
+the alternative to the prepaid Balance: the Balance is charged for every call,
+a plan does not meter at all until the allowance runs out.
 
 Reach for a plan when the user wants predictable monthly cost or is calling one
-provider steadily. Reach for Units when usage is occasional or spread across
+provider steadily. Reach for the Balance when usage is occasional or spread across
 providers.
 
 **A plan key is the PROVIDER's key, not a FluxA key.** It is used against the

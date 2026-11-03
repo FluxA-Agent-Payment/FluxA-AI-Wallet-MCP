@@ -40,8 +40,8 @@ Run `fluxa-wallet <command> --help` for the full option list of any command.
 
 | Command | Description |
 |---------|-------------|
-| `mandate-create` | Create an intent mandate (`--desc`, `--amount`; `--currency CARD_USD` plus merchant flags for a linked-card mandate) |
-| `mandate-status` | Query a mandate by id (`--id`) |
+| `mandate-create` | Create an intent mandate (`--desc`, `--amount`; `--currency CARD_USD` plus merchant flags for a linked-card mandate; `--wait <seconds>` prints the link, then blocks until signed) |
+| `mandate-status` | Query a mandate by id (`--id`); `--wait <seconds>` blocks until signed, rejected or expired |
 | `x402` / `x402-v3` | Execute an x402 payment (`--mandate`, `--payload`) |
 | `linked-card list` | List the linked (source) cards in the user's wallet (`--limit`, `--cursor`) |
 | `linked-card mandates` | List `CARD_USD` mandates: all, per card (`--card`), or eligible for an amount (`--host`, `--amount`) |
