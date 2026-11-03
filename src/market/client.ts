@@ -349,8 +349,8 @@ ${c.bold('market')} ${c.dim('— what you\'re working with')}
   ${c.bold('Prepaid model Units')}
     ${c.cyan('market model remainingUsage')}                shared balance and recent burn rate
     ${c.cyan('market model usageHistory')}                  spend and topup history
-    ${c.cyan('market model topup [--bundle <slug>] [--credit | --usdc] [--mandate <id>]')}
-      buy Units: starter (default), mid, or pro; Credits (default) or Base USDC
+    ${c.cyan('market model topup [--bundle <slug> | --amount <usd>] [--credit | --usdc] [--mandate <id>]')}
+      buy Units: a bundle (mini, starter (default), mid, pro) or $1 to $1,000; Credits (default) or Base USDC
       --mandate reuses a signed budget and its currency; otherwise user approval is required
 
   ${c.bold('API keys')} (Agent VC required)
@@ -383,7 +383,7 @@ ${c.bold('Units & credits')}
   1 Unit = $0.00001 (USD).  100,000 Units = $1 = 1 Monetize Credit (MC).
   · Per-call API/skill prices are quoted in USD; model rates in Units per 1M tokens.
   · Your prepaid Units balance is ${c.bold('shared across providers')}.
-  · Topups use fixed bundles: ${c.cyan('--bundle starter|mid|pro')} (default: starter).
+  · Topups buy a bundle (${c.cyan('--bundle mini|starter|mid|pro')}, default starter) or any amount (${c.cyan('--amount 12.50')}, $1 to $1,000).
   · Use ${c.cyan('--credit')} (default) for Monetize Credits or ${c.cyan('--usdc')} for Base USDC; 1 MC grants 100,000 Units.
 `,
   auth: () => `
@@ -477,7 +477,7 @@ function cmdInfo(topic?: string): string {
 // using its own proven primitives; these helpers only talk to the proxy.
 // The Units catalogue, universal across merchants. Used for the default and
 // for the error hint; the server is the authority and 404s an unknown slug.
-export const TOPUP_BUNDLES = ['starter', 'mid', 'pro'] as const;
+export const TOPUP_BUNDLES = ['mini', 'starter', 'mid', 'pro'] as const;
 export const DEFAULT_BUNDLE = 'starter';
 
 export interface TopupChallenge {
@@ -490,17 +490,18 @@ export interface TopupChallenge {
 
 // POST /llm/topup/initiate (authed). On success it answers HTTP 402 with the
 // x402 challenge — so unlike http(), we tolerate 402 instead of throwing.
-export async function topupInitiate(opts: { bundle?: string } = {}): Promise<TopupChallenge> {
+export async function topupInitiate(opts: { bundle?: string; amount?: string } = {}): Promise<TopupChallenge> {
   // No vendorSlug. Units are one balance per account; the server resolves which
   // provider the purchase is booked against, which is bookkeeping the caller
   // has no way to choose sensibly.
   //
-  // Always a bundle. /initiate also accepts a free-form costCredits, but it is
-  // the only rail that does -- the paylink, card and Stripe routes all demand a
-  // packageSlug because an arbitrary amount has no SKU behind it. Bundles grant
-  // at the same flat rate as that path, so buying off-catalogue bought nothing
-  // except a top-up the other rails could never repeat.
-  const body: any = { packageSlug: opts.bundle || DEFAULT_BUNDLE };
+  // A bundle, or a custom dollar amount. Every rail (FluxA checkout, Stripe,
+  // this x402 one) sells both, at the same $1 = 100,000 Units rate and the same
+  // $1 to $1,000 limits, which the server enforces. The amount is sent as the
+  // string typed so no float rounding changes what the user asked for.
+  const body: any = opts.amount !== undefined
+    ? { amount: opts.amount }
+    : { packageSlug: opts.bundle || DEFAULT_BUNDLE };
   let res: Response;
   try {
     res = await fetch(`${PROXY}/llm/topup/initiate`, {
