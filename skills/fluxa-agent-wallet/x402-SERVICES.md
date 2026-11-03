@@ -123,7 +123,7 @@ fluxa-wallet market model topup --bundle starter --mandate mand_xxx
 
 Pick `--bundle mini|starter|mid|pro` ($1/$5/$10/$25, default: starter), or
 `--amount <dollars>` ($1 to $1,000). This x402 command supports USDC on Base only.
-Card payments use the separate linked-card checkout flow. Credits are not supported.
+Card payments use the separate linked-card checkout flow.
 With `--mandate`, reuse a signed USDC mandate. Invalid, non-USDC, or insufficient
 mandates fail without creating another mandate. Without `--mandate`, the CLI
 creates a new USDC mandate and waits for approval.

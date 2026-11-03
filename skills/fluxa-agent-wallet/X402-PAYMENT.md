@@ -154,7 +154,7 @@ fluxa-wallet x402 \
 - Raw JSON: `'{"accepts":[...]}'` (v1) or `'{"x402Version":2,"resource":{...},"accepts":[...]}'` (v2)
 - Base64: `'eyJ4NDAyVmVyc2lvbi...'` (e.g. raw `PAYMENT-REQUIRED` header value)
 
-**Currency matching:** CLI x402 payments require a USDC mandate and a USDC-on-Base offer. Credits mandates are rejected. For v2, only USDC offers are sent to the server, including when the request is base64-encoded.
+**Currency matching:** CLI x402 payments require a USDC mandate and a USDC-on-Base offer. For v2, only USDC offers are sent to the server, including when the request is base64-encoded.
 
 **Critical:** Do NOT extract individual fields. Pass the entire 402 payload:
 
