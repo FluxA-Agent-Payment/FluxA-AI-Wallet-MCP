@@ -13,7 +13,7 @@ agent pays a WPE payment attempt with `headless-checkout`.
   mandates you already hold.
 
 Not for: prepaid agent cards (`fluxa-wallet card ...`), x402 API payments
-(`mandate-create` with USDC / credits + `x402`).
+(`mandate-create` with USDC + `x402`).
 
 ## Hard rules
 

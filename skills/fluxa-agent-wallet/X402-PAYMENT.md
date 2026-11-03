@@ -60,7 +60,7 @@ fluxa-wallet mandate-create \
 | `--amount` | Yes | — | Budget limit in atomic units |
 | `--seconds` | No | `28800` (8h) | Validity duration in seconds |
 | `--category` | No | `general` | Category tag |
-| `--currency` | No | `USDC` | Currency. Supported: `USDC`, `XRP`, `FLUXA_MONETIZE_CREDITS` (aliases: `credits`, `fluxa-monetize-credits`) |
+| `--currency` | No | `USDC` | Currency for x402: `USDC` only. Card payments use `CARD_USD` with linked-card commands |
 
 **Output:**
 
@@ -154,7 +154,7 @@ fluxa-wallet x402 \
 - Raw JSON: `'{"accepts":[...]}'` (v1) or `'{"x402Version":2,"resource":{...},"accepts":[...]}'` (v2)
 - Base64: `'eyJ4NDAyVmVyc2lvbi...'` (e.g. raw `PAYMENT-REQUIRED` header value)
 
-**Currency matching (v1 only):** The CLI automatically selects the `accepts` entry that matches the mandate's currency. If the 402 response contains multiple entries (e.g., USDC + FLUXA_MONETIZE_CREDITS), only the one matching the mandate currency is used. For v2, asset selection is handled by the server.
+**Currency matching:** CLI x402 payments require a USDC mandate and a USDC-on-Base offer. Credits mandates are rejected. For v2, only USDC offers are sent to the server, including when the request is base64-encoded.
 
 **Critical:** Do NOT extract individual fields. Pass the entire 402 payload:
 

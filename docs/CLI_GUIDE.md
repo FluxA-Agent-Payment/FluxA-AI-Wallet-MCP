@@ -359,6 +359,7 @@ fluxa-wallet mandates
 # top-ups / grants / redeems and received payment-link payments.
 fluxa-wallet recent-transactions --limit 50
 
+# CLI payments support Card (CARD_USD) and USDC only; legacy balances/history remain readable.
 # CLI version
 fluxa-wallet --version    # or: -v, or: fluxa-wallet version
 ```

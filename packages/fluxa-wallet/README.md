@@ -62,7 +62,7 @@ pending; run it again), `mandate_rejected` or `mandate_expired`.
 `mandate-create --wait` first prints `{"event":"authorization_required","mandateId":…,"authorizationUrl":…}`
 as one JSON line, so the link can be shown before it blocks. Not for `CARD_USD`.
 
-### AgentMarket model Units
+### AgentMarket model Balance
 
 ```bash
 fluxa-wallet market model remainingUsage
@@ -73,12 +73,12 @@ fluxa-wallet market model topup --bundle starter --usdc
 fluxa-wallet market model topup --bundle starter --mandate mand_xxx
 ```
 
-With `--mandate`, the payment currency follows the mandate (USDC or Monetize
-Credits). An explicit `--usdc` or `--credit` must match it. The command checks
-mandate status, validity, and remaining allowance; the wallet enforces the
-payment authorization. Invalid mandates fail without creating a replacement.
-`--budget` and `--seconds` apply only to new mandates and cannot be combined
-with `--mandate`. Without `--mandate`, the default remains Monetize Credits.
+Model top-ups pay with USDC on Base by default; `--usdc` is optional.
+With `--mandate`, reuse a signed USDC mandate. The command checks status,
+validity, and remaining allowance; invalid or non-USDC mandates fail without
+creating a replacement. `--budget` and `--seconds` apply only to new mandates.
+CLI payments support Card and USDC only. Credits payment flags and mandates
+are rejected. Card purchases use the linked-card checkout commands.
 
 For scheduled top-ups, obtain approval of the trigger, bundle, currency, and
 spending scope first. A mandate alone does not authorize unrelated purchases.
@@ -275,8 +275,8 @@ npm whoami --registry https://registry.npmjs.org
 # If not logged in:
 npm login --registry https://registry.npmjs.org
 npm publish --access public --registry https://registry.npmjs.org
-npm view @fluxa-pay/fluxa-wallet@0.5.6 version --registry https://registry.npmjs.org
-npm install -g @fluxa-pay/fluxa-wallet@0.5.6 --registry https://registry.npmjs.org
+npm view @fluxa-pay/fluxa-wallet@0.5.7 version --registry https://registry.npmjs.org
+npm install -g @fluxa-pay/fluxa-wallet@0.5.7 --registry https://registry.npmjs.org
 fluxa-wallet --version
 fluxa-wallet card create --help
 ```

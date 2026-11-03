@@ -113,25 +113,20 @@ fluxa-wallet market model remainingUsage
 # Spending history
 fluxa-wallet market model usageHistory
 
-# Top up after user confirmation (creates a new mandate)
-fluxa-wallet market model topup --credit  # pays with Monetize Credits (default)
-fluxa-wallet market model topup --usdc    # pays with on-chain USDC on Base
+# Top up after user confirmation (creates a new USDC mandate)
+fluxa-wallet market model topup           # pays with USDC on Base by default
+fluxa-wallet market model topup --usdc    # explicit equivalent
 
-# Reuse a signed mandate within the user-approved scope
+# Reuse a signed USDC mandate within the user-approved scope
 fluxa-wallet market model topup --bundle starter --mandate mand_xxx
 ```
 
-Pick the tier with `--bundle <slug>`: `starter` (5 MC), `mid` (10), `pro` (25). Defaults to `starter`.
-
-With `--credit` (or no currency flag), `topup` spends **Monetize Credits** the wallet already holds. With
-`--usdc` it pays the same topup order with on-chain USDC on Base instead; the
-topup 402 offers that rail when the deployment accepts USDC. Either way it is
-the x402 rail, written out at
-`https://agentmarket.fluxapay.xyz/marketplace/models/agent-topup.md`.
-`--credit` and `--usdc` are mutually exclusive.
-With `--mandate`, the currency follows the mandate; explicit currency flags
-must match it. Invalid or insufficient mandates fail without creating another
-mandate. Without `--mandate`, the CLI creates a new mandate and waits for approval.
+Pick `--bundle mini|starter|mid|pro` ($1/$5/$10/$25, default: starter), or
+`--amount <dollars>` ($1 to $1,000). This x402 command supports USDC on Base only.
+Card payments use the separate linked-card checkout flow. Credits are not supported.
+With `--mandate`, reuse a signed USDC mandate. Invalid, non-USDC, or insufficient
+mandates fail without creating another mandate. Without `--mandate`, the CLI
+creates a new USDC mandate and waits for approval.
 
 **Confirm one-off top-ups with the user first.** Scheduled top-ups within the
 user's approved trigger, bundle, currency, and spending scope can reuse a signed

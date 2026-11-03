@@ -381,9 +381,9 @@ ${c.bold('market')} ${c.dim('— what you\'re working with')}
   ${c.bold('Prepaid model Balance')}
     ${c.cyan('market model remainingUsage')}                shared balance and recent burn rate
     ${c.cyan('market model usageHistory')}                  spend and topup history
-    ${c.cyan('market model topup [--bundle <slug> | --amount <usd>] [--credit | --usdc] [--mandate <id>]')}
-      top up Balance: a bundle (mini, starter (default), mid, pro) or $1 to $1,000; wallet balance (default) or Base USDC
-      --mandate reuses a signed budget and its currency; otherwise user approval is required
+    ${c.cyan('market model topup [--bundle <slug> | --amount <usd>] [--usdc] [--mandate <id>]')}
+      top up Balance: a bundle (mini, starter (default), mid, pro) or $1 to $1,000; Base USDC only (default)
+      --mandate reuses a signed USDC budget; otherwise user approval is required
 
   ${c.bold('API keys')} (Agent VC required)
     ${c.cyan('market keys list')}                           list keys (alias: ${c.cyan('market keys')})
@@ -412,11 +412,11 @@ ${c.bold('market')} ${c.dim('— what you\'re working with')}
 `,
   balance: () => `
 ${c.bold('Balance')}
-  $1 = 1 Balance, whether you pay from the FluxA wallet or in USDC.
+  $1 = 1 Balance. Topups through this command pay in USDC on Base.
   · API prices and model rates are in dollars (model rates per 1M tokens), paid from the Balance.
   · Your Balance is ${c.bold('shared across providers')}.
   · Topups buy a bundle (${c.cyan('--bundle mini|starter|mid|pro')}, default starter) or any amount (${c.cyan('--amount 12.50')}, $1 to $1,000).
-  · Use ${c.cyan('--credit')} (default) to pay from the FluxA wallet's balance or ${c.cyan('--usdc')} for Base USDC.
+  · Topups pay in Base USDC by default; ${c.cyan('--usdc')} is optional. Card checkout is a separate flow.
 `,
   auth: () => `
 ${c.bold('Auth')}
@@ -459,10 +459,9 @@ ${c.bold('Models — shared prepaid Units')}
     ${c.cyan('fluxa-wallet market search --vendors')}         list model providers
     ${c.cyan('fluxa-wallet market model remainingUsage')}     shared balance and recent burn rate
     ${c.cyan('fluxa-wallet market model usageHistory')}       spend and topup history
-    ${c.cyan('fluxa-wallet market model topup --bundle starter --credit')}   fund the shared balance
-  Bundles: starter (default), mid, pro. Choose --credit (default) or --usdc for
-  Base USDC; the flags are mutually exclusive. Add --mandate <id> to reuse an
-  approved budget; its currency is used unless an explicit matching flag is given.
+    ${c.cyan('fluxa-wallet market model topup --bundle starter')}   fund the shared balance
+  Bundles: mini, starter (default), mid, pro; or use --amount <dollars>.
+  Pays in Base USDC by default. Add --mandate <id> to reuse an approved USDC budget.
   Without --mandate, open the authorization link and approve the new mandate.
   Only spend within the user-approved scope.
 `,

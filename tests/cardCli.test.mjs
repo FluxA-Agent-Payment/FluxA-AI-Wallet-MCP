@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 
 const cli = fileURLToPath(new URL('../packages/fluxa-wallet/bin/fluxa-wallet.js', import.meta.url));
 const jwt = `e30.${Buffer.from(JSON.stringify({ exp: 4102444800 })).toString('base64url')}.test`;
+const usdcPayment = { x402Version: 2, accepts: [{ scheme: 'exact', network: 'eip155:8453', asset: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', amount: '25000000' }] };
 const card = { id: 'card_1', cardTypeId: null, status: 'active' };
 const profile = { firstName: 'Alice', lastName: 'Example', email: 'alice@example.com', phone: '+14155550123', address: { country: 'US', city: 'San Francisco', line1: '1 Example St', postalCode: '94105' } };
 
@@ -30,6 +31,7 @@ test('bundled CLI uses v2 contracts and keeps existing commands compatible', asy
         return res.end(JSON.stringify({ vc: 'test-vc' }));
       }
       if (req.url.startsWith('/api/v2/') && req.url !== '/api/v2/payment/x402-payment') assert.equal(req.headers.authorization, 'Bearer test-vc');
+      if (req.url === '/api/mandates/agent/mand_test') return res.end(JSON.stringify({ status: 'ok', mandate: { currency: 'USDC' } }));
       const result = handler(call);
       res.statusCode = result.status || 200;
       res.end(JSON.stringify(result.body));
@@ -102,7 +104,7 @@ test('bundled CLI uses v2 contracts and keeps existing commands compatible', asy
   });
 
   await t.test('resume signs the fetched payment request and completes the same issue request', async () => {
-    const paymentRequest = { x402Version: 2, accepts: [{ amount: '25000000' }] };
+    const paymentRequest = usdcPayment;
     handler = call => {
       if (call.path === '/api/v2/cards/requests/req_1') return { body: { pendingRequestId: 'req_1', requestType: 'issue', status: 'pending_payment', paymentRequest } };
       if (call.path === '/api/v2/payment/x402-payment') {
@@ -116,12 +118,12 @@ test('bundled CLI uses v2 contracts and keeps existing commands compatible', asy
     const result = await run('card', 'create', '--request-id', 'req_1', '--mandate', 'mand_test', '--wait', '0');
     assert.equal(result.code, 0);
     assert.deepEqual(result.data, card);
-    assert.deepEqual(businessCalls().map(call => call.path), ['/api/v2/cards/requests/req_1', '/api/v2/payment/x402-payment', '/api/v2/cards/complete']);
+    assert.deepEqual(businessCalls().map(call => call.path), ['/api/v2/cards/requests/req_1', '/api/mandates/agent/mand_test', '/api/v2/payment/x402-payment', '/api/v2/cards/complete']);
   });
 
   await t.test('resume recharge infers its original card and returns 202 as business state', async () => {
     handler = call => {
-      if (call.path === '/api/v2/cards/requests/req_load') return { body: { pendingRequestId: 'req_load', requestType: 'recharge', cardId: 'card_1', status: 'pending_payment', paymentRequest: { x402Version: 2 } } };
+      if (call.path === '/api/v2/cards/requests/req_load') return { body: { pendingRequestId: 'req_load', requestType: 'recharge', cardId: 'card_1', status: 'pending_payment', paymentRequest: usdcPayment } };
       if (call.path === '/api/v2/payment/x402-payment') return { body: { status: 'ok', paymentPayloadB64: 'signed-payload' } };
       assert.equal(call.path, '/api/v2/cards/card_1/recharge/complete');
       assert.equal(call.body.pendingRequestId, 'req_load');
@@ -138,7 +140,7 @@ test('bundled CLI uses v2 contracts and keeps existing commands compatible', asy
     handler = call => {
       if (call.path === '/api/v2/cards/card_1/recharge/initiate') {
         assert.deepEqual(call.body, { amountUsd: '10.00' });
-        return { body: { pendingRequestId: 'req_load', status: 'pending_payment', paymentRequest: { x402Version: 2 } } };
+        return { body: { pendingRequestId: 'req_load', status: 'pending_payment', paymentRequest: usdcPayment } };
       }
       if (call.path === '/api/v2/payment/x402-payment') return { body: { status: 'ok', paymentPayloadB64: 'signed-payload' } };
       assert.equal(call.path, '/api/v2/cards/card_1/recharge/complete');

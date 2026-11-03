@@ -32,7 +32,8 @@ test('model topup reuses approved mandates without requesting another authorizat
         result = { status: 'ok', mandateId: 'mand_new', authorizationUrl: 'https://example.com/approve' };
       } else if (req.url === '/api/payment/x402V3Payment') {
         assert.equal(body.currency, mandate.currency);
-        assert.equal(body.amount, mandate.currency === 'USDC' ? '5000000' : '500');
+        assert.equal(body.currency, 'USDC');
+        assert.equal(body.amount, '5000000');
         result = paymentResult;
       } else if (req.url === '/llm/topup/order_test/finalize') {
         assert.equal(req.headers['x-payment'], 'test-payment');
@@ -80,11 +81,11 @@ test('model topup reuses approved mandates without requesting another authorizat
   const payments = () => calls.filter(c => c.path === '/api/payment/x402V3Payment');
   const creations = () => calls.filter(c => c.path === '/api/mandates/create-intent');
 
-  for (const currency of ['USDC', 'FLUXA_MONETIZE_CREDITS']) {
+  for (const currency of ['USDC']) {
     for (const explicit of [false, true]) {
       await t.test(`reuse ${currency}, explicit currency: ${explicit}`, async () => {
         reset(currency);
-        const result = await run('--bundle', 'starter', '--mandate', 'mand_test', ...(explicit ? [currency === 'USDC' ? '--usdc' : '--credit'] : []));
+        const result = await run('--bundle', 'starter', '--mandate', 'mand_test', ...(explicit ? ['--usdc'] : []));
         assert.equal(result.code, 0, result.stdout + result.stderr);
         assert.match(result.stdout, /\+\$5\.00 Balance/);
         assert.equal(creations().length, 0);
@@ -104,7 +105,8 @@ test('model topup reuses approved mandates without requesting another authorizat
     ['future', { validFrom: '2100-01-01T00:00:00Z' }, []],
     ['invalid expiry', { validUntil: 'invalid' }, []],
     ['unsupported currency', { currency: 'CARD_USD' }, []],
-    ['currency mismatch', {}, ['--credit']],
+    ['Credits mandate', { currency: 'FLUXA_MONETIZE_CREDITS' }, []],
+    ['XRP mandate', { currency: 'XRP' }, []],
   ]) {
     await t.test(`reject ${name} before creating an order`, async () => {
       reset(); Object.assign(mandate, patch);
@@ -124,7 +126,7 @@ test('model topup reuses approved mandates without requesting another authorizat
     assert.equal(calls.length, 1);
   });
 
-  for (const currency of ['USDC', 'FLUXA_MONETIZE_CREDITS']) {
+  for (const currency of ['USDC']) {
     await t.test(`reject insufficient ${currency} allowance before signing`, async () => {
       reset(currency); mandate.remainingAmount = currency === 'USDC' ? '4999999' : '499';
       const result = await run('--mandate', 'mand_test');
@@ -135,15 +137,18 @@ test('model topup reuses approved mandates without requesting another authorizat
     });
   }
 
-  await t.test('unsupported USDC rail never falls back to Credits', async () => {
-    reset(); accepts = accepts.slice(1);
-    const result = await run('--mandate', 'mand_test');
-    assert.equal(result.code, 1);
-    assert.equal(creations().length, 0);
-    assert.equal(payments().length, 0);
-  });
+  for (const flags of [[], ['--usdc'], ['--mandate', 'mand_test']]) {
+    await t.test(`unsupported USDC rail never falls back to Credits: ${flags}`, async () => {
+      reset(); accepts = accepts.slice(1);
+      const result = await run(...flags);
+      assert.equal(result.code, 1);
+      assert.match(result.stdout, /does not offer USDC/);
+      assert.equal(creations().length, 0);
+      assert.equal(payments().length, 0);
+    });
+  }
 
-  for (const flags of [['--mandate'], ['--mandate', ''], ['--mandate', 'mand_test', '--budget', '100'], ['--mandate', 'mand_test', '--seconds', '3600'], ['--usdc', '--credit'], ['--amount', '5', '--bundle', 'mid'], ['--amount', 'five'], ['--amount', '5.001'], ['--amount', '-5']]) {
+  for (const flags of [['--mandate'], ['--mandate', ''], ['--mandate', 'mand_test', '--budget', '100'], ['--mandate', 'mand_test', '--seconds', '3600'], ['--credit'], ['--credits', '5'], ['--usdc', '--credit'], ['--amount', '5', '--bundle', 'mid'], ['--amount', 'five'], ['--amount', '5.001'], ['--amount', '-5']]) {
     await t.test(`reject invalid options ${flags.join(' ')}`, async () => {
       reset();
       assert.equal((await run(...flags)).code, 1);
@@ -175,9 +180,9 @@ test('model topup reuses approved mandates without requesting another authorizat
       const result = await run(...flags);
       assert.equal(result.code, 0, result.stdout + result.stderr);
       assert.equal(creations().length, 1);
-      const currency = flags.length ? 'USDC' : 'FLUXA_MONETIZE_CREDITS';
+      const currency = 'USDC';
       assert.equal(creations()[0].body.intent.currency, currency);
-      assert.equal(creations()[0].body.intent.limitAmount, flags.length ? '5000000' : '500');
+      assert.equal(creations()[0].body.intent.limitAmount, '5000000');
       assert.equal(payments().length, 1);
       assert.equal(payments()[0].body.mandateId, 'mand_new');
       assert.match(result.stderr, /open the link/);

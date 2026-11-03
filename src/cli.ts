@@ -5,7 +5,7 @@
  * Can be bundled into a single file with esbuild for distribution
  */
 
-import { runMarketCommand, topupInitiate, topupFinalize, TOPUP_BUNDLES } from './market/client.js';
+import { runMarketCommand, topupInitiate, topupFinalize } from './market/client.js';
 import {
   registerAgent,
   createPayout,
@@ -18,7 +18,6 @@ import {
   getMandateStatus,
   type MandateStatusResponse,
   requestX402V3Payment,
-  requestX402V2Payment,
   createPaymentLink,
   listPaymentLinks,
   getPaymentLink,
@@ -49,7 +48,6 @@ import {
   checkWalletLinked,
   buildLinkWalletUrl,
   resolveCurrency,
-  SUPPORTED_CURRENCIES,
   initiateRefund,
   listRefunds,
   getRefund,
@@ -62,6 +60,7 @@ import {
   getCardMandate,
   submitHeadlessCheckout,
 } from './wallet/client.js';
+import { getUsdcMandate, isUsdcPayment, requestCliX402V2Payment as requestX402V2Payment } from './wallet/cliPayment.js';
 import { runCardFlow } from './wallet/cardFlow.js';
 import { cardAmount, cardSelector, cardProfile } from './wallet/cardOptions.js';
 import type { CardChargeInitiateResponse } from './wallet/client.js';
@@ -144,7 +143,7 @@ COMMANDS:
   payout                    Create a payout
   payout-status             Query payout status
   x402                      Generate x402 payment (delegates to x402-v3)
-  mandate-create            Create an intent mandate (USDC / XRP / credits / CARD_USD linked card)
+  mandate-create            Create an intent mandate (USDC / CARD_USD linked card)
   mandate-status            Query mandate status
   linked-card list          List the linked (source) cards in the user's wallet
   linked-card mandates      List CARD_USD mandates (all, per card, or eligible for an amount)
@@ -282,7 +281,7 @@ OPTIONS FOR 'mandate-create':
   --amount <amount>         Budget limit in atomic units (required)
   --seconds <duration>      Validity duration in seconds (default: 28800 = 8 hours)
   --category <category>     Category (default: general)
-  --currency <currency>     Currency (default: USDC). Supported: USDC, XRP, FLUXA_MONETIZE_CREDITS
+  --currency <currency>     Currency (default: USDC). Supported: USDC, CARD_USD
 
   --wait <seconds>          Block until signed / rejected / expired (1..900); prints the
                             authorization link as a JSON line first
@@ -573,10 +572,10 @@ Examples:
 
 The account's prepaid Balance ($1 = 1 Balance). One Balance, spendable at any provider.`,
 
-  'market model topup': `Usage: fluxa-wallet market model topup [--bundle <slug> | --amount <dollars>] [--credit | --usdc] [--mandate <id>]
+  'market model topup': `Usage: fluxa-wallet market model topup [--bundle <slug> | --amount <dollars>] [--usdc] [--mandate <id>]
 
-Tops up the Balance from the FluxA wallet's balance (--credit, default) or in
-on-chain Base USDC (--usdc). With --mandate, reuses that signed mandate without creating another
+Tops up the Balance with on-chain USDC on Base (the default). With --mandate,
+reuses a signed USDC mandate without creating another
 or waiting for approval. Otherwise creates a mandate and waits for the user
 to approve it. Only spend within the user-approved scope.
 
@@ -586,26 +585,20 @@ Options:
   --amount <dollars>  top up any amount instead of a bundle, $1 to $1,000 with
                       up to 2 decimals ($1 = 1 Balance). Cannot be combined with
                       --bundle.
-  --credit            pay from the FluxA wallet's balance (signs a
-                      FLUXA_MONETIZE_CREDITS mandate). Default when no currency or mandate is given.
-  --usdc              pay the challenge's on-chain Base USDC accept instead of the
-                      wallet's balance (signs a USDC mandate). Errors if this
-                      deployment does not offer USDC topups.
-
-  --mandate <id>      reuse an existing signed mandate. Without a currency flag,
-                      use its currency. Explicit flags must match the mandate.
-                      Invalid, expired, or insufficient mandates fail without
-                      creating a replacement or switching payment currency.
+  --usdc              Pay with on-chain USDC on Base (default and only x402 rail).
+                      Errors if this deployment does not offer USDC topups.
+  --mandate <id>      Reuse an existing signed USDC mandate. Invalid, expired,
+                      non-USDC, or insufficient mandates fail without creating
+                      a replacement.
   --budget <atomic>   budget for a NEW mandate (default: enough for the bundle).
   --seconds <n>       validity of a NEW mandate (default: 28800 seconds).
 
---credit and --usdc are mutually exclusive.
 --budget and --seconds cannot be combined with --mandate.
 
 Example: fluxa-wallet market model topup --bundle starter --mandate mand_xxx
 
-This command is the x402 rail, and it pays two ways: from the FluxA wallet's
-balance (--credit, the default) or in on-chain Base USDC (--usdc). Full procedure:
+This command pays in on-chain Base USDC over x402. For Card payments use the
+linked-card checkout flow. Full procedure:
 https://agentmarket.fluxapay.xyz/marketplace/models/agent-topup.md`,
 
   'market model usageHistory': `Usage: fluxa-wallet market model usageHistory
@@ -908,7 +901,7 @@ Example:
 
   'mandate-create': `Usage: fluxa-wallet mandate-create [options]
 
-Create an intent mandate. USDC / XRP / credits mandates are used for x402 v3
+Create an intent mandate. USDC mandates are used for x402 v3
 payments; CARD_USD mandates authorize a linked (source) card in the user's
 wallet for one merchant and are paid with "headless-checkout".
 
@@ -924,8 +917,8 @@ Options:
                           then the final mandate state. Exit 0 only when signed.
                           Not for CARD_USD.
 
-Supported currencies: USDC, XRP, FLUXA_MONETIZE_CREDITS, CARD_USD
-  Aliases accepted: credits, fluxa-monetize-credits, fluxa-monetize-credit, card, card-usd
+Supported currencies: USDC, CARD_USD
+  Aliases accepted: usdc, card, card-usd
 
 CARD_USD options (linked card, VIC rail). Either the three merchant flags or --ext:
   --merchant-name <text>      Merchant name, max 40 bytes; must match the merchant profile
@@ -942,7 +935,6 @@ card and approve; poll "linked-card subcard --mandate <id>" until isReady=true.
 
 Examples:
   fluxa-wallet mandate-create --desc "Spend up to 0.1 USDC" --amount 100000
-  fluxa-wallet mandate-create --desc "Spend credits" --amount 500 --currency FLUXA_MONETIZE_CREDITS
   fluxa-wallet mandate-create --currency CARD_USD --desc "Buy a USB-C cable on Amazon, up to $30" --amount 3000 \\\\
     --merchant-name Amazon --merchant-url https://www.amazon.com --merchant-country US
   fluxa-wallet mandate-create --currency CARD_USD --desc "..." --amount 3000 --ext @ext.json`,
@@ -1398,18 +1390,11 @@ async function signPaymentRequestWithMandate(
     throw new Error('Invalid payment request: missing accepts array');
   }
 
-  let mandateCurrency = 'USDC';
-  try {
-    const mandateInfo = await getMandateStatus(mandateId, jwt);
-    if (mandateInfo.mandate?.currency) {
-      mandateCurrency = mandateInfo.mandate.currency;
-    }
-  } catch (err: any) {
-    console.error('[cli] Could not fetch mandate currency, defaulting to USDC:', err?.message);
-  }
+  await getUsdcMandate(mandateId, jwt);
+  const mandateCurrency = 'USDC';
 
   const accept = accepts.find((a: any) => {
-    if (a.scheme !== 'exact') return false;
+    if (!isUsdcPayment(a)) return false;
     const currency = getCurrencyFromAsset(a.asset || DEFAULT_ASSET, a.network || DEFAULT_NETWORK);
     return currency === mandateCurrency;
   });
@@ -2147,6 +2132,10 @@ async function cmdPayout(options: Record<string, string>): Promise<CommandResult
     };
   }
 
+  if (!isUsdcPayment({ scheme: 'exact', asset: assetAddress, network })) {
+    return { success: false, error: 'Payouts support USDC on Base only.' };
+  }
+
   const auth = await ensureValidJWT();
   if (!auth) {
     return {
@@ -2259,10 +2248,10 @@ async function cmdMandateCreate(options: Record<string, string>): Promise<Comman
     };
   }
 
-  if (!currency) {
+  if (currency !== 'USDC' && currency !== CARD_USD_CURRENCY) {
     return {
       success: false,
-      error: `Unsupported currency: "${rawCurrency}". Supported currencies: ${SUPPORTED_CURRENCIES.join(', ')}`,
+      error: `Unsupported currency: "${rawCurrency}". Supported currencies: USDC, CARD_USD`,
     };
   }
 
@@ -2740,20 +2729,16 @@ async function cmdX402V3(options: Record<string, string>): Promise<CommandResult
     };
   }
 
-  // Fetch mandate to determine its currency
-  let mandateCurrency = 'USDC';
   try {
-    const mandateInfo = await getMandateStatus(mandateId, auth.jwt);
-    if (mandateInfo.mandate?.currency) {
-      mandateCurrency = mandateInfo.mandate.currency;
-    }
+    await getUsdcMandate(mandateId, auth.jwt);
   } catch (err: any) {
-    console.error('[cli] Could not fetch mandate currency, defaulting to USDC:', err?.message);
+    return { success: false, error: err.message };
   }
+  const mandateCurrency = 'USDC';
 
   // Find accepts entry matching mandate currency
   const accept = accepts.find((a: any) => {
-    if (a.scheme !== 'exact') return false;
+    if (!isUsdcPayment(a)) return false;
     const currency = getCurrencyFromAsset(a.asset || DEFAULT_ASSET, a.network || DEFAULT_NETWORK);
     return currency === mandateCurrency;
   });
@@ -2817,18 +2802,6 @@ async function cmdMarketTopup(positionals: string[], options: Record<string, str
   // provider, so there was never a choice for the caller to make here -- the
   // argument only existed because the endpoint demanded one.
   //
-  // --credits <amount> is gone too. Ignoring it silently would top up 5 MC for a caller
-  // who asked for 25, so it is an error, and it is checked before auth: a
-  // removed flag should say so on any machine.
-  if (options.credits !== undefined) {
-    return {
-      success: false,
-      error: `--credits <amount> is no longer supported. Use --bundle <slug> (${TOPUP_BUNDLES.join(' | ')}) or --amount <dollars> (add --credit or --usdc to choose how to pay).`,
-    };
-  }
-  if (options.credit !== undefined && options.usdc !== undefined) {
-    return { success: false, error: '--credit and --usdc are mutually exclusive. Choose one payment currency.' };
-  }
   if (options.amount !== undefined && options.bundle !== undefined) {
     return { success: false, error: '--bundle and --amount are mutually exclusive. Buy a bundle or name an amount.' };
   }
@@ -2850,7 +2823,7 @@ async function cmdMarketTopup(positionals: string[], options: Record<string, str
   try {
     let mandateId = options.mandate;
     let existingMandate: Awaited<ReturnType<typeof getMandateStatus>>['mandate'];
-    let mandateCurrency = options.usdc !== undefined ? 'USDC' : 'FLUXA_MONETIZE_CREDITS';
+    const mandateCurrency = 'USDC';
     if (mandateId) {
       const result = await getMandateStatus(mandateId, auth.jwt);
       existingMandate = result.mandate;
@@ -2866,15 +2839,10 @@ async function cmdMarketTopup(positionals: string[], options: Record<string, str
       if (!Number.isFinite(from) || !Number.isFinite(until) || from > now || until <= now) {
         return { success: false, error: `Mandate ${mandateId} is outside its validity window.` };
       }
-      if (!['USDC', 'FLUXA_MONETIZE_CREDITS'].includes(existingMandate.currency)) {
-        return { success: false, error: `Mandate currency ${existingMandate.currency} is not supported for model topups.` };
+      if (existingMandate.currency !== 'USDC') {
+        return { success: false, error: `Mandate currency ${existingMandate.currency} is not supported for model topups. Use a USDC mandate.` };
       }
-      if ((options.usdc !== undefined || options.credit !== undefined) && existingMandate.currency !== mandateCurrency) {
-        return { success: false, error: `Payment currency ${mandateCurrency} does not match mandate currency ${existingMandate.currency}.` };
-      }
-      mandateCurrency = existingMandate.currency;
     }
-    const payWithUsdc = mandateCurrency === 'USDC';
 
     // 1. initiate — answers HTTP 402 with the x402 challenge on success
     const init = await topupInitiate(
@@ -2884,36 +2852,20 @@ async function cmdMarketTopup(positionals: string[], options: Record<string, str
     );
     console.error(`· order ${init.orderId}: $${init.costCredits} -> $${init.balanceToGrant.toFixed(2)} Balance`);
 
-    // 2. Reuse the supplied mandate or create one in the selected currency.
-    // budget must cover the cost (credits unit = MC x 100)
-    let budget = options.budget ? Number(options.budget) : Math.max(500, Math.ceil(Number(init.costCredits) * 100));
-    if (payWithUsdc) {
-      // The deployment advertises USDC only when it configured a receiving
-      // address, so check the 402 body before creating any mandate.
-      let accepts: any[] = [];
-      try { accepts = JSON.parse(init.rawBody)?.accepts || []; } catch { /* checked below */ }
-      const usdcAccept = accepts.find((a: any) =>
-        a?.scheme === 'exact' &&
-        getCurrencyFromAsset(a.asset || DEFAULT_ASSET, a.network || DEFAULT_NETWORK) === 'USDC'
-      );
-      if (!usdcAccept) {
-        return { success: false, error: 'this deployment does not offer USDC topups (no "base" accept in the 402) — use --credit instead of --usdc to pay from the FluxA wallet balance.' };
-      }
-      mandateCurrency = 'USDC';
-      // USDC budget is in 6-decimal atomic units, straight from the accept.
-      budget = options.budget ? Number(options.budget) : Number(usdcAccept.maxAmountRequired);
-      console.error(`· paying on-chain: ${(budget / 1e6).toFixed(2)} USDC on ${usdcAccept.network || DEFAULT_NETWORK}`);
+    // 2. USDC only. Require a matching challenge before creating any mandate.
+    const accepts = JSON.parse(init.rawBody)?.accepts;
+    const usdcAccept = Array.isArray(accepts) && accepts.find(isUsdcPayment);
+    if (!usdcAccept) {
+      return { success: false, error: 'This deployment does not offer USDC topups on Base.' };
     }
+    const amount = usdcAccept.maxAmountRequired;
+    if (typeof amount !== 'string' || !/^\d+$/.test(amount) || BigInt(amount) <= 0n) {
+      return { success: false, error: 'Topup challenge has no valid USDC payment amount.' };
+    }
+    // USDC budgets use 6-decimal atomic units.
+    const budget = options.budget ? Number(options.budget) : Number(amount);
+    console.error(`· paying on-chain: ${(budget / 1e6).toFixed(2)} USDC on Base`);
     if (existingMandate) {
-      const accepts = JSON.parse(init.rawBody)?.accepts;
-      const accept = Array.isArray(accepts) && accepts.find((a: any) =>
-        a.scheme === 'exact' &&
-        getCurrencyFromAsset(a.asset || DEFAULT_ASSET, a.network || DEFAULT_NETWORK) === mandateCurrency
-      );
-      const amount = accept?.maxAmountRequired;
-      if (typeof amount !== 'string' || !/^\d+$/.test(amount) || BigInt(amount) <= 0n) {
-        return { success: false, error: `Topup challenge has no valid ${mandateCurrency} payment amount.` };
-      }
       if (!/^\d+$/.test(existingMandate.remainingAmount) || BigInt(existingMandate.remainingAmount) < BigInt(amount)) {
         return { success: false, error: `Mandate ${mandateId} has insufficient remaining allowance for this topup.` };
       }
@@ -2921,7 +2873,7 @@ async function cmdMarketTopup(positionals: string[], options: Record<string, str
     } else {
       const seconds = options.seconds ? Number(options.seconds) : 28800;
       const mc = await cmdMandateCreate({
-        desc: payWithUsdc ? `Top up $${init.balanceToGrant.toFixed(2)} AgentMarket Balance (paid in USDC)` : `Top up $${init.balanceToGrant.toFixed(2)} AgentMarket Balance`,
+        desc: `Top up $${init.balanceToGrant.toFixed(2)} AgentMarket Balance (paid in USDC)`,
         amount: String(budget),
         seconds: String(seconds),
         currency: mandateCurrency,
@@ -2961,7 +2913,7 @@ async function cmdMarketTopup(positionals: string[], options: Record<string, str
     // Balance fields first; older servers answer only in Units (100,000 = $1).
     const added = fin.added != null ? Number(fin.added) : fin.creditsAdded != null ? Number(fin.creditsAdded) / 100_000 : init.balanceToGrant;
     const after = fin.balanceRemaining != null ? Number(fin.balanceRemaining) : Number(fin.balance ?? 0) / 100_000;
-    await recordAudit({ event: 'market_topup', order_id: init.orderId, mandate_id: mandateId, balance_added: added, ...(payWithUsdc ? { rail: 'usdc' } : {}) });
+    await recordAudit({ event: 'market_topup', order_id: init.orderId, mandate_id: mandateId, balance_added: added, rail: 'usdc' });
     return {
       success: true,
       raw: `+$${added.toFixed(2)} Balance · balance $${after.toFixed(2)}`,
@@ -3521,6 +3473,12 @@ async function main() {
     // Unknown command with --help, fall through to global help
     printUsage();
     process.exit(0);
+  }
+
+  // Removed payment flags must never silently select a different payment rail.
+  if (options.credit !== undefined || options.credits !== undefined) {
+    output({ success: false, error: 'Credits payments are no longer supported. Use Card checkout or USDC; model topups use USDC on Base by default.' });
+    process.exit(1);
   }
 
   // Initialize storage

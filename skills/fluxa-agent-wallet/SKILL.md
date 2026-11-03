@@ -6,7 +6,7 @@ description: >-
 
 # FluxA Agent Wallet
 
-**Skill version: 0.5.6** | **CLI version: @fluxa-pay/fluxa-wallet@0.5.6 or newer** — **MUST** install or update to the latest CLI version before use.
+**Skill version: 0.5.7** | **CLI version: @fluxa-pay/fluxa-wallet@0.5.7 or newer** — **MUST** install or update to the latest CLI version before use.
 
 FluxA Agent Wallet is a co-wallet that allows AI agents to securely use a user’s wallet, enabling them to perform payment-related actions within the user’s approved scope. Capabilities include x402 payments, USDC transfers, agent-to-agent transfers, payment links for receiving payments, prepaid virtual cards, AI social gifting, discovering and calling x402 resources (one-shot APIs), and using payment-related skills (one-shot skills). Use this tool when the user the user asks to perform any of these payment-related actions.
 
@@ -24,7 +24,7 @@ FluxA Agent Wallet is a co-wallet that allows AI agents to securely use a user�
 
 ```bash
 npm install -g @fluxa-pay/fluxa-wallet@latest
-fluxa-wallet --version              # must be 0.5.6 or newer
+fluxa-wallet --version              # must be 0.5.7 or newer
 ```
 
 Then run commands directly:
@@ -114,7 +114,7 @@ Trial Scenarios: guide the user with wording such as: Let’s try what this wall
 | **Agent VC & Agent ID** | Issue a short-lived verifiable credential to prove agent identity to third parties (SSO, account binding) without handing over the login JWT | Use when a third-party service asks the agent to authenticate via a signed token | VC-ISSUE.md |
 | **Agent Market: discover & plan** | Search the marketplace for APIs, models, and skills, and get a recommended tool plan for a task | Use when you need to find paid resources, or plan which tools a task needs | `fluxa-wallet market search "<q>"` (add `--models` or `--vendors` to scope); `fluxa-wallet plan-tool-use "<task>"` |
 | **Prepaid AgentMarket Balance** | Call LLMs on one prepaid balance, spendable at any provider, and read it | Use when calling models via `/llm/{merchant}`, or checking what is left | `fluxa-wallet market model remainingUsage`; `fluxa-wallet market model usageHistory` |
-| **Top up the AgentMarket Balance** | Fund the Balance over x402, paying from the FluxA wallet's balance or in on-chain Base USDC. Reuse an approved mandate, or ask the user to approve a new one | Use when the balance is low or negative and the wallet holds enough balance or USDC | `fluxa-wallet market model topup --bundle starter --mandate <id>` reuses an approved mandate and its currency; omit `--mandate` and use `--credit` (default) or `--usdc` to create a new mandate; procedure: https://agentmarket.fluxapay.xyz/marketplace/models/agent-topup.md |
+| **Top up the AgentMarket Balance** | Fund the Balance over x402 with on-chain Base USDC. Reuse an approved mandate, or ask the user to approve a new one | Use when the balance is low or negative and the wallet holds enough USDC | `fluxa-wallet market model topup --bundle starter --mandate <id>` reuses an approved USDC mandate; omit `--mandate` to create a new USDC mandate; procedure: https://agentmarket.fluxapay.xyz/marketplace/models/agent-topup.md |
 
 
 ## Opening Authorization URLs (UX Pattern)
@@ -157,13 +157,8 @@ User adds and manages funds at the FluxA Agent Wallet web app:
 → Agent can get the wallet address via `fluxa-wallet wallet-address`
 → Agent should direct the user to the web app for card/cross-chain deposit flows
 
-### Credits (FluxA Monetize Credits)
-- Purchased with credit card only
-- Used exclusively for FluxA AgentMarket x402 resource consumption
-- NOT transferable, NOT usable as general USDC
-
 ### When user asks "how to add funds"
-1. Direct to https://agentwallet.fluxapay.xyz/ → for credit card / cross-chain / credits
+1. Direct to https://agentwallet.fluxapay.xyz/ → for credit card / cross-chain USDC deposits
 
 
 
@@ -264,7 +259,7 @@ You must:
 | Currency | Value for `--currency` | Aliases accepted |
 |----------|----------------------|-----------------|
 | USDC | `USDC` | `usdc` |
-| Credits for FluxA AgentMarket, used to consume FluxA AgentMarket resources | `FLUXA_MONETIZE_CREDITS` | `credits`, `fluxa-monetize-credits`, `fluxa-monetize-credit` |
+| Linked Card | `CARD_USD` | `card`, `card-usd` |
 
 ## Amount Format
 
@@ -277,7 +272,7 @@ All amounts are in **smallest units** (atomic units). For USDC (6 decimals):
 | 1.00 USDC | `1000000` |
 | 10.00 USDC | `10000000` |
 
-For FLUXA_MONETIZE_CREDITS, amounts are in the credits' smallest unit as defined by the service.
+For CARD_USD, amounts are in cents ($1 = 100). CLI payments support Card and USDC only. Credits are not a payment option; legacy Credits balances and transactions may still appear in read-only results.
 
 ## CLI Commands Quick Reference
 
@@ -330,7 +325,7 @@ For FLUXA_MONETIZE_CREDITS, amounts are in the credits' smallest unit as defined
 | `plan-tool-use` | (task arg) | Recommend the models, APIs, and skills for a task |
 | `market search` | (query arg) | Discover APIs, models, and skills (`--models` or `--vendors` to scope) |
 | `market model remainingUsage` | (none) | The account's prepaid Balance ($1 = 1 Balance) |
-| `market model topup` | (none) | Top up the Balance via x402: `--bundle <slug>` (mini, starter, mid, pro) or `--amount <dollars>` ($1 to $1,000, CLI 0.5.6+); `--mandate <id>` reuses an approved mandate and its currency. Otherwise `--credit` (default) or `--usdc` creates a new mandate for user approval. Explicit currency flags must match a reused mandate |
+| `market model topup` | (none) | Top up the Balance via x402: `--bundle <slug>` (mini, starter, mid, pro) or `--amount <dollars>` ($1 to $1,000, CLI 0.5.7+); `--mandate <id>` reuses an approved USDC mandate. Otherwise creates a new USDC mandate for user approval. USDC on Base is the default and only x402 top-up rail; Card checkout is separate |
 | `market model usageHistory` | (none) | Spend and topup history |
 | `market keys create` | (none) | Mint an `fxa_live_` API key (`--name`, `--limit <Balance>` optional) |
 | `market keys list` | (none) | List your `fxa_live_` keys |
