@@ -601,15 +601,30 @@ This command pays in on-chain Base USDC over x402. For Card payments use the
 linked-card checkout flow. Full procedure:
 https://agentmarket.fluxapay.xyz/marketplace/models/agent-topup.md`,
 
-  'market model usageHistory': `Usage: fluxa-wallet market model usageHistory
+  'market model usageHistory': `Usage: fluxa-wallet market model usageHistory [--kind all|spend|purchases] [--limit <n>] [--offset <n>] [--all] [--json]
 
-Spend and topup history for the account.`,
+Spend and topup history for the account, newest first. Times are UTC.
+Amounts are in Balance ($1 = 1 Balance).
+
+Options:
+  --kind <k>      all (default), spend (model calls), or purchases (topups)
+  --limit <n>     entries per page, 1 to 100 (default 20)
+  --offset <n>    skip the newest n entries; the footer prints the next offset
+  --all           read every page (up to 10,000 entries)
+  --json          machine-readable: total, complete, nextOffset and each entry's
+                  id, ts (ISO, UTC), type, change, balanceRemaining, model, tokens,
+                  apiKeyId, orderId, bundle, txHash. A field the router did not
+                  send is null or left out, never 0.
+
+Examples:
+  fluxa-wallet market model usageHistory --kind spend --limit 50
+  fluxa-wallet market model usageHistory --all --json`,
 
   'market tokenplan': `Usage: fluxa-wallet market tokenplan <buy <plan> | order <id> | list | key <id> | usage <id> | models | redeem <code> --yes | claim <code> --yes>
 
 A Token Plan is one flat monthly allowance on the provider's own endpoint, as
 opposed to per-call Balance on ours. The key these commands return is the
-PROVIDER's: it does not authenticate at /llm/{merchant}, and an fxa_live_ key
+PROVIDER's: it does not authenticate at /llm/v1, and an fxa_live_ key
 does not authenticate at the provider.
 
   buy <plan>        a checkout link to pay for a plan in USDC (lite|standard|advanced)

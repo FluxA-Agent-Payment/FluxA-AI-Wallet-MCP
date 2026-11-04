@@ -128,7 +128,9 @@ remaining wallet allowance. Do not let a TokenGo outage trigger another payment.
   included in output tokens. Settlements and adjustments are not new model calls.
   Records without a key ID must remain separately attributed, for example to
   `metadata.agent_id`; mark missing metadata or partial coverage explicitly.
-- The CLI's `usageHistory` omits this metadata. Use the raw API for this report.
+- `fluxa-wallet market model usageHistory --kind spend --all --json` gives each entry's
+  `model`, `tokens` and `apiKeyId`, and says whether the history is `complete`.
+  For other metadata (cache tokens, `agent_id`), use the raw API.
   Key API fields `spent` and `spendLimit` are in Balance ($1 = 1 Balance).
 
 ### Token Usage Optimization
