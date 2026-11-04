@@ -39,6 +39,9 @@ direct usage sync supports AgentMarket prepaid balance only.
    named clearly, such as `customer-support` or `document-extraction`.
    Review `fluxa-wallet market keys list` first; reuse suitable keys or help
    the user create one with `fluxa-wallet market keys create --name <name>`.
+   The user approves it in the browser; the CLI saves the key to a file and
+   prints only the path. Tell the user where it is saved; never read, print or
+   paste the key.
    Record each key ID's purpose and confirm that the corresponding application
    uses that key so its usage can be attributed correctly. Store the raw key
    securely, never in the task's Markdown state or reports.

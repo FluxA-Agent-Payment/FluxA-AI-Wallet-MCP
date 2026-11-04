@@ -21,6 +21,18 @@
 import { refreshJWT, isJWTExpired } from '../wallet/client.js';
 import { getEffectiveAgentId, updateJWT } from '../agent/agentId.js';
 import { planLines } from './plan-format.js';
+import {
+  type PendingKeyRequest,
+  decryptKey,
+  displayPath,
+  dropPending,
+  loadPending,
+  newKeyPair,
+  openBrowser,
+  pickSavePath,
+  savePending,
+  writeKeyFile,
+} from './key-request.js';
 
 const PLATFORM = (process.env.MARKET_PLATFORM || process.env.FLUXA_PLATFORM || 'https://agentmarket.fluxapay.xyz').replace(/\/$/, '');
 const PROXY = (process.env.MARKET_PROXY || process.env.FLUXA_PROXY || 'https://router.fluxapay.xyz').replace(/\/$/, '');
@@ -36,9 +48,11 @@ export interface MarketResult {
 
 // Thrown by command/helper functions; caught by runMarketCommand and mapped to
 // a failed MarketResult. Mirrors planner's die() semantics.
-class MarketError extends Error {}
-function die(msg: string): never {
-  throw new MarketError(msg);
+class MarketError extends Error {
+  constructor(message: string, readonly code?: string) { super(message); }
+}
+function die(msg: string, code?: string): never {
+  throw new MarketError(msg, code);
 }
 
 // --- ANSI (identical palette to planner) ------------------------------------
@@ -122,9 +136,14 @@ let _vc: string | null = null;
 // Force an Agent VC, ignoring any fxa_live_ key. Key-management endpoints reject
 // a metered key with 403 (a leaked key must not mint uncapped siblings or
 // revoke others), so `market keys …` always authenticates with a fresh VC.
+// VCs are minted with a 300 s TTL; re-mint after 240 s so a long wait (keys
+// create --wait up to 900 s) keeps authenticating.
+let _vcAt = 0;
 async function vcToken(): Promise<string> {
-  if (_vc) return _vc;
-  return (_vc = await mintVc());
+  if (_vc && Date.now() - _vcAt < 240_000) return _vc;
+  _vc = await mintVc();
+  _vcAt = Date.now();
+  return _vc;
 }
 
 // --- http --------------------------------------------------------------------
@@ -277,17 +296,112 @@ async function keysList(): Promise<string> {
   return lines.join('\n');
 }
 
-async function keysCreate(opts: { name?: string; limit?: string; cap?: string }): Promise<string> {
-  const body: any = {};
-  if (opts.name) body.name = opts.name;
-  Object.assign(body, limitBody(opts));
-  const { data } = await http(`${PROXY}/llm/keys`, { method: 'POST', auth: 'vc', body });
-  const lines: string[] = [];
-  lines.push(c.green('✓') + ` created key ${c.bold(data.name || data.id)} · limit ${limitLabel(limitOf(data))}`);
-  lines.push(c.dim(`  id: ${data.id}   ${c.dim('(use it to update/revoke)')}`));
-  lines.push(`\n  ${c.bold('raw key — shown once, store it now:')}\n  ${c.lime(data.rawKey)}\n`);
-  lines.push(c.dim('  use it:  export FLUXA_KEY=' + data.rawKey));
-  return lines.join('\n');
+// Creating a key needs the user's approval in the browser, and the key is
+// never printed: it is shown to the user there and saved to a 0600 file here
+// (see ./key-request.ts). `--request <id>` resumes a wait that timed out.
+async function keysCreate(opts: { name?: string; limit?: string; cap?: string; wait?: string; request?: string }): Promise<string> {
+  const wait = opts.wait === undefined ? DEFAULT_KEY_WAIT_SECONDS : Number(opts.wait);
+  if (!/^\d+$/.test(String(opts.wait ?? wait)) || wait < 1 || wait > MAX_KEY_WAIT_SECONDS) {
+    die(`--wait must be a whole number of seconds from 1 to ${MAX_KEY_WAIT_SECONDS}`);
+  }
+
+  let pending: PendingKeyRequest | null;
+  if (opts.request) {
+    pending = loadPending(opts.request);
+    if (!pending) die(`no saved key request ${opts.request} on this computer — run \`fluxa-wallet market keys create\` again`, 'key_request_not_found');
+  } else {
+    const body: any = {};
+    if (opts.name) body.name = opts.name;
+    Object.assign(body, limitBody(opts));
+    const keys = newKeyPair();
+    const savePath = pickSavePath(opts.name);
+    body.publicKey = keys.publicKey;
+    body.savePath = displayPath(savePath);
+    const { data } = await http(`${PROXY}/llm/keys`, { method: 'POST', auth: 'vc', body });
+    if (!data?.requestId || !data?.approvalUrl) {
+      die('the server did not return an approval request — update the router or contact FluxA');
+    }
+    pending = {
+      requestId: data.requestId,
+      code: data.code,
+      approvalUrl: data.approvalUrl,
+      expiresAt: data.expiresAt,
+      savePath,
+      privateKey: keys.privateKey,
+    };
+    savePending(pending);
+  }
+
+  const opened = opts.request ? false : openBrowser(pending.approvalUrl);
+  // Printed before waiting, so the user can act while we poll.
+  console.log([
+    `Approve this key in your browser${opened ? ' (opened)' : ''}:`,
+    `  ${pending.approvalUrl}`,
+    `Code: ${c.bold(pending.code)}   ${c.dim(`(link valid for ${Math.max(0, Math.round((Date.parse(pending.expiresAt) - Date.now()) / 60000))} min)`)}`,
+    c.dim(`Waiting up to ${wait}s…`),
+  ].join('\n'));
+
+  const deadline = Date.now() + wait * 1000;
+  const interval = keyPollIntervalMs();
+  let lastError = '';
+  for (;;) {
+    let data: any = null;
+    try {
+      ({ data } = await http(`${PROXY}/llm/keys/requests/${pending.requestId}`, { auth: 'vc' }));
+      lastError = '';
+    } catch (e: any) {
+      lastError = e?.message || String(e); // transient: keep polling
+    }
+    if (data) {
+      if (data.status === 'approved' && data.encryptedKey) {
+        const raw = decryptKey(pending.privateKey, data.encryptedKey);
+        writeKeyFile(pending.savePath, raw);
+        dropPending(pending.requestId);
+        const k = data.key || {};
+        const shown = displayPath(pending.savePath);
+        return [
+          c.green('✓') + ` approved · created key ${c.bold(k.name || k.id)} · limit ${limitLabel(limitOf(k))}`,
+          c.dim(`  id:     ${k.id}   (use it to update/revoke)`),
+          c.dim(`  prefix: ${k.keyPrefix}`),
+          `  saved:  ${shown}  ${c.dim('(only you can read it)')}`,
+          '',
+          c.dim('  The key is not printed. Tell the user where it is saved; do not read or paste it.'),
+          c.dim(`  Use it:  export FLUXA_KEY="$(cat ${shellPath(shown)})"`),
+        ].join('\n');
+      }
+      if (data.status === 'denied') {
+        dropPending(pending.requestId);
+        die('the user denied this key request — no key was created', 'key_request_denied');
+      }
+      if (data.status === 'expired') {
+        dropPending(pending.requestId);
+        die('the approval link expired — run `fluxa-wallet market keys create` again for a new one', 'key_request_expired');
+      }
+      if (data.status === 'claimed' || data.status === 'approved') {
+        dropPending(pending.requestId);
+        die('this key was already delivered and is not sent twice — create a new one if it was lost', 'key_request_claimed');
+      }
+    }
+    if (Date.now() + interval > deadline) break;
+    await new Promise((r) => setTimeout(r, interval));
+  }
+  die(
+    `not approved within ${wait}s${lastError ? ` (last error: ${lastError})` : ''}. ` +
+      `Keep waiting with: fluxa-wallet market keys create --request ${pending.requestId} --wait ${DEFAULT_KEY_WAIT_SECONDS}`,
+    'wait_timeout',
+  );
+}
+
+const DEFAULT_KEY_WAIT_SECONDS = 100;
+const MAX_KEY_WAIT_SECONDS = 900;
+function keyPollIntervalMs(): number {
+  const n = Number(process.env.FLUXA_KEY_POLL_MS);
+  return Number.isFinite(n) && n > 0 ? n : 2000;
+}
+// `~/x` stays unquoted so the shell expands it; anything else is single-quoted.
+function shellPath(p: string): string {
+  if (/^~\/[A-Za-z0-9._/-]+$/.test(p)) return p;
+  return `'${p.replace(/'/g, `'\\''`)}'`;
 }
 
 async function keysUpdate(id: string, opts: { name?: string; limit?: string; cap?: string }): Promise<string> {
@@ -387,7 +501,7 @@ ${c.bold('market')} ${c.dim('— what you\'re working with')}
 
   ${c.bold('API keys')} (Agent VC required)
     ${c.cyan('market keys list')}                           list keys (alias: ${c.cyan('market keys')})
-    ${c.cyan('market keys create [--name <n>] [--limit <Balance>]')} mint a key; raw key shown once
+    ${c.cyan('market keys create [--name <n>] [--limit <Balance>]')} approve in browser; key saved to a file
     ${c.cyan('market keys update <id> [--name <n>] [--limit <Balance>]')} change name or spending limit
     ${c.cyan('market keys revoke <id>')}                    revoke a key immediately
       --limit 0 clears the limit
@@ -429,11 +543,11 @@ ${c.bold('Auth')}
 `,
   keys: () => `
 ${c.bold('API keys — programmatic management')} ${c.dim('(Agent VC only)')}
-  Provision and rotate your ${c.dim('fxa_live_')} keys so an agent can hand a fresh, capped key
-  to a sub-process without you minting one by hand. ${c.bold('Requires an Agent VC')} — a metered
+  Provision and rotate your ${c.dim('fxa_live_')} keys. Creating one needs your approval in the
+  browser; the key is shown there and saved to a file, never printed. ${c.bold('Requires an Agent VC')} — a metered
   fxa_live_ key is refused (it must not mint uncapped siblings or revoke others).
     ${c.cyan('fluxa-wallet market keys list')}                           list your keys (alias: market keys; prefixes only)
-    ${c.cyan('fluxa-wallet market keys create --name <n> --limit <Balance>')}   mint one; raw key shown ONCE
+    ${c.cyan('fluxa-wallet market keys create --name <n> --limit <Balance>')}   approve in browser; key saved to a file
     ${c.cyan('fluxa-wallet market keys update <id> --limit <Balance>')}         change name / limit (${c.dim('--limit 0')} clears)
     ${c.cyan('fluxa-wallet market keys revoke <id>')}                    revoke (immediate, irreversible)
   Spend limits (in Balance) gate metered LLM usage on that key only. To rotate: create
@@ -762,7 +876,7 @@ export async function runMarketCommand(
         raw = await keysList();
         break;
       case 'market keys create':
-        raw = await keysCreate({ name: options.name, limit: options.limit, cap: options.cap });
+        raw = await keysCreate({ name: options.name, limit: options.limit, cap: options.cap, wait: options.wait, request: options.request });
         break;
       case 'market keys update':
         raw = await keysUpdate(positionals[0], { name: options.name, limit: options.limit, cap: options.cap });
@@ -803,7 +917,7 @@ export async function runMarketCommand(
     }
     return { success: true, raw };
   } catch (e: any) {
-    if (e instanceof MarketError) return { success: false, error: e.message };
+    if (e instanceof MarketError) return { success: false, error: e.message, ...(e.code ? { code: e.code } : {}) };
     return { success: false, error: `market error: ${e?.message || String(e)}` };
   }
 }

@@ -6,7 +6,7 @@ description: >-
 
 # FluxA Agent Wallet
 
-**Skill version: 0.5.8** | **CLI version: @fluxa-pay/fluxa-wallet@0.5.7 or newer** — **MUST** install or update to the latest CLI version before use.
+**Skill version: 0.5.9** | **CLI version: @fluxa-pay/fluxa-wallet@0.5.8 or newer** — **MUST** install or update to the latest CLI version before use.
 
 FluxA Agent Wallet is a co-wallet that allows AI agents to securely use a user’s wallet, enabling them to perform payment-related actions within the user’s approved scope. Capabilities include x402 payments, USDC transfers, agent-to-agent transfers, payment links for receiving payments, prepaid virtual cards, AI social gifting, discovering and calling x402 resources (one-shot APIs), and using payment-related skills (one-shot skills). Use this tool when the user the user asks to perform any of these payment-related actions.
 
@@ -24,7 +24,7 @@ FluxA Agent Wallet is a co-wallet that allows AI agents to securely use a user�
 
 ```bash
 npm install -g @fluxa-pay/fluxa-wallet@latest
-fluxa-wallet --version              # must be 0.5.7 or newer
+fluxa-wallet --version              # must be 0.5.8 or newer
 ```
 
 Then run commands directly:
@@ -327,7 +327,7 @@ For CARD_USD, amounts are in cents ($1 = 100). Payments support only **Card** an
 | `market model remainingUsage` | (none) | The account's prepaid Balance ($1 = 1 Balance) |
 | `market model topup` | (none) | Top up the Balance via x402: `--bundle <slug>` (mini, starter, mid, pro) or `--amount <dollars>` ($1 to $1,000, CLI 0.5.7+); `--mandate <id>` reuses an approved USDC mandate. Otherwise creates a new USDC mandate for user approval. USDC on Base is the default and only x402 top-up rail; Card checkout is separate |
 | `market model usageHistory` | (none) | Spend and topup history |
-| `market keys create` | (none) | Mint an `fxa_live_` API key (`--name`, `--limit <Balance>` optional) |
+| `market keys create` | (none) | Create an `fxa_live_` API key (`--name`, `--limit <Balance>` optional). Opens the browser for the user to approve; waits up to `--wait` s (default 100; resume with `--request <id>`). The key is saved to a file and never printed: tell the user the file path, never read or paste the key (CLI 0.5.8+) |
 | `market keys list` | (none) | List your `fxa_live_` keys |
 | `market keys update` | (id arg) | Update a key (`--name`, `--limit <Balance>`; `--limit 0` clears the limit) |
 | `market keys revoke` | (id arg) | Revoke a key |

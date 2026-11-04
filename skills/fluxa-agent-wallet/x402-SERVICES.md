@@ -99,7 +99,7 @@ curl -X POST https://router.fluxapay.xyz/llm/<provider>/v1/chat/completions \
   -d '{"model":"anthropic/claude-sonnet-4.6","messages":[{"role":"user","content":"..."}]}'
 ```
 
-- `<credential>` = an `fxa_live_` key (mint one with `fluxa-wallet market keys create`), or an **Agent VC** for agents (see [VC-ISSUE.md](VC-ISSUE.md)).
+- `<credential>` = an `fxa_live_` key (create one with `fluxa-wallet market keys create`; the user approves it in the browser and the key is saved to a file, never printed), or an **Agent VC** for agents (see [VC-ISSUE.md](VC-ISSUE.md)).
 - Non-streaming responses return `X-LLM-Cost` (what the call cost) and `X-LLM-Balance-Remaining` headers, both in Balance. Streaming calls are metered after the stream closes (no headers).
 
 ## Billing Model (prepaid Balance, not per-call x402)
