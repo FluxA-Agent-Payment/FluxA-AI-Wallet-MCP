@@ -10,13 +10,33 @@ tracking usage and costs, helping users top up, and maintaining scheduled
 balance checks and automatic top-ups within the user's approved rules.
 TokenGo supplies persistent memory; the agent performs the work, verifies the
 results and records them for the next run. AgentMarket is supported now;
-OpenRouter will be supported in the next version.
+OpenRouter is not supported yet; support is planned for the next version.
 
 Use this capability when the user requests TokenGo or token management.
 It is separate from the wallet's own installation and onboarding.
 
 Wallet: https://agentwallet.fluxapay.xyz/?tab=tokengo
 API guide: https://tokengo.fluxapay.xyz/llms.txt
+
+## Supported providers
+
+**Only FluxA AgentMarket is supported for TokenGo management in this version.**
+OpenRouter, Baidu AI Cloud, AiHubMix and other providers are not supported yet.
+This applies to the entire management workflow, not just direct usage sync.
+
+If the user asks to manage an unsupported provider, reply with:
+
+> 暂时无法替你在这些平台进行管理，需要等待tokengo服务和skill更新。
+
+English equivalent: "I cannot manage these platforms for you yet. Please wait
+for updates to the TokenGo service and Skill."
+
+Then stop that provider's workflow. Do not offer official-API, browser,
+manual-recording or user-self-payment workarounds. Do not describe its signup,
+keys, prices or top-up procedures, request credentials, register its accounts,
+set it as the selected onboarding provider, or create budgets or schedules.
+A previous unsupported-provider selection or record does not enable support.
+Continue with AgentMarket only if the user chooses it.
 
 ## Progressive onboarding
 
@@ -47,9 +67,9 @@ Proceed one decision at a time, reusing anything the user has already specified:
    `fluxa-wallet check-wallet`. If unlinked, send the `link-wallet` URL and
    poll until linked. Continue without asking the user to reply "done".
 2. **Choose a provider.** Ask "Which provider would you like to start with:
-   FluxA AgentMarket or OpenRouter (supported in the next version)?"
-   Only AgentMarket can be configured now. If the user chooses OpenRouter,
-   explain its availability and wait for their decision.
+   FluxA AgentMarket or OpenRouter (not supported yet; coming in the next version)?"
+   If the user chooses an unsupported provider, use the response above and
+   stop. Do not save it as the selected provider or advance its onboarding.
 3. **Try the first top-up and key.** Offer "Let's start with a $1 top-up and
    your first API key so you can try it out." Use the chosen payment method
    as described below. Reuse existing accounts, keys and suitable signed
