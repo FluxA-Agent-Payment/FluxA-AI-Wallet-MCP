@@ -11,8 +11,7 @@ provider credentials in its encrypted fields. Do not ask a separate "may I
 upload/save this key?" question; follow any explicit user restriction.
 Never put credentials in accountInfo, settings, notes, chat or Markdown.
 
-Wallet: https://app.fluxapay.xyz/?tab=tokengo
-Wallet dev: https://agentwallet.fluxapay-qa.xyz/?tab=tokengo
+Wallet: https://agentwallet.fluxapay.xyz/?tab=tokengo
 API guide: https://tokengo.fluxapay.xyz/llms.txt
 
 ## Progressive onboarding
