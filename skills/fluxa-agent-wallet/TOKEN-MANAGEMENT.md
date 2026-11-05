@@ -1,5 +1,8 @@
 # Token Usage Management & Auto Top-up
 
+Use only when the user explicitly requests TokenGo or token management. Do not
+start this flow during wallet installation, onboarding or capability introductions.
+
 Set up a recurring task to check the user's model usage, analyze spending,
 manage API keys by business or function, recommend cost optimizations, and
 automatically top up within the user's authorization.
