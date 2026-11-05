@@ -28,6 +28,10 @@ test('keys create: approval link, encrypted hand-off, key only in a 0600 file', 
     if (req.url === '/agent/vc/issue') return res.end(JSON.stringify({ vc: 'vc-token' }));
     if (req.method === 'POST' && req.url === '/llm/keys') {
       createBody = body;
+      if (outcome === 'direct') {
+        res.statusCode = 201;
+        return res.end(JSON.stringify({ id: 'key-d', name: body.name, keyPrefix: 'fxa_live_secretva', spendLimit: null, rawKey: RAW }));
+      }
       res.statusCode = 202;
       return res.end(JSON.stringify({ status: 'approval_required', requestId: REQ_ID, code: 'KQ7M-4XPD', approvalUrl: 'https://agentmarket.test/keys/approve?code=KQ7M-4XPD', expiresAt: '2100-01-01T00:00:00Z' }));
     }
@@ -85,6 +89,17 @@ test('keys create: approval link, encrypted hand-off, key only in a 0600 file', 
     assert.equal((await readFile(file, 'utf8')).trim(), RAW);
     if (process.platform !== 'win32') assert.equal((await stat(file)).mode & 0o777, 0o600);
     assert.deepEqual(await readdir(path.join(dir, 'key-requests')), [], 'pending request (private key) removed');
+  });
+
+  await t.test('approval off (server default): key printed once as before, no file', async () => {
+    reset('direct');
+    const r = await run('--name', 'direct');
+    assert.equal(r.code, 0, r.stdout + r.stderr);
+    assert.match(r.stdout, /raw key — shown once/);
+    assert.ok(r.stdout.includes(RAW));
+    assert.equal(calls.filter((c) => c.path.startsWith('/llm/keys/requests/')).length, 0, 'no polling');
+    await assert.rejects(stat(path.join(dir, 'keys', 'direct.key')));
+    assert.deepEqual(await readdir(path.join(dir, 'key-requests')), [], 'no pending request left');
   });
 
   await t.test('a second key with the same name does not overwrite the first', async () => {

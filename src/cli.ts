@@ -635,16 +635,18 @@ Options:
 
 Manage your fxa_live_ API keys (requires an Agent VC, not a metered key).
 
-create opens the browser: the user signs in, checks the code and approves.
-The key is shown to the user there and saved to a file on this computer
-(~/.fluxa-ai-wallet-mcp/keys/<name>.key, owner-only). It is never printed:
-tell the user where it is saved; do not read or paste it.
+create prints the new key once. If the account has "Approve agent keys in
+the browser" switched on (on /keys), create opens the browser instead: the
+user signs in, checks the code and approves. The key is then shown to the
+user there and saved to a file on this computer
+(~/.fluxa-ai-wallet-mcp/keys/<name>.key, owner-only), never printed: tell
+the user where it is saved; do not read or paste it.
 
 Options (create/update):
   --name <name>       Key name
   --limit <Balance>   Spending limit in Balance, $1 = 1 Balance (--limit 0 clears it).
                       --cap is the old name and means the same.
-  --wait <seconds>    create: wait for approval, 1..900 (default 100)
+  --wait <seconds>    create with approval on: wait, 1..900 (default 100)
   --request <id>      create: keep waiting on an earlier request that timed out
 
 Examples:

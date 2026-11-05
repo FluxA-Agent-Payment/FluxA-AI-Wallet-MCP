@@ -327,7 +327,7 @@ For CARD_USD, amounts are in cents ($1 = 100). Payments support only **Card** an
 | `market model remainingUsage` | (none) | The account's prepaid Balance ($1 = 1 Balance) |
 | `market model topup` | (none) | Top up the Balance via x402: `--bundle <slug>` (mini, starter, mid, pro) or `--amount <dollars>` ($1 to $1,000, CLI 0.5.7+); `--mandate <id>` reuses an approved USDC mandate. Otherwise creates a new USDC mandate for user approval. USDC on Base is the default and only x402 top-up rail; Card checkout is separate |
 | `market model usageHistory` | (none) | Spend and topup history |
-| `market keys create` | (none) | Create an `fxa_live_` API key (`--name`, `--limit <Balance>` optional). Opens the browser for the user to approve; waits up to `--wait` s (default 100; resume with `--request <id>`). The key is saved to a file and never printed: tell the user the file path, never read or paste the key (CLI 0.5.8+) |
+| `market keys create` | (none) | Create an `fxa_live_` API key (`--name`, `--limit <Balance>` optional). Prints the key once by default. If the user switched on browser approval (on /keys), it opens the browser for the user to approve and waits up to `--wait` s (default 100; resume with `--request <id>`); the key is then saved to a file and never printed: tell the user the file path, never read or paste the key (CLI 0.5.8+) |
 | `market keys list` | (none) | List your `fxa_live_` keys |
 | `market keys update` | (id arg) | Update a key (`--name`, `--limit <Balance>`; `--limit 0` clears the limit) |
 | `market keys revoke` | (id arg) | Revoke a key |

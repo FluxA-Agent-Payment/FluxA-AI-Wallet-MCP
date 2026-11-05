@@ -296,9 +296,11 @@ async function keysList(): Promise<string> {
   return lines.join('\n');
 }
 
-// Creating a key needs the user's approval in the browser, and the key is
-// never printed: it is shown to the user there and saved to a 0600 file here
-// (see ./key-request.ts). `--request <id>` resumes a wait that timed out.
+// If the account has "Approve agent keys in the browser" on, creating a key
+// needs the user's approval there, and the key is never printed: it is shown
+// to the user and saved to a 0600 file here (see ./key-request.ts).
+// `--request <id>` resumes a wait that timed out. Otherwise (the default) the
+// server returns the key and it is printed once, as before.
 async function keysCreate(opts: { name?: string; limit?: string; cap?: string; wait?: string; request?: string }): Promise<string> {
   const wait = opts.wait === undefined ? DEFAULT_KEY_WAIT_SECONDS : Number(opts.wait);
   if (!/^\d+$/.test(String(opts.wait ?? wait)) || wait < 1 || wait > MAX_KEY_WAIT_SECONDS) {
@@ -318,6 +320,16 @@ async function keysCreate(opts: { name?: string; limit?: string; cap?: string; w
     body.publicKey = keys.publicKey;
     body.savePath = displayPath(savePath);
     const { data } = await http(`${PROXY}/llm/keys`, { method: 'POST', auth: 'vc', body });
+    // Browser approval is off for this account (the default): the server
+    // created the key and returned it, as before.
+    if (data?.rawKey) {
+      const lines: string[] = [];
+      lines.push(c.green('✓') + ` created key ${c.bold(data.name || data.id)} · limit ${limitLabel(limitOf(data))}`);
+      lines.push(c.dim(`  id: ${data.id}   ${c.dim('(use it to update/revoke)')}`));
+      lines.push(`\n  ${c.bold('raw key — shown once, store it now:')}\n  ${c.lime(data.rawKey)}\n`);
+      lines.push(c.dim('  use it:  export FLUXA_KEY=' + data.rawKey));
+      return lines.join('\n');
+    }
     if (!data?.requestId || !data?.approvalUrl) {
       die('the server did not return an approval request — update the router or contact FluxA');
     }
@@ -501,7 +513,7 @@ ${c.bold('market')} ${c.dim('— what you\'re working with')}
 
   ${c.bold('API keys')} (Agent VC required)
     ${c.cyan('market keys list')}                           list keys (alias: ${c.cyan('market keys')})
-    ${c.cyan('market keys create [--name <n>] [--limit <Balance>]')} approve in browser; key saved to a file
+    ${c.cyan('market keys create [--name <n>] [--limit <Balance>]')} mint a key (browser approval if switched on)
     ${c.cyan('market keys update <id> [--name <n>] [--limit <Balance>]')} change name or spending limit
     ${c.cyan('market keys revoke <id>')}                    revoke a key immediately
       --limit 0 clears the limit
@@ -543,11 +555,11 @@ ${c.bold('Auth')}
 `,
   keys: () => `
 ${c.bold('API keys — programmatic management')} ${c.dim('(Agent VC only)')}
-  Provision and rotate your ${c.dim('fxa_live_')} keys. Creating one needs your approval in the
-  browser; the key is shown there and saved to a file, never printed. ${c.bold('Requires an Agent VC')} — a metered
+  Provision and rotate your ${c.dim('fxa_live_')} keys. If you switch on browser approval (on /keys),
+  creating one needs your approval there; the key is saved to a file, never printed. ${c.bold('Requires an Agent VC')} — a metered
   fxa_live_ key is refused (it must not mint uncapped siblings or revoke others).
     ${c.cyan('fluxa-wallet market keys list')}                           list your keys (alias: market keys; prefixes only)
-    ${c.cyan('fluxa-wallet market keys create --name <n> --limit <Balance>')}   approve in browser; key saved to a file
+    ${c.cyan('fluxa-wallet market keys create --name <n> --limit <Balance>')}   mint one (browser approval if switched on)
     ${c.cyan('fluxa-wallet market keys update <id> --limit <Balance>')}         change name / limit (${c.dim('--limit 0')} clears)
     ${c.cyan('fluxa-wallet market keys revoke <id>')}                    revoke (immediate, irreversible)
   Spend limits (in Balance) gate metered LLM usage on that key only. To rotate: create
