@@ -33,7 +33,7 @@ Register accounts, per-business Key metadata, budget purpose/total/mandate/expir
 initialTopupUsd, thresholdUsd and topupUsd. Raw key and integration-key uploads
 are separately optional. Credentials must not appear in account JSON or notes.
 TokenGo omits secrets in replies; keep recoverable originals in the user's secure
-store. Dedicated AgentMarket query keys are not provider-enforced read-only.
+store.
 
 Record completed recharges once using stable payment/order IDs: type=topup,
 trigger=initial for the first recharge; trigger=automatic for scheduled ones.
