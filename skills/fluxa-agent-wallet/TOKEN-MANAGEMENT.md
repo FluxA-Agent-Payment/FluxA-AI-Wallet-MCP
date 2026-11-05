@@ -12,22 +12,24 @@ Recommend checking twice daily in the user's timezone.
 
 - **FluxA AgentMarket:** Wallet CLI account access, API keys, $1 initial trial,
   balance/usage sync and authorized top-ups.
-- **OpenRouter:** Official account/keys/credits flow. Verify current minimums
-  and supported checkout; AgentMarket top-up commands do not fund OpenRouter.
+- **OpenRouter:** Supported in the next version; do not start setup or payments
+  in this version.
 
-Start with [TOKENGO.md](TOKENGO.md). Check persisted onboarding first, explain
-TokenGo's four capabilities on the first visit, link the wallet, let the user
-choose a platform, and complete one small recharge and first API key. Only
-then offer recurring top-ups and discuss a monthly estimate and schedule.
-Do not start by requesting a monthly allowance or configuring scheduled tasks.
-Use the user's existing choices and resume completed stages.
+Start with [TOKENGO.md](TOKENGO.md). Make GET /v1/onboarding the first service
+request. If firstVisit=true, run the progressive onboarding: introduce TokenGo,
+link the wallet, choose a provider, and complete a small trial and first key
+before offering monthly budgeting and scheduled top-ups. If firstVisit=false,
+respond directly to the user's request using their existing records; do not
+repeat onboarding.
 
 TokenGo stores all management records and encrypted provider/key credentials.
 Saving them is part of setup and needs no separate upload confirmation.
 Use settings records for preferences before a signed mandate exists. The first
-AgentMarket recharge defaults to $1; update the Wallet CLI to the latest version
-and use `fluxa-wallet market model topup --amount 1`. Reuse a suitable signed
-mandate or send a trial-sized authorization link directly and wait for signing.
+AgentMarket recharge defaults to $1. Follow the Card or USDC flow in TOKENGO.md:
+Card authorization handles card binding in the UI; USDC requires sufficient
+wallet USDC first. Update the CLI before using the USDC top-up command
+`fluxa-wallet market model topup --amount 1`. Reuse a suitable signed mandate or
+send a trial-sized authorization link directly and wait for signing.
 No extra "may I?" step is needed before the authorization link.
 
 This task manages prepaid balances. For Baidu Token Plans through AgentMarket,
@@ -42,10 +44,10 @@ not treat a plan as prepaid Balance or claim automatic renewal.
   `fluxa-wallet market model remainingUsage`.
 - $1 = 1 Balance. The Balance is prepaid model and API spend, not token
   counts or wallet USDC.
-- If the balance is below the approved minimum, purchase the configured
-  top-up bundle using the user's authorized mandate:
-  `fluxa-wallet market model topup --bundle <bundle> --mandate <id>`.
-  The payment currency follows the mandate.
+- If the balance is below the approved minimum, top up using the approved
+  payment method and mandate. For Card, use the linked-card checkout flow. For
+  USDC, check wallet USDC first and request a stablecoin deposit if insufficient;
+  then use `fluxa-wallet market model topup --bundle <bundle> --mandate <id>`.
 - Verify the updated balance and payment result. Resolve any uncertain
   payment status before retrying to avoid duplicate charges.
 
@@ -63,8 +65,8 @@ remaining wallet allowance. Do not let a TokenGo outage trigger another payment.
 ### Mandate Availability
 
 - Check for an existing valid mandate using `fluxa-wallet mandates`.
-- If none is available, request a USDC mandate covering one month of
-  estimated model spending, valid for three months.
+- If none is available, request authorization for the chosen payment method
+  and the user-approved spending scope. Do not silently switch Card to USDC.
 - Explain that mandate approval does not itself deduct funds; it authorizes
   future payments up to the approved amount. This allowance does not reset
   monthly.
