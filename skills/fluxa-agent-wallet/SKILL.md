@@ -18,6 +18,10 @@ FluxA Agent Wallet is a co-wallet that allows AI agents to securely use a userâ€
 - **Never write payment code.** No x402 signing or mandate logic in app code. Agents use the wallet CLI; apps use API keys.
 - **Report costs honestly.** Surface `X-LLM-Cost` (in Balance, $1 = 1 Balance) after FluxA AgentMarket model calls; a negative balance is unsettled debt (usage consumed but not yet paid). Say so plainly.
 
+For TokenGo or token-management requests, start [TOKENGO.md](TOKENGO.md)
+before presenting generic wallet setup or trial scenarios. Introduce TokenGo
+first, then link the wallet when needed as part of that progressive flow.
+
 ## Setup
 
 ### Step 1 â€” Install the CLI

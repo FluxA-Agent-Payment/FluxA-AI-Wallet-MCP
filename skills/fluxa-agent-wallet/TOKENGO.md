@@ -14,12 +14,16 @@ API guide: https://tokengo.fluxapay.xyz/llms.txt
 
 ## Progressive onboarding
 
-Read the live API guide first. Use the existing Agent ID and a request-bound
+Read the live API guide first. Run `fluxa-wallet status`; if the Agent ID is
+missing, initialize it once before obtaining a VC (wallet linking comes after
+the introduction). Use the existing Agent ID and a request-bound
 Agent VC with audience=tokengo to GET /v1/onboarding, then GET /v1/overview.
 First access registers automatically; no signup form, connection code or
 confirmation is needed. Resume the stored stage on subsequent visits. Use
 introducedAt and actual account/key/payment records to distinguish a new user
 from an existing setup; do not replay the introduction for a returning user.
+If a pre-onboarding account already has provider/key records, infer the next
+incomplete stage from those records and save it instead of replaying setup.
 
 For a first visit, briefly introduce TokenGo in the user's language. Example:
 "TokenGo 帮你集中管理服务账户、API Key 和用量。我可以帮你：
