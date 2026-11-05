@@ -18,27 +18,10 @@ It is separate from the wallet's own installation and onboarding.
 Wallet: https://agentwallet.fluxapay.xyz/?tab=tokengo
 API guide: https://tokengo.fluxapay.xyz/llms.txt
 
-## Supported providers
-
-**Only FluxA AgentMarket is supported for TokenGo management in this version.**
-OpenRouter, Baidu AI Cloud, AiHubMix and other providers are not supported yet.
-This applies to the entire management workflow, not just direct usage sync.
-
-If the user asks to manage an unsupported provider, reply with:
-
-> 暂时无法替你在这些平台进行管理，需要等待tokengo服务和skill更新。
-
-English equivalent: "I cannot manage these platforms for you yet. Please wait
-for updates to the TokenGo service and Skill."
-
-Then stop that provider's workflow. Do not offer official-API, browser,
-manual-recording or user-self-payment workarounds. Do not describe its signup,
-keys, prices or top-up procedures, request credentials, register its accounts,
-set it as the selected onboarding provider, or create budgets or schedules.
-A previous unsupported-provider selection or record does not enable support.
-Continue with AgentMarket only if the user chooses it.
-
 ## Progressive onboarding
+
+For provider-specific requests, apply [Supported providers](#supported-providers)
+before setup or record changes.
 
 Initialize an Agent ID if needed, then make `GET /v1/onboarding` the first
 TokenGo request, authenticated with that agent's VC. Read `firstVisit` to learn
@@ -117,6 +100,25 @@ use the linked-card checkout flow. Reuse the user's chosen method; ask which
 method they prefer only when it is missing. Verify the resulting AgentMarket
 balance and order, then record the completed top-up and API key in TokenGo.
 For recurring top-ups, use the approved method, rules and spending limit.
+
+## Supported providers
+
+**Only FluxA AgentMarket is supported for TokenGo management in this version.**
+OpenRouter, Baidu AI Cloud, AiHubMix and other providers are not supported yet.
+This applies to the entire management workflow, not just direct usage sync.
+
+If the user asks to manage an unsupported provider, reply in their language
+with this meaning:
+
+> I cannot manage these platforms for you yet. Please wait for updates to the
+> TokenGo service and Skill.
+
+Then stop that provider's workflow. Do not offer official-API, browser,
+manual-recording or user-self-payment workarounds. Do not describe its signup,
+keys, prices or top-up procedures, request credentials, register its accounts,
+set it as the selected onboarding provider, or create budgets or schedules.
+A previous unsupported-provider selection or record does not enable support.
+Continue with AgentMarket only if the user chooses it.
 
 ## TokenGo API overview
 
