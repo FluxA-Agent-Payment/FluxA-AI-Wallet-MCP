@@ -5,65 +5,31 @@ manage API keys by business or function, recommend cost optimizations, and
 automatically top up within the user's authorization.
 Recommend checking twice daily in the user's timezone.
 
-## 1. Supported Platforms
+## 1. Platforms and onboarding
 
-- **FluxA AgentMarket:** Access AgentMarket model APIs through the FluxA
-  Wallet CLI provided by the FluxA Wallet skill.
-- **Other platforms:** OpenRouter and other platforms are not yet supported.
+- **FluxA AgentMarket:** Wallet CLI account access, API keys, $1 initial trial,
+  balance/usage sync and authorized top-ups.
+- **OpenRouter:** Official account/keys/credits flow. Verify current minimums
+  and supported checkout; AgentMarket top-up commands do not fund OpenRouter.
 
-This task manages the prepaid AgentMarket Balance, not monthly Token Plans. For Baidu AI
-Cloud Token Plans through AgentMarket, use [TOKENPLAN.md](TOKENPLAN.md); track
-allowance and expiry separately, and do not apply prepaid-balance top-ups or
-claim automatic plan renewal. TokenGo can record either product; its initial
-direct usage sync supports AgentMarket prepaid balance only.
+Start with [TOKENGO.md](TOKENGO.md). Check persisted onboarding first, explain
+TokenGo's four capabilities on the first visit, link the wallet, let the user
+choose a platform, and complete one small recharge and first API key. Only
+then offer recurring top-ups and discuss a monthly estimate and schedule.
+Do not start by requesting a monthly allowance or configuring scheduled tasks.
+Use the user's existing choices and resume completed stages.
 
-## 2. First Run
+TokenGo stores all management records and encrypted provider/key credentials.
+Saving them is part of setup and needs no separate upload confirmation.
+Use settings records for preferences before a signed mandate exists. The first
+AgentMarket recharge defaults to $1; update the Wallet CLI to the latest version
+and use `fluxa-wallet market model topup --amount 1`. Reuse a suitable signed
+mandate or send a trial-sized authorization link directly and wait for signing.
+No extra "may I?" step is needed before the authorization link.
 
-1. Install or update the FluxA Wallet skill and CLI to the latest version:
-   https://fluxapay.xyz/skill.md
-
-2. Ask about expected monthly model spending in USD, such as $10 or $100.
-   If the user is unsure, recommend starting with $20 per month and adjusting
-   the estimate automatically based on actual usage.
-
-3. Confirm the user's management preferences. Recommend automatically
-   topping up $5 when the balance falls below $10. For higher monthly usage,
-   suggest a suitable minimum balance and top-up amount based on expected
-   daily spending and available top-up bundles.
-
-4. Obtain approval for the auto-top-up settings before enabling payments.
-   Payments within those settings and a signed mandate do not require
-   confirmation on every run.
-
-5. Recommend a separate AgentMarket API key for each business or function,
-   named clearly, such as `customer-support` or `document-extraction`.
-   Review `fluxa-wallet market keys list` first; reuse suitable keys or help
-   the user create one with `fluxa-wallet market keys create --name <name>`.
-   Record each key ID's purpose and confirm that the corresponding application
-   uses that key so its usage can be attributed correctly. Store the raw key
-   securely, never in the task's Markdown state or reports.
-
-If the handoff specifies an initial recharge, verify the requested amount against
-current provider bundles, obtain the required rule confirmation and signed mandate,
-then perform and verify that first payment before recurring top-ups. TokenGo's
-form defaults the initial amount to USD 10; the user's actual input takes precedence.
-Record the first completed recharge with trigger=initial and scheduled recharges
-with trigger=automatic, using stable payment/order IDs. Keep budget purpose,
-initial amount, recharge threshold and recurring amount with the budget record.
-
-### Optional TokenGo memory
-
-Before uploading anything, honor the user's storage choice: local-only or
-TokenGo. Local-only workflows need no TokenGo connection. If the user chooses
-TokenGo, follow [TOKENGO.md](TOKENGO.md): access directly using this agent's Agent ID / Agent VC (first access automatically
-opens an account; no connection code), then register accounts, business Key metadata,
-and the signed mandate reference and total allowance. Raw keys and provider
-query credentials are separately opt-in; keep credentials out of account JSON.
-
-Create the actual scheduler in the agent runtime first. Only then register its
-scheduler ID, interval, timezone and approved rules in TokenGo. Registration
-does not create a schedule. If scheduling is unavailable, explain that monitoring
-is not running instead of marking it active.
+This task manages prepaid balances. For Baidu Token Plans through AgentMarket,
+read [TOKENPLAN.md](TOKENPLAN.md); track allowance and expiry separately, and do
+not treat a plan as prepaid Balance or claim automatic renewal.
 
 ## 3. Recurring Checks
 
@@ -80,10 +46,10 @@ is not running instead of marking it active.
 - Verify the updated balance and payment result. Resolve any uncertain
   payment status before retrying to avoid duplicate charges.
 
-### TokenGo checkin (when connected)
+### TokenGo checkin
 
-Read TokenGo records together with local state, and query live provider/wallet
-state before payments. With a user-approved integration Key, TokenGo can directly
+Read TokenGo records and query live provider/wallet
+state before payments. With the configured integration key, TokenGo can directly
 sync AgentMarket balances and recent per-Key/model usage; respect timestamps and
 partial-coverage flags. Record each scheduler run with a stable run ID, actual
 balance/status and errors. Record purchases/top-ups with their stable payment or
@@ -156,13 +122,15 @@ Stay quiet when there is no new usage or other meaningful change.
 
 ## 4. Persistent State
 
-Store user preferences and approved settings in `user_token_mng_rule.md`.
-Read it before each run and update it afterward. For TokenGo users, also keep
-the service URL and nonsecret record IDs here; reconcile remote records after
-each run. Do not store VCs in recurring task state. Configure the scheduled task
-with its absolute path so every run uses the same file.
+TokenGo is the only persistent management store. Read /v1/onboarding and
+/v1/overview before continuing; write preferences, rules and nonsecret run state
+to records/settings. Store provider accounts and encrypted keys in their
+dedicated account/key fields, signed authorization references in budgets,
+verified payments in spending, and real runs in monitors/checkins.
 
-Include the monthly spending estimate, minimum balance, top-up amount,
-currency, schedule, mandate details, latest balance, recent usage summaries,
-key IDs and business mappings, per-key/model usage baselines, optimization
-estimates, and pending payment or approval status. Do not store credentials.
+Include monthly spending estimates, threshold/top-up amounts, currency/timezone,
+key IDs and use cases, usage baselines, optimization estimates and pending
+payment/approval IDs in settings. Never store credentials in settings or notes.
+Scheduler instructions should identify the TokenGo service and record IDs and
+read fresh state on every run. No local Markdown rule file is needed.
+If the service is unavailable, resume and reconcile before another payment.
