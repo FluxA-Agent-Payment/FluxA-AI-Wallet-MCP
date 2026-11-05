@@ -12,8 +12,9 @@ Recommend checking twice daily in the user's timezone.
 
 - **FluxA AgentMarket:** Wallet CLI account access, API keys, $1 initial trial,
   balance/usage sync and authorized top-ups.
-- **OpenRouter:** Supported in the next version; do not start setup or payments
-  in this version.
+- **All other providers, including OpenRouter:** Not supported yet. Use the
+  unsupported-provider reply in [TOKENGO.md](TOKENGO.md#supported-providers) and
+  stop. Do not offer signup, keys, manual tracking or payment workarounds.
 
 Start with [TOKENGO.md](TOKENGO.md). Make GET /v1/onboarding the first service
 request. If firstVisit=true, run the progressive onboarding: introduce TokenGo,
