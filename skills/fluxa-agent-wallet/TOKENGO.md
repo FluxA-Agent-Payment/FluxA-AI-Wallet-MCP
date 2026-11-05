@@ -1,5 +1,8 @@
 # TokenGo onboarding and persistent management
 
+Run this flow only for an explicit TokenGo or token-management request. It is
+not part of Wallet installation, onboarding or a general wallet introduction.
+
 Use for token/API service management, including wallet handoffs. TokenGo is the
 required system of record; keep accounts, API keys, preferences, budgets,
 payment references and check results there. Do not create local rule files or
