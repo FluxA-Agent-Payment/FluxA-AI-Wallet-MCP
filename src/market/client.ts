@@ -296,7 +296,7 @@ async function keysList(): Promise<string> {
   return lines.join('\n');
 }
 
-// If the account has "Approve agent keys in the browser" on, creating a key
+// If the account has "Allow agent to obtain API Key directly through CLI" off, creating a key
 // needs the user's approval there, and the key is never printed: it is shown
 // to the user and saved to a 0600 file here (see ./key-request.ts).
 // `--request <id>` resumes a wait that timed out. Otherwise (the default) the
@@ -513,7 +513,7 @@ ${c.bold('market')} ${c.dim('— what you\'re working with')}
 
   ${c.bold('API keys')} (Agent VC required)
     ${c.cyan('market keys list')}                           list keys (alias: ${c.cyan('market keys')})
-    ${c.cyan('market keys create [--name <n>] [--limit <Balance>]')} mint a key (browser approval if switched on)
+    ${c.cyan('market keys create [--name <n>] [--limit <Balance>]')} mint a key (browser approval if direct keys are off)
     ${c.cyan('market keys update <id> [--name <n>] [--limit <Balance>]')} change name or spending limit
     ${c.cyan('market keys revoke <id>')}                    revoke a key immediately
       --limit 0 clears the limit
@@ -555,11 +555,11 @@ ${c.bold('Auth')}
 `,
   keys: () => `
 ${c.bold('API keys — programmatic management')} ${c.dim('(Agent VC only)')}
-  Provision and rotate your ${c.dim('fxa_live_')} keys. If you switch on browser approval (on /keys),
+  Provision and rotate your ${c.dim('fxa_live_')} keys. If you switch off direct keys (on /keys),
   creating one needs your approval there; the key is saved to a file, never printed. ${c.bold('Requires an Agent VC')} — a metered
   fxa_live_ key is refused (it must not mint uncapped siblings or revoke others).
     ${c.cyan('fluxa-wallet market keys list')}                           list your keys (alias: market keys; prefixes only)
-    ${c.cyan('fluxa-wallet market keys create --name <n> --limit <Balance>')}   mint one (browser approval if switched on)
+    ${c.cyan('fluxa-wallet market keys create --name <n> --limit <Balance>')}   mint one (browser approval if direct keys are off)
     ${c.cyan('fluxa-wallet market keys update <id> --limit <Balance>')}         change name / limit (${c.dim('--limit 0')} clears)
     ${c.cyan('fluxa-wallet market keys revoke <id>')}                    revoke (immediate, irreversible)
   Spend limits (in Balance) gate metered LLM usage on that key only. To rotate: create
