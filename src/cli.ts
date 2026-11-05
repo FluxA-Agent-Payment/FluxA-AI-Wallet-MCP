@@ -635,13 +635,23 @@ Options:
 
 Manage your fxa_live_ API keys (requires an Agent VC, not a metered key).
 
+create prints the new key once. If the account has "Allow agent to obtain
+API Key directly through CLI" switched off (on /keys), create opens the browser instead: the
+user signs in, checks the code and approves. The key is then shown to the
+user there and saved to a file on this computer
+(~/.fluxa-ai-wallet-mcp/keys/<name>.key, owner-only), never printed: tell
+the user where it is saved; do not read or paste it.
+
 Options (create/update):
   --name <name>       Key name
   --limit <Balance>   Spending limit in Balance, $1 = 1 Balance (--limit 0 clears it).
                       --cap is the old name and means the same.
+  --wait <seconds>    create with direct keys off: wait, 1..900 (default 100)
+  --request <id>      create: keep waiting on an earlier request that timed out
 
 Examples:
   fluxa-wallet market keys create --name ci --limit 50
+  fluxa-wallet market keys create --request <id> --wait 100
   fluxa-wallet market keys revoke <id>`,
 
   'market info': `Usage: fluxa-wallet market info [topic]

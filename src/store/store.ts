@@ -5,7 +5,7 @@ import os from 'node:os';
 const DATA_ROOT = process.env.FLUXA_DATA_DIR
   ? path.resolve(process.env.FLUXA_DATA_DIR)
   : path.join(os.homedir(), '.fluxa-ai-wallet-mcp');
-const DATA_DIR = DATA_ROOT;
+export const DATA_DIR = DATA_ROOT;
 const CONFIG_FILE = path.join(DATA_DIR, 'config.json');
 const AUDIT_FILE = path.join(DATA_DIR, 'audit.log');
 
