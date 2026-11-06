@@ -295,8 +295,8 @@ npm whoami --registry https://registry.npmjs.org
 # If not logged in:
 npm login --registry https://registry.npmjs.org
 npm publish --access public --registry https://registry.npmjs.org
-npm view @fluxa-pay/fluxa-wallet@0.5.7 version --registry https://registry.npmjs.org
-npm install -g @fluxa-pay/fluxa-wallet@0.5.7 --registry https://registry.npmjs.org
+npm view @fluxa-pay/fluxa-wallet@0.6.0 version --registry https://registry.npmjs.org
+npm install -g @fluxa-pay/fluxa-wallet@0.6.0 --registry https://registry.npmjs.org
 fluxa-wallet --version
 fluxa-wallet card create --help
 ```
