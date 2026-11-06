@@ -9,6 +9,7 @@ const WALLET_APP = process.env.WALLET_APP || 'https://wallet.fluxapay.xyz';
 const CARD_SERVICE_API = process.env.CARD_SERVICE_API || 'https://agentcard.fluxapay.xyz';
 const CARD_API_PREFIX = '/api/v2';
 const AGENT_WALLET_APP = process.env.AGENT_WALLET_APP || 'https://agentwallet.fluxapay.xyz';
+import { CredentialError } from '../agent/credentialError.js';
 
 // JWT expiry buffer: refresh if expiring within 5 minutes
 const JWT_EXPIRY_BUFFER_SECONDS = 300;
@@ -832,10 +833,12 @@ export async function refreshJWT(
   });
 
   if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(
-      `JWT refresh failed (${response.status}): ${errorText}`
-    );
+    const body = await response.json().catch(() => ({})) as any;
+    const code = body.error || body.code;
+    if (['token_expired', 'token_revoked', 'invalid_token', 'agent_not_found'].includes(code)) {
+      throw new CredentialError(code, agent_id);
+    }
+    throw new Error(`JWT refresh unavailable (${response.status}); retry without registering a new identity.`);
   }
 
   const data = await response.json();

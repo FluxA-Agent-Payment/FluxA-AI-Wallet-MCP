@@ -1,8 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import crypto from 'node:crypto';
 
-const DATA_ROOT = process.env.FLUXA_DATA_DIR
+export const DATA_ROOT = process.env.FLUXA_DATA_DIR
   ? path.resolve(process.env.FLUXA_DATA_DIR)
   : path.join(os.homedir(), '.fluxa-ai-wallet-mcp');
 const DATA_DIR = DATA_ROOT;
@@ -10,7 +11,7 @@ const CONFIG_FILE = path.join(DATA_DIR, 'config.json');
 const AUDIT_FILE = path.join(DATA_DIR, 'audit.log');
 
 export function ensureDataDirs() {
-  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true, mode: 0o700 });
 }
 
 export type AgentIdConfig = {
@@ -55,10 +56,11 @@ export async function loadConfig() {
 
   if (!cfg) {
     cfg = defaultConfig;
-    fs.writeFileSync(CONFIG_FILE, JSON.stringify(cfg, null, 2));
+    writeConfig(cfg);
   }
 
   memory.config = cfg;
+  fs.chmodSync(CONFIG_FILE, 0o600);
 }
 
 /**
@@ -68,7 +70,13 @@ export function saveConfig() {
   if (!memory.config) {
     memory.config = defaultConfig;
   }
-  fs.writeFileSync(CONFIG_FILE, JSON.stringify(memory.config, null, 2));
+  writeConfig(memory.config);
+}
+
+function writeConfig(config: Config) {
+  const temp = `${CONFIG_FILE}.${crypto.randomUUID()}`;
+  try { fs.writeFileSync(temp, JSON.stringify(config, null, 2), { mode: 0o600 }); fs.renameSync(temp, CONFIG_FILE); }
+  finally { fs.rmSync(temp, { force: true }); }
 }
 
 /**

@@ -9,7 +9,22 @@ Agent ID is FluxA's identity and authentication service for AI agents — simila
 
 ## For AI Agents — Register & Authenticate
 
-### Register via CLI
+### Connect through Wallet (default, 0.6.0+)
+
+```bash
+fluxa-wallet connect --client "MyApp v1.0"
+fluxa-wallet connect-status --wait 100
+# On token_expired/token_revoked, retain the identity:
+fluxa-wallet connect --agent-id <original-id> --client "MyApp v1.0"
+```
+
+Show the returned authorization URL before waiting. Requests/links/claim windows
+last three hours. The owner chooses token validity (default seven days). A
+requested identity is locked to its owner; otherwise the page offers existing
+identities or creates one on approval. No comparison code or session fields are
+added. Network/503 failures are retried without creating a new identity.
+
+### Register via CLI (explicit legacy identity)
 
 ```bash
 fluxa-wallet init \
@@ -49,7 +64,7 @@ Response:
 | Credential | Purpose | Lifetime |
 |------------|---------|----------|
 | `agent_id` | Unique agent identifier (UUID) | Permanent |
-| `token` | Secret for refreshing JWT | Permanent |
+| `token` | Opaque secret for refreshing JWT | Owner-selected expiry, or legacy master credential |
 | `jwt` | RS256 signed bearer token for API calls | 15 minutes, auto-refreshable |
 
 ### Attach to Requests

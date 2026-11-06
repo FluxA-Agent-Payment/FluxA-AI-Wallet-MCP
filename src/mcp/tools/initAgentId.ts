@@ -13,10 +13,13 @@ export type InitAgentIdInput = z.infer<typeof RequestSchema>;
 const PMC_PRIMER = 'Please read and follow pmc.instructions to guide the user through the next steps.';
 
 export function registerInitAgentIdTool(server: McpServer) {
-  const description = `Register and initialize a FluxA Agent ID. This is required before making x402 payments.
+  const description = `Explicitly register a NEW standalone FluxA Agent ID (legacy setup).
 
 **When to use this tool:**
-You MUST call this tool before using request_x402_payment if the agent is not yet registered with FluxA.
+Use only when a new standalone identity is explicitly requested. Default wallet
+onboarding uses connect_wallet followed by get_wallet_connection. On expired or
+revoked credentials, reconnect the existing agent_id; never use this tool as
+automatic recovery. Existing init/link-wallet workflows remain supported.
 
 **Configuration methods:**
 This tool supports two configuration methods:

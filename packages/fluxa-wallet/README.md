@@ -34,6 +34,8 @@ fluxa-wallet <command> --help     # full options for any command
 
 | Command | Description |
 |---------|-------------|
+| `connect` | Default browser connection (`--client`, optional `--agent-id`, `--reconnect`, `--runtime`, `--hosting`, `--wait`) |
+| `connect-status` | Resume and claim a connection (`--wait 0..10800`; bare `--wait` means 3 hours) |
 | `init` | Register a new agent ID (`--name`, `--client`) |
 | `refreshJWT` | Refresh the JWT and print the new token |
 | `link-wallet` | Get the wallet-linking URL (or confirm already linked) |
@@ -177,8 +179,11 @@ Run `fluxa-wallet <command> --help` for the complete option list of any command.
 ## Quick Start
 
 ```bash
-# Register your agent
-fluxa-wallet init --name "My AI Agent" --client "Agent v1.0"
+# Connect through the wallet (0.6.0+). Show the returned authorization_url.
+fluxa-wallet connect --client "My AI Client"
+fluxa-wallet connect-status --wait 100
+# Reconnect a known identity after token expiry:
+# fluxa-wallet connect --agent-id <original-id> --client "My AI Client"
 
 # Check the linked wallet and balances
 fluxa-wallet wallet-address

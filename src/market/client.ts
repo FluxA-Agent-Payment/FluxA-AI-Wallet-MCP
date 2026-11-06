@@ -19,6 +19,7 @@
 // ---------------------------------------------------------------------------
 
 import { refreshJWT, isJWTExpired } from '../wallet/client.js';
+import { CredentialError, credentialFailure } from '../agent/credentialError.js';
 import { getEffectiveAgentId, updateJWT } from '../agent/agentId.js';
 import { planLines } from './plan-format.js';
 
@@ -78,7 +79,7 @@ const unesc = (s: any): any => typeof s === 'string'
 async function mintVc(): Promise<string> {
   const cfg = getEffectiveAgentId();
   if (!cfg) {
-    die('no Agent ID — register once with `fluxa-wallet init --name "<agent>" --client "<client>"`, then retry.');
+    die('Wallet is not connected. Run `fluxa-wallet connect`, complete browser approval, then retry.');
   }
   let jwt = cfg.jwt;
   if (!jwt || isJWTExpired(jwt)) {
@@ -86,6 +87,7 @@ async function mintVc(): Promise<string> {
       jwt = await refreshJWT(cfg.agent_id, cfg.token);
       updateJWT(jwt);
     } catch (e: any) {
+      if (e instanceof CredentialError) throw e;
       die(`could not refresh Agent ID JWT (${e?.message}). Check \`fluxa-wallet status\`.`);
     }
   }
@@ -803,6 +805,7 @@ export async function runMarketCommand(
     }
     return { success: true, raw };
   } catch (e: any) {
+    if (e instanceof CredentialError) return { success: false, ...credentialFailure(e) };
     if (e instanceof MarketError) return { success: false, error: e.message };
     return { success: false, error: `market error: ${e?.message || String(e)}` };
   }

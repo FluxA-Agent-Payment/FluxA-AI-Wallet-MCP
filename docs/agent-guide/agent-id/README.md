@@ -2,13 +2,33 @@
 
 ## What It Does
 
-Agent ID is the identity and authentication layer for AI agents using FluxA Wallet. Before an agent can make payments, send payouts, or create payment links, it must register an Agent ID. Registration produces three credentials:
+Agent ID is the identity and authentication layer for AI agents using FluxA Wallet. Before an agent can make payments, send payouts, or create payment links, it must connect an Agent ID. Browser connection can reuse an existing identity and returns the same three credentials:
 
 | Credential | Purpose | Lifetime |
 |------------|---------|----------|
 | `agent_id` | Unique identifier for the agent | Permanent |
-| `token` | Long-lived secret used to refresh JWTs | Permanent |
+| `token` | Opaque secret used to refresh JWTs | Owner-selected expiry; legacy master tokens remain supported |
 | `jwt` | Short-lived bearer token for API calls | Expires periodically (auto-refreshable) |
+
+## Default wallet connection (0.6.0+)
+
+```bash
+fluxa-wallet connect --client "My AI Client"
+# Show authorization_url, then wait without asking the user to reply done:
+fluxa-wallet connect-status --wait 100
+# If the identity is already known, including after token_expired:
+fluxa-wallet connect --agent-id <original-id> --client "My AI Client"
+```
+
+The owner selects an existing identity or New Agent ID. Empty accounts default
+to creating one, named after the requester, only on approval. A supplied Agent
+ID is locked and must belong to the signed-in owner. The page shows requester
+name/environment, without a comparison code. Request/link/claim/retry windows
+are three hours; token validity defaults to seven days. Reconnect the same ID
+on `token_expired`/`token_revoked`; retry service failures without registration.
+`connect_wallet` and `get_wallet_connection` are the equivalent MCP tools.
+
+The registration flow below remains available for explicit new identities.
 
 ## What an Agent Can Do
 
@@ -41,7 +61,7 @@ Agent ID is the identity and authentication layer for AI agents using FluxA Wall
 
 ## Integration Flow
 
-### Step 1 — Register Agent ID
+### Step 1 — Explicit registration (legacy alternative)
 
 **Via CLI:**
 

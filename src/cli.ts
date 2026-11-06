@@ -81,6 +81,8 @@ import {
   hasRegistrationInfo,
 } from './agent/agentId.js';
 import { ensureDataDirs, loadConfig, recordAudit } from './store/store.js';
+import { beginConnection, connectionStatus, ConnectionError } from './agent/connect.js';
+import { CredentialError, credentialFailure } from './agent/credentialError.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -109,6 +111,8 @@ interface CommandResult {
   error?: string;
   code?: string;
   details?: any;
+  reconnect_required?: boolean;
+  next_command?: string;
   // When set on a successful result, print this string verbatim instead of the
   // {success,data} JSON envelope — for human/agent-facing read commands.
   raw?: string;
@@ -123,7 +127,9 @@ USAGE:
 
 COMMANDS:
   status                    Check agent configuration status
-  init                      Initialize/register agent ID
+  connect                   Connect/reconnect through browser approval (default setup)
+  connect-status            Wait for browser approval and save credentials
+  init                      Explicitly register a new standalone Agent ID (legacy)
   refreshJWT                Refresh expired JWT and print new token
   card list                 List cards created by this agent
   card types                List card products, fees, and availability
@@ -369,7 +375,11 @@ EXAMPLES:
   # Check status
   fluxa-wallet status
 
-  # Initialize with parameters
+  # Connect using an existing identity or create one in the wallet
+  fluxa-wallet connect --client "My AI Client"
+  fluxa-wallet connect-status --wait 100
+
+  # Explicitly register a new standalone Agent ID (legacy setup)
   fluxa-wallet init --name "My Agent" --client "CLI v1.0"
 
   # Create payout
@@ -547,6 +557,24 @@ function parseArgs(args: string[]): { command: string; options: Record<string, s
 }
 
 const COMMAND_USAGE: Record<string, string> = {
+  'connect': `Usage: fluxa-wallet connect [--client <name>] [--agent-id <id>] [--reconnect] [--wait [seconds]]
+
+Default wallet setup. Reuse valid credentials or return a browser approval URL.
+Known Agent IDs are retained on reconnect and locked in the authorization page.
+Without an Agent ID the owner can select an existing identity or create one.
+New identity names use --client (default CLIENT_INFO or FluxA CLI), without an edit field.
+--runtime local|vm|container|unknown and --hosting local|cloud|unknown describe the execution environment.
+Request/link/claim windows default to 10800 seconds (3 hours); token validity is selected by the user (default 7 days).
+No comparison code, no session fields, and no credentials in output.
+--reconnect explicitly requests a new token even when credentials are currently valid.
+With --wait, print the link event first, then poll (0..10800 seconds; bare --wait means 10800).
+Otherwise show the URL, then run fluxa-wallet connect-status --wait 100.`,
+  'connect-status': `Usage: fluxa-wallet connect-status [--wait [seconds]]
+
+Poll the pending browser connection and save agent_id/token/jwt atomically.
+Default: one poll. --wait accepts 0..10800 seconds; bare --wait means 3 hours.
+If pending, show the original link and repeat this command; do not create a new identity.
+token_expired/token_revoked means reconnect using the original Agent ID.`,
   'plan-tool-use': `Usage: fluxa-wallet plan-tool-use "<task>"
 
 Recommend the models, APIs and skills for a task. Prints a plan; run the
@@ -1272,15 +1300,8 @@ async function ensureValidJWT(): Promise<{ agent_id: string; jwt: string } | nul
 
   // Check if JWT needs refresh
   if (isJWTExpired(jwt)) {
-    console.error('[cli] JWT expired or expiring soon, refreshing...');
-    try {
-      jwt = await refreshJWT(agentConfig.agent_id, agentConfig.token);
-      updateJWT(jwt);
-      console.error('[cli] JWT refreshed successfully');
-    } catch (err) {
-      console.error('[cli] Failed to refresh JWT:', err);
-      return null;
-    }
+    jwt = await refreshJWT(agentConfig.agent_id, agentConfig.token);
+    updateJWT(jwt);
   }
 
   return { agent_id: agentConfig.agent_id, jwt };
@@ -1370,7 +1391,7 @@ async function signPaymentRequestWithMandate(
   }
   // Holder review can outlast the login JWT's original refresh buffer.
   const auth = await ensureValidJWT();
-  if (!auth) throw new Error('FluxA Agent ID not initialized. Run "init" first.');
+  if (!auth) throw new Error('Wallet is not connected. Run "connect" first.');
   const jwt = auth.jwt;
 
   if (paymentRequest.x402Version === 2) {
@@ -1441,10 +1462,12 @@ async function signPaymentRequestWithMandate(
 
 async function cmdStatus(): Promise<CommandResult> {
   const hasConfig = hasAgentId();
-  const agentConfig = getEffectiveAgentId();
+  let agentConfig = getEffectiveAgentId();
   const regInfo = getRegistrationInfoFromEnv();
 
   if (hasConfig && agentConfig) {
+    await ensureValidJWT();
+    agentConfig = getEffectiveAgentId()!;
     const data: any = {
       configured: true,
       agent_id: agentConfig.agent_id,
@@ -1537,7 +1560,7 @@ async function cmdRefresh(): Promise<CommandResult> {
   if (!agentConfig) {
     return {
       success: false,
-      error: 'FluxA Agent ID not initialized. Run "init" first.',
+      error: 'Wallet is not connected. Run "connect" first.',
     };
   }
 
@@ -1561,7 +1584,7 @@ async function cmdRefresh(): Promise<CommandResult> {
   } catch (err: any) {
     return {
       success: false,
-      error: err.message || 'JWT refresh failed',
+      ...credentialFailure(err, agentConfig.agent_id),
     };
   }
 }
@@ -1572,7 +1595,7 @@ async function cmdCardList(options: Record<string, string> = {}): Promise<Comman
     if (!auth) {
       return {
         success: false,
-        error: 'FluxA Agent ID not initialized. Run "init" first.',
+        error: 'Wallet is not connected. Run "connect" first.',
       };
     }
 
@@ -1594,7 +1617,7 @@ async function cmdCardList(options: Record<string, string> = {}): Promise<Comman
 async function cmdCardTypes(): Promise<CommandResult> {
   try {
     const auth = await ensureCardServiceAuth();
-    if (!auth) return { success: false, error: 'FluxA Agent ID not initialized. Run "init" first.' };
+    if (!auth) return { success: false, error: 'Wallet is not connected. Run "connect" first.' };
     const result = await listCardTypes(auth.cardToken);
     return rawJson(result.cardTypes);
   } catch (err: any) {
@@ -1632,7 +1655,7 @@ async function cmdCardCreate(options: Record<string, string>): Promise<CommandRe
     if (!auth) {
       return {
         success: false,
-        error: 'FluxA Agent ID not initialized. Run "init" first.',
+        error: 'Wallet is not connected. Run "connect" first.',
       };
     }
 
@@ -1674,7 +1697,7 @@ async function cmdCardDetails(options: Record<string, string>): Promise<CommandR
     if (!auth) {
       return {
         success: false,
-        error: 'FluxA Agent ID not initialized. Run "init" first.',
+        error: 'Wallet is not connected. Run "connect" first.',
       };
     }
 
@@ -1706,7 +1729,7 @@ async function cmdCardBalance(options: Record<string, string>): Promise<CommandR
     if (!auth) {
       return {
         success: false,
-        error: 'FluxA Agent ID not initialized. Run "init" first.',
+        error: 'Wallet is not connected. Run "connect" first.',
       };
     }
 
@@ -1739,7 +1762,7 @@ async function cmdCardTransactions(options: Record<string, string>): Promise<Com
     if (!auth) {
       return {
         success: false,
-        error: 'FluxA Agent ID not initialized. Run "init" first.',
+        error: 'Wallet is not connected. Run "connect" first.',
       };
     }
 
@@ -1787,7 +1810,7 @@ async function cmdCard3dsLatest(options: Record<string, string>): Promise<Comman
     if (!auth) {
       return {
         success: false,
-        error: 'FluxA Agent ID not initialized. Run "init" first.',
+        error: 'Wallet is not connected. Run "connect" first.',
       };
     }
 
@@ -1820,7 +1843,7 @@ async function cmdCard3dsLatest1h(options: Record<string, string>): Promise<Comm
     if (!auth) {
       return {
         success: false,
-        error: 'FluxA Agent ID not initialized. Run "init" first.',
+        error: 'Wallet is not connected. Run "connect" first.',
       };
     }
 
@@ -1879,7 +1902,7 @@ async function cmdCardHolderCreate(options: Record<string, string>): Promise<Com
     if (!auth) {
       return {
         success: false,
-        error: 'FluxA Agent ID not initialized. Run "init" first.',
+        error: 'Wallet is not connected. Run "connect" first.',
       };
     }
 
@@ -1908,7 +1931,7 @@ async function cmdCardHolderUpdate(options: Record<string, string>): Promise<Com
       throw new Error('--revision must be a positive integer');
     }
     const auth = await ensureCardServiceAuth();
-    if (!auth) return { success: false, error: 'FluxA Agent ID not initialized. Run "init" first.' };
+    if (!auth) return { success: false, error: 'Wallet is not connected. Run "connect" first.' };
     const result = await updateCardholder(profile, auth.cardToken, revisionRaw === undefined ? undefined : Number(revisionRaw));
     await recordAudit({ event: 'card_holder_update', kyc_status: result.cardholder.kycStatus, revision: result.cardholder.revision });
     return rawJson(result.cardholder);
@@ -1923,7 +1946,7 @@ async function cmdCardHolderMe(): Promise<CommandResult> {
     if (!auth) {
       return {
         success: false,
-        error: 'FluxA Agent ID not initialized. Run "init" first.',
+        error: 'Wallet is not connected. Run "connect" first.',
       };
     }
 
@@ -1957,7 +1980,7 @@ async function cmdCardRecharge(options: Record<string, string>): Promise<Command
     if (!auth) {
       return {
         success: false,
-        error: 'FluxA Agent ID not initialized. Run "init" first.',
+        error: 'Wallet is not connected. Run "connect" first.',
       };
     }
 
@@ -2008,7 +2031,7 @@ async function cmdCardWithdraw(options: Record<string, string>): Promise<Command
     if (!auth) {
       return {
         success: false,
-        error: 'FluxA Agent ID not initialized. Run "init" first.',
+        error: 'Wallet is not connected. Run "connect" first.',
       };
     }
 
@@ -2046,7 +2069,7 @@ async function cmdCardWithdrawals(options: Record<string, string>): Promise<Comm
     if (!auth) {
       return {
         success: false,
-        error: 'FluxA Agent ID not initialized. Run "init" first.',
+        error: 'Wallet is not connected. Run "connect" first.',
       };
     }
 
@@ -2080,7 +2103,7 @@ async function cmdCardWithdrawal(options: Record<string, string>): Promise<Comma
     if (!auth) {
       return {
         success: false,
-        error: 'FluxA Agent ID not initialized. Run "init" first.',
+        error: 'Wallet is not connected. Run "connect" first.',
       };
     }
 
@@ -2140,7 +2163,7 @@ async function cmdPayout(options: Record<string, string>): Promise<CommandResult
   if (!auth) {
     return {
       success: false,
-      error: 'FluxA Agent ID not initialized. Run "init" first.',
+      error: 'Wallet is not connected. Run "connect" first.',
     };
   }
 
@@ -2199,7 +2222,7 @@ async function cmdPayoutStatus(options: Record<string, string>): Promise<Command
   if (!auth) {
     return {
       success: false,
-      error: 'FluxA Agent ID not initialized. Run "init" first.',
+      error: 'Wallet is not connected. Run "connect" first.',
     };
   }
 
@@ -2310,7 +2333,7 @@ async function cmdMandateCreate(options: Record<string, string>): Promise<Comman
   if (!auth) {
     return {
       success: false,
-      error: 'FluxA Agent ID not initialized. Run "init" first.',
+      error: 'Wallet is not connected. Run "connect" first.',
     };
   }
 
@@ -2425,7 +2448,7 @@ function linkedCardError(err: any, fallback: string): CommandResult {
 
 async function cmdLinkedCardList(options: Record<string, string>): Promise<CommandResult> {
   const auth = await ensureValidJWT();
-  if (!auth) return { success: false, error: 'FluxA Agent ID not initialized. Run "init" first.' };
+  if (!auth) return { success: false, error: 'Wallet is not connected. Run "connect" first.' };
 
   let limit: number | undefined;
   if (options.limit !== undefined) {
@@ -2446,7 +2469,7 @@ async function cmdLinkedCardList(options: Record<string, string>): Promise<Comma
 
 async function cmdLinkedCardMandates(options: Record<string, string>): Promise<CommandResult> {
   const auth = await ensureValidJWT();
-  if (!auth) return { success: false, error: 'FluxA Agent ID not initialized. Run "init" first.' };
+  if (!auth) return { success: false, error: 'Wallet is not connected. Run "connect" first.' };
 
   const cardId = options.card;
   const host = options.host;
@@ -2492,7 +2515,7 @@ async function cmdLinkedCardSubcard(options: Record<string, string>): Promise<Co
   if (!mandateId) return { success: false, error: 'Missing required parameter: --mandate' };
 
   const auth = await ensureValidJWT();
-  if (!auth) return { success: false, error: 'FluxA Agent ID not initialized. Run "init" first.' };
+  if (!auth) return { success: false, error: 'Wallet is not connected. Run "connect" first.' };
 
   try {
     const mandate = await getCardMandate(auth.jwt, mandateId);
@@ -2546,7 +2569,7 @@ async function cmdHeadlessCheckout(options: Record<string, string>): Promise<Com
   }
 
   const auth = await ensureValidJWT();
-  if (!auth) return { success: false, error: 'FluxA Agent ID not initialized. Run "init" first.' };
+  if (!auth) return { success: false, error: 'Wallet is not connected. Run "connect" first.' };
 
   try {
     const result = await submitHeadlessCheckout(auth.jwt, mandateId, { attemptId, billing });
@@ -2648,7 +2671,7 @@ async function cmdMandateStatus(options: Record<string, string>): Promise<Comman
   if (!auth) {
     return {
       success: false,
-      error: 'FluxA Agent ID not initialized. Run "init" first.',
+      error: 'Wallet is not connected. Run "connect" first.',
     };
   }
 
@@ -2716,7 +2739,7 @@ async function cmdX402V3(options: Record<string, string>): Promise<CommandResult
   if (!auth) {
     return {
       success: false,
-      error: 'FluxA Agent ID not initialized. Run "init" first.',
+      error: 'Wallet is not connected. Run "connect" first.',
     };
   }
 
@@ -2818,7 +2841,7 @@ async function cmdMarketTopup(positionals: string[], options: Record<string, str
   }
   const auth = await ensureValidJWT();
   if (!auth) {
-    return { success: false, error: 'FluxA Agent ID not initialized. Run "init" first.' };
+    return { success: false, error: 'Wallet is not connected. Run "connect" first.' };
   }
   try {
     let mandateId = options.mandate;
@@ -2928,7 +2951,7 @@ async function cmdX402V2(mandateId: string, payload: any, rawB64?: string): Prom
   if (!auth) {
     return {
       success: false,
-      error: 'FluxA Agent ID not initialized. Run "init" first.',
+      error: 'Wallet is not connected. Run "connect" first.',
     };
   }
 
@@ -2995,7 +3018,7 @@ async function cmdPaymentLinkCreate(options: Record<string, string>): Promise<Co
 
   const auth = await ensureValidJWT();
   if (!auth) {
-    return { success: false, error: 'FluxA Agent ID not initialized. Run "init" first.' };
+    return { success: false, error: 'Wallet is not connected. Run "connect" first.' };
   }
 
   try {
@@ -3022,7 +3045,7 @@ async function cmdPaymentLinkCreate(options: Record<string, string>): Promise<Co
 async function cmdPaymentLinkList(options: Record<string, string>): Promise<CommandResult> {
   const auth = await ensureValidJWT();
   if (!auth) {
-    return { success: false, error: 'FluxA Agent ID not initialized. Run "init" first.' };
+    return { success: false, error: 'Wallet is not connected. Run "connect" first.' };
   }
 
   try {
@@ -3045,7 +3068,7 @@ async function cmdPaymentLinkGet(options: Record<string, string>): Promise<Comma
 
   const auth = await ensureValidJWT();
   if (!auth) {
-    return { success: false, error: 'FluxA Agent ID not initialized. Run "init" first.' };
+    return { success: false, error: 'Wallet is not connected. Run "connect" first.' };
   }
 
   try {
@@ -3067,7 +3090,7 @@ async function cmdPaymentLinkUpdate(options: Record<string, string>): Promise<Co
 
   const auth = await ensureValidJWT();
   if (!auth) {
-    return { success: false, error: 'FluxA Agent ID not initialized. Run "init" first.' };
+    return { success: false, error: 'Wallet is not connected. Run "connect" first.' };
   }
 
   const updateParams: Record<string, any> = {};
@@ -3096,7 +3119,7 @@ async function cmdPaymentLinkDelete(options: Record<string, string>): Promise<Co
 
   const auth = await ensureValidJWT();
   if (!auth) {
-    return { success: false, error: 'FluxA Agent ID not initialized. Run "init" first.' };
+    return { success: false, error: 'Wallet is not connected. Run "connect" first.' };
   }
 
   try {
@@ -3118,7 +3141,7 @@ async function cmdPaymentLinkPayments(options: Record<string, string>): Promise<
 
   const auth = await ensureValidJWT();
   if (!auth) {
-    return { success: false, error: 'FluxA Agent ID not initialized. Run "init" first.' };
+    return { success: false, error: 'Wallet is not connected. Run "connect" first.' };
   }
 
   try {
@@ -3136,7 +3159,7 @@ async function cmdPaymentLinkPayments(options: Record<string, string>): Promise<
 async function cmdCheckWallet(): Promise<CommandResult> {
   const auth = await ensureValidJWT();
   if (!auth) {
-    return { success: false, error: 'FluxA Agent ID not initialized. Run "init" first.' };
+    return { success: false, error: 'Wallet is not connected. Run "connect" first.' };
   }
 
   try {
@@ -3160,7 +3183,7 @@ async function cmdCheckWallet(): Promise<CommandResult> {
 async function cmdLinkWallet(): Promise<CommandResult> {
   const auth = await ensureValidJWT();
   if (!auth) {
-    return { success: false, error: 'FluxA Agent ID not initialized. Run "init" first.' };
+    return { success: false, error: 'Wallet is not connected. Run "connect" first.' };
   }
 
   try {
@@ -3191,7 +3214,7 @@ async function cmdLinkWallet(): Promise<CommandResult> {
 async function cmdReceivedRecords(options: Record<string, string>): Promise<CommandResult> {
   const auth = await ensureValidJWT();
   if (!auth) {
-    return { success: false, error: 'FluxA Agent ID not initialized. Run "init" first.' };
+    return { success: false, error: 'Wallet is not connected. Run "connect" first.' };
   }
 
   try {
@@ -3220,7 +3243,7 @@ async function cmdReceivedRecord(options: Record<string, string>): Promise<Comma
 
   const auth = await ensureValidJWT();
   if (!auth) {
-    return { success: false, error: 'FluxA Agent ID not initialized. Run "init" first.' };
+    return { success: false, error: 'Wallet is not connected. Run "connect" first.' };
   }
 
   try {
@@ -3251,7 +3274,7 @@ async function cmdPaymentLinkRefundCreate(options: Record<string, string>): Prom
 
   const auth = await ensureValidJWT();
   if (!auth) {
-    return { success: false, error: 'FluxA Agent ID not initialized. Run "init" first.' };
+    return { success: false, error: 'Wallet is not connected. Run "connect" first.' };
   }
 
   try {
@@ -3275,7 +3298,7 @@ async function cmdPaymentLinkRefundCreate(options: Record<string, string>): Prom
 async function cmdPaymentLinkRefundList(options: Record<string, string>): Promise<CommandResult> {
   const auth = await ensureValidJWT();
   if (!auth) {
-    return { success: false, error: 'FluxA Agent ID not initialized. Run "init" first.' };
+    return { success: false, error: 'Wallet is not connected. Run "connect" first.' };
   }
 
   try {
@@ -3299,7 +3322,7 @@ async function cmdPaymentLinkRefundGet(options: Record<string, string>): Promise
 
   const auth = await ensureValidJWT();
   if (!auth) {
-    return { success: false, error: 'FluxA Agent ID not initialized. Run "init" first.' };
+    return { success: false, error: 'Wallet is not connected. Run "connect" first.' };
   }
 
   try {
@@ -3321,7 +3344,7 @@ async function cmdPaymentLinkRefundCancel(options: Record<string, string>): Prom
 
   const auth = await ensureValidJWT();
   if (!auth) {
-    return { success: false, error: 'FluxA Agent ID not initialized. Run "init" first.' };
+    return { success: false, error: 'Wallet is not connected. Run "connect" first.' };
   }
 
   try {
@@ -3356,7 +3379,7 @@ async function cmdAgentVC(options: Record<string, string>): Promise<CommandResul
 
   const auth = await ensureValidJWT();
   if (!auth) {
-    return { success: false, error: 'FluxA Agent ID not initialized. Run "init" first.' };
+    return { success: false, error: 'Wallet is not connected. Run "connect" first.' };
   }
 
   try {
@@ -3381,7 +3404,7 @@ async function cmdAgentVC(options: Record<string, string>): Promise<CommandResul
 async function cmdWalletAddress(): Promise<CommandResult> {
   const auth = await ensureValidJWT();
   if (!auth) {
-    return { success: false, error: 'FluxA Agent ID not initialized. Run "init" first.' };
+    return { success: false, error: 'Wallet is not connected. Run "connect" first.' };
   }
 
   try {
@@ -3398,7 +3421,7 @@ async function cmdWalletAddress(): Promise<CommandResult> {
 async function cmdBalance(options: Record<string, string>): Promise<CommandResult> {
   const auth = await ensureValidJWT();
   if (!auth) {
-    return { success: false, error: 'FluxA Agent ID not initialized. Run "init" first.' };
+    return { success: false, error: 'Wallet is not connected. Run "connect" first.' };
   }
 
   try {
@@ -3416,7 +3439,7 @@ async function cmdBalance(options: Record<string, string>): Promise<CommandResul
 async function cmdMandates(): Promise<CommandResult> {
   const auth = await ensureValidJWT();
   if (!auth) {
-    return { success: false, error: 'FluxA Agent ID not initialized. Run "init" first.' };
+    return { success: false, error: 'Wallet is not connected. Run "connect" first.' };
   }
 
   try {
@@ -3433,7 +3456,7 @@ async function cmdMandates(): Promise<CommandResult> {
 async function cmdRecentTransactions(options: Record<string, string>): Promise<CommandResult> {
   const auth = await ensureValidJWT();
   if (!auth) {
-    return { success: false, error: 'FluxA Agent ID not initialized. Run "init" first.' };
+    return { success: false, error: 'Wallet is not connected. Run "connect" first.' };
   }
 
   const txLimit = options.limit ? parseInt(options.limit, 10) : undefined;
@@ -3520,6 +3543,20 @@ async function main() {
       break;
     case 'status':
       result = await cmdStatus();
+      break;
+    case 'connect': {
+      const wait = options.wait === undefined ? undefined : options.wait === 'true' ? 10800 : Number(options.wait);
+      if (wait !== undefined && (!Number.isInteger(wait) || wait < 0 || wait > 10800)) throw new ConnectionError('invalid_wait', '--wait must be 0..10800 seconds');
+      const data = await beginConnection({ agent_id: options['agent-id'], client_name: options.client,
+        runtime: options.runtime, hosting: options.hosting, reconnect: options.reconnect !== undefined });
+      if (wait !== undefined && !data.connected) {
+        console.log(JSON.stringify({ event: 'authorization_required', ...data }));
+        result = { success: true, data: await connectionStatus(wait) };
+      } else result = { success: true, data };
+      break;
+    }
+    case 'connect-status':
+      result = { success: true, data: await connectionStatus(options.wait === undefined ? 0 : options.wait === 'true' ? 10800 : Number(options.wait)) };
       break;
     case 'init':
       result = await cmdInit(options);
@@ -3678,6 +3715,15 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error('Fatal error:', err);
+  if (err instanceof CredentialError) {
+    output({ success: false, ...credentialFailure(err) });
+    process.exit(1);
+  }
+  if (err instanceof ConnectionError) {
+    output({ success: false, code: err.code, error: err.message,
+      details: { retryable: err.retryable }, next_command: err.retryable ? 'fluxa-wallet connect-status --wait 100' : 'fluxa-wallet connect' });
+    process.exit(1);
+  }
+  output({ success: false, code: 'wallet_operation_failed', error: err instanceof Error ? err.message : 'Wallet operation failed' });
   process.exit(1);
 });

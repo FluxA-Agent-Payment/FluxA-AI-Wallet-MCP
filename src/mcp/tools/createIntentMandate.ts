@@ -1,3 +1,5 @@
+import { credentialFailure } from '../../agent/credentialError.js';
+import { missingConnectionToolResult } from './connectWallet.js';
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { hasAgentId, getEffectiveAgentId, hasRegistrationInfo, updateJWT } from '../../agent/agentId.js';
@@ -52,62 +54,10 @@ Note: If Agent ID is not configured, call init_agent_id first.`;
 
       try {
         // Check if Agent ID is configured
-        if (!hasAgentId()) {
-          const hasRegInfo = hasRegistrationInfo();
-
-          const instructions = hasRegInfo
-            ? `Agent ID is not configured, but registration information is available from environment variables.
-
-Simply call the init_agent_id tool with empty parameters {} to complete registration using the configured information.
-
-After successful registration, retry creating the intent mandate.`
-            : `Agent ID is not configured. To use FluxA Wallet, you need to register an Agent ID first.
-
-Please follow these steps:
-1. Ask the user for their email address
-2. Choose a meaningful agent name (e.g., "Claude Desktop - John's Computer")
-3. Provide client information (e.g., "Claude Desktop v1.0 on macOS 14.1")
-4. Call the init_agent_id tool with these parameters
-
-After successful registration, retry creating the intent mandate.`;
-
-          return {
-            content: [
-              {
-                type: 'text',
-                text: JSON.stringify({
-                  status: 'error',
-                  code: 'agent_not_registered',
-                  message: 'FluxA Agent ID not configured. Please register first.',
-                  pmc: {
-                    primer: PMC_PRIMER,
-                    instructions,
-                  },
-                }),
-              },
-            ],
-          };
-        }
+        if (!hasAgentId()) { return missingConnectionToolResult(getEffectiveAgentId()?.agent_id); }
 
         let agentId = getEffectiveAgentId();
-        if (!agentId?.jwt) {
-          return {
-            content: [
-              {
-                type: 'text',
-                text: JSON.stringify({
-                  status: 'error',
-                  code: 'invalid_agent_config',
-                  message: 'Agent ID configuration is incomplete (missing JWT)',
-                  pmc: {
-                    primer: PMC_PRIMER,
-                    instructions: 'Agent ID configuration is incomplete. Please re-register using the init_agent_id tool.',
-                  },
-                }),
-              },
-            ],
-          };
-        }
+        if (!agentId?.jwt) { return missingConnectionToolResult(agentId?.agent_id); }
 
         // Check if JWT is expired and refresh if needed
         if (isJWTExpired(agentId.jwt)) {
@@ -125,11 +75,11 @@ After successful registration, retry creating the intent mandate.`;
                   type: 'text',
                   text: JSON.stringify({
                     status: 'error',
-                    code: 'jwt_refresh_failed',
+                    ...credentialFailure(err, agentId.agent_id),
                     message: `JWT refresh failed: ${err?.message || 'Unknown error'}`,
                     pmc: {
                       primer: PMC_PRIMER,
-                      instructions: `JWT token has expired and automatic refresh failed: ${err?.message || 'Unknown error'}.\n\nPlease re-register using the init_agent_id tool to get a new JWT token.`,
+                      instructions: "If reconnect_required is true, call connect_wallet with the existing agent_id. Otherwise retry the service error. Never register a new identity to recover credentials.",
                     },
                   }),
                 },

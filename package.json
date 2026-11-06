@@ -1,6 +1,6 @@
 {
   "name": "@fluxa-pay/fluxa-wallet-mcp",
-  "version": "0.5.6",
+  "version": "0.6.0",
   "description": "MCP server for AI Wallet with x402 (EIP-3009 exact) support",
   "type": "module",
   "bin": {
@@ -20,6 +20,7 @@
     "build:wallet": "esbuild src/cli.ts --bundle --platform=node --target=node18 --format=esm --outfile=packages/fluxa-wallet/bin/fluxa-wallet.js && chmod +x packages/fluxa-wallet/bin/fluxa-wallet.js",
     "build:all": "npm run build && npm run build:wallet",
     "test": "npm run build:all && node --test tests/*.test.mjs",
+    "test:connect-e2e": "npm run build:all && node scripts/connect-e2e.mjs",
     "start": "node dist/index.js",
     "prepublishOnly": "npm run build"
   },

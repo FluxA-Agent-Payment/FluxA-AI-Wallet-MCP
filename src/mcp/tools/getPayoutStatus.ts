@@ -1,3 +1,5 @@
+import { credentialFailure } from '../../agent/credentialError.js';
+import { missingConnectionToolResult } from './connectWallet.js';
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { getEffectiveAgentId, updateJWT } from '../../agent/agentId.js';
@@ -27,30 +29,14 @@ export function registerGetPayoutStatusTool(server: McpServer) {
       const args = RequestSchema.parse(rawArgs) as GetPayoutStatusInput;
 
       let agentId = getEffectiveAgentId();
-      if (!agentId?.jwt) {
-        return {
-          content: [
-            {
-              type: 'text',
-              text: JSON.stringify({
-                status: 'error',
-                code: 'invalid_agent_config',
-                message: 'Agent ID configuration is incomplete (missing JWT)',
-                pmc: {
-                  primer: PMC_PRIMER,
-                  instructions: 'Please re-register using init_agent_id to obtain a valid JWT.',
-                },
-              }),
-            },
-          ],
-        };
-      }
+      if (!agentId?.jwt) { return missingConnectionToolResult(agentId?.agent_id); }
 
       // Refresh JWT if needed
       if (isJWTExpired(agentId.jwt)) {
         try {
           const newJWT = await refreshJWT(agentId.agent_id, agentId.token);
           updateJWT(newJWT);
+          agentId = getEffectiveAgentId()!;
           agentId = getEffectiveAgentId()!;
         } catch (err: any) {
           return {
@@ -59,11 +45,11 @@ export function registerGetPayoutStatusTool(server: McpServer) {
                 type: 'text',
                 text: JSON.stringify({
                   status: 'error',
-                  code: 'jwt_refresh_failed',
+                  ...credentialFailure(err, agentId.agent_id),
                   message: `JWT refresh failed: ${err?.message || 'Unknown error'}`,
                   pmc: {
                     primer: PMC_PRIMER,
-                    instructions: 'JWT expired and automatic refresh failed. Please re-register using init_agent_id.',
+                    instructions: "If reconnect_required is true, call connect_wallet with the existing agent_id. Otherwise retry the service error. Never register a new identity to recover credentials.",
                   },
                 }),
               },

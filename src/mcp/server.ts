@@ -13,17 +13,19 @@ import { registerListPaymentLinksTool } from './tools/listPaymentLinks.js';
 import { registerGetPaymentLinkTool } from './tools/getPaymentLink.js';
 import { registerUpdatePaymentLinkTool } from './tools/updatePaymentLink.js';
 import { registerDeletePaymentLinkTool } from './tools/deletePaymentLink.js';
+import { registerConnectWalletTools } from './tools/connectWallet.js';
 
 export async function startMcpServer() {
   const server = new McpServer({
     name: 'fluxa-ai-wallet-mcp',
-    version: '0.5.6',
+    version: '0.6.0',
     capabilities: {
       tools: {},
     },
   });
 
   // Register MCP tools
+  registerConnectWalletTools(server);
   registerInitAgentIdTool(server);
   registerRequestX402PaymentTool(server);
   registerGetAgentStatusTool(server);

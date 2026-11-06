@@ -1,3 +1,5 @@
+import { credentialFailure } from '../../agent/credentialError.js';
+import { missingConnectionToolResult } from './connectWallet.js';
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { hasAgentId, getEffectiveAgentId, hasRegistrationInfo, updateJWT } from '../../agent/agentId.js';
@@ -111,7 +113,7 @@ function selectRequirement(
 
 export function registerRequestX402PaymentTool(server: McpServer) {
   const description =
-    'Sign an x402 exact (EIP-3009) payment by calling FluxA Wallet API. Returns X-PAYMENT header for the HTTP request. Requires Agent ID to be configured first (use init_agent_id tool).';
+    'Sign an x402 exact (EIP-3009) payment by calling FluxA Wallet API. Returns X-PAYMENT header for the HTTP request. Requires Agent ID to be configured first (use connect_wallet tool).';
 
   server.registerTool(
     'request_x402_payment',
@@ -124,63 +126,10 @@ export function registerRequestX402PaymentTool(server: McpServer) {
 
       try {
         // Check if Agent ID is configured
-        if (!hasAgentId()) {
-          // Check if registration info is available from env vars
-          const hasRegInfo = hasRegistrationInfo();
-
-          const instructions = hasRegInfo
-            ? `Agent ID is not configured, but registration information is available from environment variables.
-
-Simply call the init_agent_id tool with empty parameters {} to complete registration using the configured information.
-
-After successful registration, you can retry the payment request.`
-            : `Agent ID is not configured. To use FluxA Wallet for x402 payments, you need to register an Agent ID first.
-
-Please follow these steps:
-1. Ask the user for their email address
-2. Choose a meaningful agent name (e.g., "Claude Desktop - John's Computer")
-3. Provide client information (e.g., "Claude Desktop v1.0 on macOS 14.1")
-4. Call the init_agent_id tool with these parameters
-
-After successful registration, you can retry the payment request.`;
-
-          return {
-            content: [
-              {
-                type: 'text',
-                text: JSON.stringify({
-                  status: 'error',
-                  code: 'agent_not_registered',
-                  message: 'FluxA Agent ID not configured. Please register first.',
-                  pmc: {
-                    primer: PMC_PRIMER,
-                    instructions,
-                  },
-                }),
-              },
-            ],
-          };
-        }
+        if (!hasAgentId()) { return missingConnectionToolResult(getEffectiveAgentId()?.agent_id); }
 
         let agentId = getEffectiveAgentId();
-        if (!agentId?.jwt) {
-          return {
-            content: [
-              {
-                type: 'text',
-                text: JSON.stringify({
-                  status: 'error',
-                  code: 'invalid_agent_config',
-                  message: 'Agent ID configuration is incomplete (missing JWT)',
-                  pmc: {
-                    primer: PMC_PRIMER,
-                    instructions: 'Agent ID configuration is incomplete. Please re-register using the init_agent_id tool.',
-                  },
-                }),
-              },
-            ],
-          };
-        }
+        if (!agentId?.jwt) { return missingConnectionToolResult(agentId?.agent_id); }
 
         // Check if JWT is expired and refresh if needed
         if (isJWTExpired(agentId.jwt)) {
@@ -199,11 +148,11 @@ After successful registration, you can retry the payment request.`;
                   type: 'text',
                   text: JSON.stringify({
                     status: 'error',
-                    code: 'jwt_refresh_failed',
+                    ...credentialFailure(err, agentId.agent_id),
                     message: `JWT refresh failed: ${err?.message || 'Unknown error'}`,
                     pmc: {
                       primer: PMC_PRIMER,
-                      instructions: `JWT token has expired and automatic refresh failed: ${err?.message || 'Unknown error'}.\n\nPlease re-register using the init_agent_id tool to get a new JWT token.`,
+                      instructions: "If reconnect_required is true, call connect_wallet with the existing agent_id. Otherwise retry the service error. Never register a new identity to recover credentials.",
                     },
                   }),
                 },
@@ -346,16 +295,7 @@ After successful registration, you can retry the payment request.`;
           message: err?.message || String(err),
           pmc: {
             primer: PMC_PRIMER,
-            instructions: `FluxA Wallet API call failed: ${err?.message || 'Unknown error'}
-
-Possible causes:
-1. Network connectivity issues
-2. JWT token expired (may need to re-register)
-3. Insufficient balance in wallet
-4. Policy restrictions on the wallet side
-5. Invalid payment parameters
-
-Please check the error message and retry. If the issue persists, contact FluxA support.`,
+            instructions: "If reconnect_required is true, call connect_wallet with the existing agent_id. Otherwise retry the service error. Never register a new identity to recover credentials.",
           },
         };
 

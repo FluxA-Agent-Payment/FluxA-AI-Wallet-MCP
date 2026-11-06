@@ -1,3 +1,5 @@
+import { credentialFailure } from '../../agent/credentialError.js';
+import { missingConnectionToolResult } from './connectWallet.js';
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { hasAgentId, getEffectiveAgentId, hasRegistrationInfo, updateJWT } from '../../agent/agentId.js';
@@ -36,39 +38,10 @@ export function registerCreatePaymentLinkTool(server: McpServer) {
       const args = RequestSchema.parse(rawArgs) as CreatePaymentLinkInput;
 
       try {
-        if (!hasAgentId()) {
-          const hasRegInfo = hasRegistrationInfo();
-          const instructions = hasRegInfo
-            ? 'Agent ID is not configured, but registration information is available from environment variables.\n\nCall init_agent_id with {} to complete registration, then retry.'
-            : 'Agent ID is not configured. Please register first by calling init_agent_id with email, agent_name, and client_info.';
-
-          return {
-            content: [{
-              type: 'text',
-              text: JSON.stringify({
-                status: 'error',
-                code: 'agent_not_registered',
-                message: 'FluxA Agent ID not configured. Please register first.',
-                pmc: { primer: PMC_PRIMER, instructions },
-              }),
-            }],
-          };
-        }
+        if (!hasAgentId()) { return missingConnectionToolResult(getEffectiveAgentId()?.agent_id); }
 
         let agentId = getEffectiveAgentId();
-        if (!agentId?.jwt) {
-          return {
-            content: [{
-              type: 'text',
-              text: JSON.stringify({
-                status: 'error',
-                code: 'invalid_agent_config',
-                message: 'Agent ID configuration is incomplete (missing JWT)',
-                pmc: { primer: PMC_PRIMER, instructions: 'Please re-register using init_agent_id to obtain a valid JWT.' },
-              }),
-            }],
-          };
-        }
+        if (!agentId?.jwt) { return missingConnectionToolResult(agentId?.agent_id); }
 
         if (isJWTExpired(agentId.jwt)) {
           try {
@@ -81,9 +54,9 @@ export function registerCreatePaymentLinkTool(server: McpServer) {
                 type: 'text',
                 text: JSON.stringify({
                   status: 'error',
-                  code: 'jwt_refresh_failed',
+                  ...credentialFailure(err, agentId.agent_id),
                   message: `JWT refresh failed: ${err?.message || 'Unknown error'}`,
-                  pmc: { primer: PMC_PRIMER, instructions: 'JWT expired and automatic refresh failed. Please re-register using init_agent_id.' },
+                  pmc: { primer: PMC_PRIMER, instructions: "If reconnect_required is true, call connect_wallet with the existing agent_id. Otherwise retry the service error. Never register a new identity to recover credentials." },
                 }),
               }],
             };

@@ -45,10 +45,10 @@ fluxa-wallet <command> [options]
 
 ## Quick Start
 
-Every agent interaction starts with **Agent ID registration**. Once registered, you can use any feature module.
+Start with **wallet connection**: run `fluxa-wallet connect --client "My AI Client"`, show the approval URL, then `fluxa-wallet connect-status --wait 100`. Existing valid credentials are reused. If known, include `--agent-id <original-id>`; token expiry requires reconnecting that identity, not registering a replacement.
 
 ```
-1. Register Agent ID  ──>  Get agent_id + token + JWT
+1. Connect wallet    ──>  Reuse/create Agent ID; get token + JWT
 2. Use any feature:
    ├── x402 Payment   ──>  Pay for paid APIs in real time
    ├── Payout          ──>  Send funds to a wallet address

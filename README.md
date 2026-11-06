@@ -30,7 +30,9 @@ This MCP server enables AI agents to make x402 payments using the FluxA Wallet A
 
 ```bash
 npm install -g @fluxa-pay/fluxa-wallet
-fluxa-wallet status
+fluxa-wallet connect --client "My AI Client"
+# Show authorization_url, then wait for browser approval:
+fluxa-wallet connect-status --wait 100
 ```
 
 ### MCP Server
@@ -71,6 +73,27 @@ export FLUXA_DATA_DIR=/path/to/custom/dir
 ```
 
 #### Agent ID Configuration
+
+CLI/MCP 0.6.0 adds browser connection as the default setup. Use `connect_wallet`
+and `get_wallet_connection` in MCP. No persistent identity is required before
+connecting: the owner chooses an existing Agent ID or creates one in the wallet.
+If the client knows its ID, send `agent_id` (`connect --agent-id <id>`); the page
+locks that identity and rejects a different owner account. Empty accounts create
+an identity named after the requester only when the owner approves.
+
+The request, approval link, and credential claim/retry windows each default to
+3 hours (10800 seconds). Token validity is separately chosen by the owner,
+defaulting to 7 days. The page displays requester name and execution environment,
+without a comparison code. Credentials and login JWTs retain their existing
+shape; consumers do not need session-aware authentication.
+
+`token_expired`/`token_revoked` returns `reconnect_required: true`. Reconnect to
+the same Agent ID, never re-run `init` as an automatic recovery step. Network
+errors are retryable and do not require a new identity. Existing `init` and
+`link-wallet` remain supported for explicit registration and legacy workflows.
+
+The environment configuration methods below remain supported; injected
+credentials take priority over saved files and must be updated/removed if stale.
 
 There are **two methods** to configure Agent ID via environment variables:
 
