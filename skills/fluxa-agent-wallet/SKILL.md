@@ -206,6 +206,14 @@ You must:
   Agent: I found an existing spending budget, so I'll use that budget to complete this request.
   ```
 
+- **One budget covers the whole task, across providers.** A mandate is not tied to an API or provider. When the task moves on to another provider's API, reuse the signed mandate; create a new one only when it has expired or has too little remaining.
+
+  ```
+  Incorrect:
+  User: Find this company's registry entry, then its funding rounds.
+  Agent: (Signed a mandate for the registry API, then creates a second one for the funding API.)
+  ```
+
 - **Whenever the user invokes a tool style x402 API, always request a budget for at least 100 calls. Do not request only enough budget for the current task.**
 
   ```
