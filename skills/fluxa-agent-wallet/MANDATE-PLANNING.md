@@ -8,7 +8,7 @@ You **MUST** to clearly define the purpose of this budget so the user knows what
 
 When applying for the budget, you may already know the exact number of payments and amounts (for example, calling an image generation api three times). or you may not know the exact payments in advance, and the spending will only be determined dynamically during task execution, including the number of transactions and total cost. both cases are allowed. you just need to apply for a reasonable budget.
 
-A mandate is a budget for the user's intent, not for one provider or API. The wallet does not tie a mandate to a host or a payee: one signed USDC mandate pays any x402 API, from any provider, until its budget runs out or it expires. Never create a separate mandate per provider.
+Create one mandate per user task, not one per provider. If the task calls APIs from several providers, pay all of them with the same mandate. A mandate is not limited to a provider; it stops working only when its budget is used up or it expires.
 
 You must avoid applying for a budget for each individual payment, as this creates a poor user experience. You should analyze the user’s intent and determine whether a reusable budget can be requested so related tasks can use the same budget. For example: recurring video production for operations, or ongoing fund transfers to friends.
 
