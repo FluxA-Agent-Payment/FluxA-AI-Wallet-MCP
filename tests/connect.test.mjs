@@ -16,6 +16,7 @@ test('CLI reconnect preserves identity, keeps secrets private, and consumes the 
   const old = { agent_id: 'existing-agent', token: 'old-token', jwt: jwt(1) };
   let starts = [], refreshCode = 'token_expired', poll = 'pending', claimAgent = 'existing-agent', walletStatus = 200;
   let walletState = { status: 'authorized' };
+  let linkOrigin = 'https://wallet.example';
   const requests = [];
   const server = http.createServer(async (req, res) => {
     let raw = ''; for await (const chunk of req) raw += chunk;
@@ -28,7 +29,7 @@ test('CLI reconnect preserves identity, keeps secrets private, and consumes the 
     }
     if (req.url === '/connect/requests') {
       starts.push(body); res.statusCode = 201;
-      return res.end(JSON.stringify({ request_id: `cr_${'a'.repeat(43)}`, poll_secret: 'private-poll-secret', authorization_url: `https://wallet.example/connect-agent?request_id=cr_${'a'.repeat(43)}`, expires_in: 10800, poll_interval: 5 }));
+      return res.end(JSON.stringify({ request_id: `cr_${'a'.repeat(43)}`, poll_secret: 'private-poll-secret', authorization_url: `${linkOrigin}/connect-agent?request_id=cr_${'a'.repeat(43)}`, expires_in: 10800, poll_interval: 5 }));
     }
     if (req.url === '/connect/token') {
       assert.equal(body.poll_secret, 'private-poll-secret');
@@ -204,4 +205,18 @@ test('CLI reconnect preserves identity, keeps secrets private, and consumes the 
     assert.equal((await run(['connect', '--validity', '60d'])).data.code, 'invalid_validity');
     assert.equal(requests.length, count);
   });
+  await t.test('returns the original production or QA link and rejects lookalike hosts', async () => {
+    for (const [origin, expectedCode] of [
+      ['https://agentwallet.fluxapay.xyz', 0], ['https://agentwallet.fluxapay-qa.xyz', 0],
+      ['https://agentwallet.fluxapay.xyz.example.org', 1],
+    ]) {
+      linkOrigin = origin;
+      const caseDir = await mkdtemp(path.join(dir, 'origins-'));
+      const result = await run(['connect'], { FLUXA_DATA_DIR: caseDir, AGENT_WALLET_APP: 'https://agentwallet.fluxapay-qa.xyz' });
+      assert.equal(result.code, expectedCode);
+      if (!expectedCode) assert.equal(result.data.data.authorization_url, `${origin}/connect-agent?request_id=cr_${'a'.repeat(43)}`);
+      else assert.equal(result.data.code, 'connection_url_mismatch');
+    }
+  });
+
 });

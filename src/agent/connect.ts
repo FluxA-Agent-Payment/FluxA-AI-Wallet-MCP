@@ -125,8 +125,16 @@ async function beginLocked(options: Options) {
     ...(target ? { agent_id: target } : {}), ...(options.validity !== undefined ? { validity: options.validity } : {}) });
   if (!result?.request_id || !result.poll_secret || !result.authorization_url) throw new ConnectionError('invalid_connection_response');
   const url = new URL(result.authorization_url);
-  const expected = new URL(process.env.AGENT_WALLET_APP || 'https://agentwallet.fluxapay.xyz');
-  if (url.origin !== expected.origin || url.pathname !== '/connect-agent') throw new ConnectionError('connection_url_mismatch', 'AgentDID returned a wallet link for another environment. Check AGENT_WALLET_APP.');
+  const walletOrigins = new Set([
+    'https://agentwallet.fluxapay.xyz',
+    'https://agentwallet.fluxapay-qa.xyz',
+    new URL(process.env.AGENT_WALLET_APP || 'https://agentwallet.fluxapay.xyz').origin,
+  ]);
+  const ids = url.searchParams.getAll('request_id');
+  if (!walletOrigins.has(url.origin) || url.username || url.password || url.pathname !== '/connect-agent'
+      || ids.length !== 1 || ids[0] !== result.request_id) {
+    throw new ConnectionError('connection_url_mismatch', 'Invalid wallet authorization URL or request ID.');
+  }
   const created: Pending = { ...result, expires_in: result.expires_in || CONNECT_TTL_SECONDS,
     poll_interval: result.poll_interval || 5, started_at: Date.now(), agent_api: api(), requested_agent_id: target,
     requested_validity: options.validity, client_name: clientName };
