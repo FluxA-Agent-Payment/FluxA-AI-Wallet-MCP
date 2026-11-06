@@ -33,33 +33,17 @@ npm install -g @fluxa-pay/fluxa-wallet@latest
 fluxa-wallet --version
 ```
 
-### Step 2 — Check the wallet
+### Step 2 — Connect the wallet
 
-```bash
-fluxa-wallet status
-```
+Run `fluxa-wallet connect`. It checks the existing connection first.
 
-- `configured: true` and `wallet_linked: true`: ready. Continue the user's task.
-- Not configured, not linked, or the CLI requests reconnection: follow its
-  `next_command`, or run `fluxa-wallet connect`.
-- Unknown status or network/service error: retry the check.
-
-`connect` also checks and reuses existing credentials. If it returns
-`connected: true`, continue without requesting authorization.
-
-Only when it returns an `authorization_url`, show the clickable link and run:
-
-```bash
-fluxa-wallet connect-status --wait 100
-```
-
-Repeat while authorization is pending; stop at `connected: true` and continue.
-Do not ask the user to reply "done".
-
-Steps 3 and 4 are only for when the user is installing this skill or asks what
-the wallet can do. For a specific task, continue with that task once the wallet is ready.
+- If `connected: true`, continue the user's task.
+- If it returns an `authorization_url`, send the clickable link to the user. Run `fluxa-wallet connect-status --wait 100` and repeat while pending. Once connected, continue the task.
+- If the service is temporarily unavailable, retry the command.
 
 ### Step 3 — Scheduled Tasks
+
+Use Steps 3 and 4 only during skill installation or when the user asks what the wallet can do.
 
 If your agent supports scheduled tasks, use the following guides to configure
 recurring wallet workflows. Reuse an existing task when one is already configured.
