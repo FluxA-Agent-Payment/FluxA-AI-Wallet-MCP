@@ -157,7 +157,19 @@ try {
   const legacyRefresh = await fetch(`${didBase}/refresh`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ agent_id: legacy.agent_id, token: legacy.token }) });
   assert.equal(legacyRefresh.status, 200);
   assert.deepEqual(Object.keys(requireDid('jsonwebtoken').decode((await legacyRefresh.json()).jwt)).sort(), ['agent_id', 'exp', 'iat']);
-  console.log('PASS: empty-account create, idempotent approval, unchanged JWT verification, expired-token recovery with locked Agent ID, server-selected durations, explicit request and owner overrides, foreign-owner rejection, independent token revocation, legacy registration/refresh.');
+  // An already linked legacy identity must remain usable without new approval.
+  agents.push({ id: agents.length + 1, user_id: 7, external_agent_id: legacy.agent_id,
+    name: 'Legacy', is_authorized: 1, is_deleted: 0 });
+  await writeFile(configPath, JSON.stringify({ agentId: { agent_id: legacy.agent_id, token: legacy.token,
+    jwt: `e30.${Buffer.from(JSON.stringify({ agent_id: legacy.agent_id, exp: 1 })).toString('base64url')}.test` } }));
+  const count = starts.length;
+  const legacyStatus = await cli('status');
+  assert.equal(legacyStatus.output.data.configured, true); assert.equal(legacyStatus.output.data.wallet_linked, true);
+  const legacyConnect = await cli('connect');
+  assert.equal(legacyConnect.output.data.connected, true); assert.equal(legacyConnect.output.data.agent_id, legacy.agent_id);
+  assert.ok(!('authorization_url' in legacyConnect.output.data)); assert.equal(starts.length, count);
+  assert.equal((await readConfig()).agentId.token, legacy.token);
+  console.log('PASS: empty-account create, idempotent approval, unchanged JWT verification, expired-token recovery with locked Agent ID, server-selected durations, explicit request and owner overrides, foreign-owner rejection, independent token revocation, legacy registration/refresh and linked credential reuse without reauthorization.');
 } finally {
   didServer.closeAllConnections(); walletServer.closeAllConnections();
   await Promise.all([new Promise(resolve => didServer.close(resolve)), new Promise(resolve => walletServer.close(resolve))]);

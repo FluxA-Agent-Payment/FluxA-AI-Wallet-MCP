@@ -21,11 +21,11 @@ function failure(error: unknown) {
 
 export function registerConnectWalletTools(server: McpServer) {
   server.registerTool('connect_wallet', {
-    description: 'Default wallet onboarding and reconnect entry point. Reuses valid credentials; otherwise returns a browser approval link. Include the existing agent_id when reconnecting. The user chooses an identity only if none was requested. Show the link, then use get_wallet_connection; never ask for a done reply. client_name is the requester name used for newly created identities.',
+    description: 'Check and reuse existing wallet credentials/access. connected:true means ready: continue without authorization or polling. Only when authorization_url is returned, show the link and use get_wallet_connection. Retain a known agent_id.',
     inputSchema: { agent_id: z.string().max(128).optional(), client_name: z.string().max(120).optional(),
       runtime: z.enum(['local', 'vm', 'container', 'unknown']).optional(), hosting: z.enum(['local', 'cloud', 'unknown']).optional(),
-      validity: z.enum(CONNECT_VALIDITIES).optional().describe('Only pass when the user explicitly requests a token duration. Otherwise omit it; the server chooses the default from the execution environment. The owner can change it on the approval page.'),
-      reconnect: z.boolean().optional() },
+      validity: z.enum(CONNECT_VALIDITIES).optional().describe('Omit unless the user explicitly requests a token duration.'),
+      reconnect: z.boolean().optional().describe('Only set true when the user explicitly requests a new token.') },
   }, async args => {
     try { return { content: [{ type: 'text', text: JSON.stringify(await beginConnection(args)) }] }; }
     catch (error) { return failure(error); }

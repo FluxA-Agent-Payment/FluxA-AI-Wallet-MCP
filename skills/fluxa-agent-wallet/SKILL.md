@@ -6,7 +6,7 @@ description: >-
 
 # FluxA Agent Wallet
 
-**Skill version: 0.6.0** | **CLI version: @fluxa-pay/fluxa-wallet@0.6.0 or newer** — **MUST** install or update to the latest CLI version before use.
+**Skill version: 0.6.0** | **CLI version: @fluxa-pay/fluxa-wallet@0.6.0 or newer**. Check the installed version; install/update only if missing or older than 0.6.0.
 
 FluxA Agent Wallet is a co-wallet that allows AI agents to securely use a user’s wallet, enabling them to perform payment-related actions within the user’s approved scope. Capabilities include x402 payments, USDC transfers, agent-to-agent transfers, payment links for receiving payments, prepaid virtual cards, AI social gifting, discovering and calling x402 resources (one-shot APIs), and using payment-related skills (one-shot skills). Use this tool when the user the user asks to perform any of these payment-related actions.
 
@@ -20,80 +20,44 @@ FluxA Agent Wallet is a co-wallet that allows AI agents to securely use a user�
 
 ## Setup
 
-### Step 1 — Install the CLI
+### Step 1 — Check the CLI
+
+```bash
+fluxa-wallet --version
+```
+
+Reuse an installed CLI at version 0.6.0 or newer. Only if it is missing or older:
 
 ```bash
 npm install -g @fluxa-pay/fluxa-wallet@latest
-fluxa-wallet --version              # must be 0.6.0 or newer
+fluxa-wallet --version
 ```
 
-Then run commands directly:
+### Step 2 — Check the wallet
 
 ```bash
-fluxa-wallet <command> [options]
+fluxa-wallet status
 ```
 
-### Step 2 — Connect Wallet
+- `configured: true` and `wallet_linked: true`: ready. Continue the user's task.
+- Not configured, not linked, or the CLI requests reconnection: follow its
+  `next_command`, or run `fluxa-wallet connect`.
+- Unknown status or network/service error: retry the check.
 
-Use CLI 0.6.0 or newer. The default wallet setup is browser connection:
+`connect` also checks and reuses existing credentials. If it returns
+`connected: true`, continue without requesting authorization.
 
-```bash
-fluxa-wallet connect --client "Your AI client name"
-```
-
-The CLI reuses valid credentials and wallet links. Otherwise it returns an
-`authorization_url`. Send the complete clickable URL to the user, then run:
+Only when it returns an `authorization_url`, show the clickable link and run:
 
 ```bash
 fluxa-wallet connect-status --wait 100
 ```
 
-Continue bounded waits while `connected: false`. Do not ask the user to reply
-"done". The connection request, approval link, and claim/retry windows each
-default to **3 hours (10800 seconds)**. The owner separately chooses token
-validity: 1 hour, 24 hours, 7 days, one calendar month, 180 days, or one year.
-Omit `--validity` (MCP: omit `validity`) unless the USER explicitly specifies
-a duration; never calculate or fill a default yourself. The server suggests
-180 days for explicit local execution or macOS/Windows, and 7 days for
-cloud/VM/container or other environments. Explicit cloud/virtual execution
-takes priority over OS. The owner's page selection has final priority.
-For an explicit user duration, use e.g. `--validity 180d`; accepted values are
-`1h`, `24h`, `7d`, `1mo`, `180d`, `1y`. Existing valid credentials are reused;
-use `--reconnect` if the user wants a new token with a different duration.
-There is no comparison code. The page shows the requester name and execution
-environment. These are self-reported display information.
-
-If the client knows its Agent ID, include it when reconnecting:
-
-```bash
-fluxa-wallet connect --agent-id <existing-agent-id> --client "Your AI client name"
-```
-
-That identity is locked on the approval page. If it belongs to another account,
-the owner must switch accounts; do not silently switch or create identities.
-Without a requested ID, the owner can select an existing identity or choose
-New Agent ID at the end of the list. Empty accounts default to a new identity.
-New identities use the requester name, are not editable in this flow, and are
-created only after Allow connection is clicked.
-
-Credentials keep the existing `agent_id`, `token`, and `jwt` shape. Do not parse
-tokens or add session identifiers. On `token_expired`, `token_revoked`, or
-`reconnect_required: true`, reconnect using the SAME Agent ID. Do not run `init`
-to recover credentials. Retry network/503 errors without creating identities.
-Never show the token, JWT, or private poll secret in chat or logs.
-
-Cloud runs may store credentials in a task-private `FLUXA_DATA_DIR`. A later
-run can reconnect to the same identity after its temporary storage is lost.
-Injected `AGENT_ID` / `AGENT_TOKEN` / `AGENT_JWT` retain priority: update or
-remove stale injected credentials before using newly saved local credentials.
-
-`init` and `link-wallet` remain available for explicit new identity registration
-and legacy clients. Do not automatically choose them instead of `connect`.
-Connection does not create spending budgets: follow existing mandate planning
-and payment authorization rules after connecting.
+Repeat while authorization is pending; stop at `connected: true` and continue.
+Do not ask the user to reply "done".
 
 Steps 3 and 4 are only for when the user is installing this skill or asks what
-the wallet can do. For a specific task, continue with that task after connecting.
+the wallet can do. For a specific task, continue with that task once the wallet is ready.
 
 ### Step 3 — Scheduled Tasks
 

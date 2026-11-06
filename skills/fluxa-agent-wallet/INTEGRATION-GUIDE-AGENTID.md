@@ -11,6 +11,13 @@ Agent ID is FluxA's identity and authentication service for AI agents — simila
 
 ### Connect through Wallet (default, 0.6.0+)
 
+First run `fluxa-wallet status`. If `configured:true` and `wallet_linked:true`,
+reuse the identity/token and continue without any connection link. Expired JWTs
+refresh automatically; expired/revoked tokens require reconnecting the same ID.
+For unknown wallet status or network failures, retry the check.
+
+Only if credentials or wallet linking are missing:
+
 ```bash
 fluxa-wallet connect --client "MyApp v1.0"
 fluxa-wallet connect-status --wait 100
@@ -18,7 +25,9 @@ fluxa-wallet connect-status --wait 100
 fluxa-wallet connect --agent-id <original-id> --client "MyApp v1.0"
 ```
 
-Show the returned authorization URL before waiting. Requests/links/claim windows
+`connect` also checks existing access: `connected:true` means ready, without
+authorization or polling. Only show an authorization URL and wait when it
+returns `authorization_required:true`. Requests/links/claim windows
 last three hours. The owner chooses token validity. CLI omits `--validity` unless the user
 explicitly specifies it; the server suggests 180 days for local execution or
 macOS/Windows, and 7 days for cloud/VM/container or other environments. A

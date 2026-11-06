@@ -21,16 +21,16 @@ Returns information about whether an Agent ID is configured and its details.
       inputSchema: {},
     },
     async () => {
-      const configured = hasAgentId();
-      const agentId = getEffectiveAgentId();
+      let agentId = getEffectiveAgentId();
 
-      if (agentId?.jwt && isJWTExpired(agentId.jwt)) {
+      if (agentId?.agent_id && agentId.token && isJWTExpired(agentId.jwt)) {
         try { updateJWT(await refreshJWT(agentId.agent_id, agentId.token)); }
-        catch (error) { return { isError: true, content: [{ type: 'text', text: JSON.stringify({ configured, agent_id: agentId.agent_id, ...credentialFailure(error, agentId.agent_id) }) }] }; }
+        catch (error) { return { isError: true, content: [{ type: 'text', text: JSON.stringify({ configured: hasAgentId(), agent_id: agentId.agent_id, ...credentialFailure(error, agentId.agent_id) }) }] }; }
+        agentId = getEffectiveAgentId();
       }
 
       const response = {
-        configured,
+        configured: hasAgentId(),
         agent_id: agentId?.agent_id || null,
         agent_name: agentId?.agent_name || null,
         registered_at: agentId?.registered_at || null,

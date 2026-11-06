@@ -77,6 +77,12 @@ export FLUXA_DATA_DIR=/path/to/custom/dir
 CLI/MCP 0.6.0 adds browser connection as the default setup. Use `connect_wallet`
 and `get_wallet_connection` in MCP. No persistent identity is required before
 connecting: the owner chooses an existing Agent ID or creates one in the wallet.
+Check `fluxa-wallet status` first: `configured:true` with `wallet_linked:true`
+means ready; continue the task without a connection link or polling. An expired
+JWT refreshes with the existing token. `connect` repeats these checks internally
+and returns `connected:true` for an already usable wallet. Only show a link and
+poll when it returns `authorization_required:true` and `authorization_url`.
+Unknown wallet status/network failures are retried, not treated as token expiry.
 If the client knows its ID, send `agent_id` (`connect --agent-id <id>`); the page
 locks that identity and rejects a different owner account. Empty accounts create
 an identity named after the requester only when the owner approves.
@@ -113,6 +119,9 @@ export AGENT_JWT=your-jwt
 ```
 
 This method bypasses registration and uses the provided credentials directly.
+`AGENT_ID` and `AGENT_TOKEN` are sufficient: `AGENT_JWT` is an optional cache.
+`status`/`connect` refresh an absent or expired JWT automatically with that token;
+injected credentials remain authoritative and refreshed JWTs stay in memory.
 
 **Method 2: Provide registration information**
 
@@ -126,7 +135,7 @@ export CLIENT_INFO="Claude Desktop v1.0 on macOS 14.1"
 When these are set, calling `init_agent_id` with empty parameters `{}` will automatically register using this information.
 
 **Priority order:**
-1. Method 1 environment variables (AGENT_ID + AGENT_TOKEN + AGENT_JWT)
+1. Method 1 environment variables (AGENT_ID + AGENT_TOKEN; optional AGENT_JWT cache)
 2. Config file (`~/.fluxa-ai-wallet-mcp/config.json`)
 3. Method 2 environment variables (requires calling `init_agent_id`)
 4. Manual registration (requires user input)
@@ -676,7 +685,7 @@ MCP Server (stdio)
 | **Method 1: Existing Credentials** | | |
 | `AGENT_ID` | Agent ID (highest priority) | - |
 | `AGENT_TOKEN` | Agent token (highest priority) | - |
-| `AGENT_JWT` | Agent JWT (highest priority) | - |
+| `AGENT_JWT` | Optional cached JWT for injected credentials | - |
 | **Method 2: Registration Info** | | |
 | `AGENT_NAME` | Agent name for registration | - |
 | `CLIENT_INFO` | Client info for registration | - |

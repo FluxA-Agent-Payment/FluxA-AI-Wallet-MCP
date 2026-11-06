@@ -33,11 +33,11 @@ export function getAgentIdFromEnv(): AgentIdConfig | null {
   const token = process.env.AGENT_TOKEN;
   const jwt = process.env.AGENT_JWT;
 
-  if (agentId && token && jwt) {
+  if (agentId && token) {
     return {
       agent_id: agentId,
       token: token,
-      jwt: jwt,
+      jwt: jwt || '', // The existing token can refresh a missing JWT cache.
     };
   }
   return null;

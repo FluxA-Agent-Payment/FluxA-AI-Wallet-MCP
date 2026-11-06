@@ -1463,11 +1463,10 @@ async function signPaymentRequestWithMandate(
 // Command handlers
 
 async function cmdStatus(): Promise<CommandResult> {
-  const hasConfig = hasAgentId();
   let agentConfig = getEffectiveAgentId();
   const regInfo = getRegistrationInfoFromEnv();
 
-  if (hasConfig && agentConfig) {
+  if (agentConfig?.agent_id && agentConfig.token) {
     await ensureValidJWT();
     agentConfig = getEffectiveAgentId()!;
     const data: any = {

@@ -32,6 +32,12 @@ fluxa-wallet <command> --help     # full options for any command
 
 ### Setup
 
+Run `status` first. `configured:true` and `wallet_linked:true` means ready: keep
+the current identity/token and continue. `connect` performs the same check and
+returns `connected:true` when ready; only show a link and poll if authorization
+is required. Expired JWTs refresh silently. Unknown status/network failures
+should be retried without creating an authorization request.
+
 `connect` omits token validity by default; AgentDID suggests 180 days for local
 execution or macOS/Windows, and 7 days for cloud/VM/container or other environments.
 Only pass `--validity 1h|24h|7d|1mo|180d|1y` when the user explicitly requests
@@ -185,8 +191,11 @@ Run `fluxa-wallet <command> --help` for the complete option list of any command.
 ## Quick Start
 
 ```bash
-# Connect through the wallet (0.6.0+). Show the returned authorization_url.
+# Check first; if configured:true and wallet_linked:true, skip connection.
+fluxa-wallet status
+# Only when credentials/linking are missing or a token has expired:
 fluxa-wallet connect --client "My AI Client"
+# Only after connect returns authorization_required:true and authorization_url:
 fluxa-wallet connect-status --wait 100
 # Reconnect a known identity after token expiry:
 # fluxa-wallet connect --agent-id <original-id> --client "My AI Client"
@@ -255,7 +264,7 @@ Exit code `0` = success, `1` = failure.
 |----------|-------------|
 | `AGENT_ID` | Pre-configured agent ID |
 | `AGENT_TOKEN` | Pre-configured agent token |
-| `AGENT_JWT` | Pre-configured agent JWT |
+| `AGENT_JWT` | Optional cached JWT; `status`/`connect` refresh it using the existing Agent ID/token |
 | `AGENT_NAME` | Agent name for auto-registration |
 | `CLIENT_INFO` | Client info for auto-registration |
 | `FLUXA_DATA_DIR` | Custom data directory (default: `~/.fluxa-ai-wallet-mcp`) |

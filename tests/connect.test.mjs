@@ -14,14 +14,17 @@ test('CLI reconnect preserves identity, keeps secrets private, and consumes the 
   const dir = await mkdtemp(path.join(os.tmpdir(), 'fluxa-connect-'));
   const configPath = path.join(dir, 'config.json');
   const old = { agent_id: 'existing-agent', token: 'old-token', jwt: jwt(1) };
-  let starts = [], refreshCode = 'token_expired', poll = 'pending', claimAgent = 'existing-agent';
+  let starts = [], refreshCode = 'token_expired', poll = 'pending', claimAgent = 'existing-agent', walletStatus = 200;
   const requests = [];
   const server = http.createServer(async (req, res) => {
     let raw = ''; for await (const chunk of req) raw += chunk;
     const body = raw ? JSON.parse(raw) : {};
     requests.push(req.url);
     res.setHeader('content-type', 'application/json');
-    if (req.url === '/refresh') { res.statusCode = refreshCode === 'unavailable' ? 503 : 401; return res.end(JSON.stringify({ error: refreshCode })); }
+    if (req.url === '/refresh') {
+      if (refreshCode === 'valid') return res.end(JSON.stringify({ jwt: jwt(4102444800) }));
+      res.statusCode = refreshCode === 'unavailable' ? 503 : 401; return res.end(JSON.stringify({ error: refreshCode }));
+    }
     if (req.url === '/connect/requests') {
       starts.push(body); res.statusCode = 201;
       return res.end(JSON.stringify({ request_id: `cr_${'a'.repeat(43)}`, poll_secret: 'private-poll-secret', authorization_url: `https://wallet.example/connect-agent?request_id=cr_${'a'.repeat(43)}`, expires_in: 10800, poll_interval: 5 }));
@@ -33,7 +36,7 @@ test('CLI reconnect preserves identity, keeps secrets private, and consumes the 
       if (poll === 'denied') { res.statusCode = 403; return res.end(JSON.stringify({ error: 'access_denied' })); }
       return res.end(JSON.stringify({ agent_id: claimAgent, token: 'private-new-token', jwt: jwt(4102444800) }));
     }
-    if (req.url === '/api/mandates') return res.end('{}');
+    if (req.url === '/api/mandates') { res.statusCode = walletStatus; return res.end('{}'); }
     res.statusCode = 404; res.end('{}');
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
@@ -90,8 +93,70 @@ test('CLI reconnect preserves identity, keeps secrets private, and consumes the 
   });
   await t.test('valid connections reuse existing credentials', async () => {
     const count = starts.length;
-    assert.equal((await run(['connect'])).data.data.connected, true);
+    const config = await readFile(configPath, 'utf8');
+    const checked = await run(['status']);
+    assert.equal(checked.data.data.configured, true); assert.equal(checked.data.data.wallet_linked, true);
+    const result = await run(['connect']);
+    assert.equal(result.data.data.connected, true);
+    assert.ok(!('authorization_url' in result.data.data));
     assert.equal(starts.length, count);
+    assert.equal(await readFile(configPath, 'utf8'), config);
+    await assert.rejects(stat(path.join(dir, 'pending-connect.json')), { code: 'ENOENT' });
+  });
+  await t.test('an expired JWT with a usable token refreshes silently without browser authorization', async () => {
+    refreshCode = 'valid';
+    const count = starts.length;
+    for (const command of ['status', 'connect']) {
+      await writeFile(configPath, JSON.stringify({ agentId: old }));
+      const result = await run([command]);
+      assert.equal(result.code, 0, result.stdout + result.stderr);
+      if (command === 'status') assert.equal(result.data.data.wallet_linked, true);
+      else assert.equal(result.data.data.connected, true);
+      assert.ok(!('authorization_url' in result.data.data));
+      const config = JSON.parse(await readFile(configPath, 'utf8')).agentId;
+      assert.equal(config.agent_id, old.agent_id); assert.equal(config.token, old.token);
+      assert.equal(config.jwt, jwt(4102444800));
+    }
+    assert.equal(starts.length, count); assert.ok(!requests.includes('/register'));
+  });
+  await t.test('valid unlinked credentials keep their identity/token and request only wallet linking', async () => {
+    walletStatus = 403;
+    const count = starts.length;
+    const config = await readFile(configPath, 'utf8');
+    assert.equal((await run(['status'])).data.data.wallet_linked, false);
+    const result = await run(['connect']);
+    assert.equal(result.data.data.connected, false); assert.equal(result.data.data.agent_id, old.agent_id);
+    const link = new URL(result.data.data.authorization_url);
+    assert.equal(link.pathname, '/add-agent'); assert.equal(link.searchParams.get('agentId'), old.agent_id);
+    assert.equal(starts.length, count); assert.equal(await readFile(configPath, 'utf8'), config);
+    walletStatus = 200;
+  });
+  await t.test('missing JWT caches refresh with existing file or injected credentials without reauthorization', async () => {
+    const count = starts.length;
+    const noJwt = { ...old, jwt: '' };
+    for (const injected of [false, true]) {
+      for (const command of ['status', 'connect']) {
+        await writeFile(configPath, JSON.stringify({ agentId: noJwt }));
+        const result = await run([command], injected ? { AGENT_ID: old.agent_id, AGENT_TOKEN: old.token, AGENT_JWT: '' } : {});
+        assert.equal(result.code, 0, result.stdout + result.stderr);
+        if (command === 'status') assert.equal(result.data.data.wallet_linked, true);
+        else assert.equal(result.data.data.connected, true);
+        assert.ok(!('authorization_url' in result.data.data));
+        const config = JSON.parse(await readFile(configPath, 'utf8')).agentId;
+        assert.equal(config.agent_id, old.agent_id); assert.equal(config.token, old.token);
+        assert.equal(config.jwt, injected ? '' : jwt(4102444800), 'injected refreshes must not overwrite local credentials');
+      }
+    }
+    await writeFile(configPath, JSON.stringify({ agentId: { ...old, jwt: jwt(4102444800) } }));
+    assert.equal(starts.length, count); assert.ok(!requests.includes('/register'));
+  });
+  await t.test('wallet service failures are unknown status and never create an authorization request', async () => {
+    walletStatus = 503;
+    const count = starts.length;
+    assert.equal((await run(['status'])).data.data.wallet_linked, null);
+    assert.equal((await run(['connect'])).code, 1);
+    assert.equal(starts.length, count); assert.ok(!requests.includes('/register'));
+    walletStatus = 200;
   });
   await t.test('network/service failures never trigger identity registration', async () => {
     await writeFile(configPath, JSON.stringify({ agentId: old })); refreshCode = 'unavailable';
