@@ -65,12 +65,15 @@ test('CLI reconnect preserves identity, keeps secrets private, and consumes the 
     assert.equal(result.code, 0, result.stdout + result.stderr);
     assert.equal(starts.length, 1); assert.equal(starts[0].agent_id, old.agent_id);
     assert.equal(starts[0].client_name, 'Cloud AI'); assert.equal(starts[0].environment.runtime, 'vm');
+    assert.ok(!('validity' in starts[0]), 'the CLI must leave default selection to the server');
     assert.equal(result.data.data.expires_in, 10800);
     assert.ok(!result.stdout.includes('private-poll-secret'));
     assert.equal((await stat(path.join(dir, 'pending-connect.json'))).mode & 0o777, 0o600);
     assert.deepEqual(JSON.parse(await readFile(configPath, 'utf8')).agentId, old);
     await run(['connect', '--client', 'Cloud AI']);
     assert.equal(starts.length, 1, 'reuse an existing pending request');
+    assert.equal((await run(['connect', '--validity', '1h'])).data.code, 'pending_connection_conflict');
+    assert.equal(starts.length, 1, 'never silently replace an active authorization link');
   });
   await t.test('pending status is resumable and claim atomically replaces the credentials', async () => {
     assert.equal((await run(['connect-status'])).data.data.connected, false);
@@ -106,7 +109,8 @@ test('CLI reconnect preserves identity, keeps secrets private, and consumes the 
     assert.match(result.data.error, /Injected/); assert.equal(starts.length, count);
   });
   await t.test('a claim for another identity is never saved over the original', async () => {
-    await run(['connect', '--agent-id', old.agent_id]);
+    await run(['connect', '--agent-id', old.agent_id, '--validity', '180d']);
+    assert.equal(starts.at(-1).validity, '180d');
     claimAgent = 'unexpected-agent';
     const result = await run(['connect-status']);
     assert.equal(result.data.code, 'requested_agent_mismatch');
@@ -124,5 +128,10 @@ test('CLI reconnect preserves identity, keeps secrets private, and consumes the 
     const count = starts.length;
     assert.equal((await run(['connect', '--wait', '10801'])).data.code, 'invalid_wait');
     assert.equal(starts.length, count);
+  });
+  await t.test('invalid explicit durations fail before contacting the service', async () => {
+    const count = requests.length;
+    assert.equal((await run(['connect', '--validity', '60d'])).data.code, 'invalid_validity');
+    assert.equal(requests.length, count);
   });
 });

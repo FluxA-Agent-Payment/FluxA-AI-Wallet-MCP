@@ -11,11 +11,12 @@ export const CONNECT_TTL_SECONDS = 10800;
 const api = () => (process.env.AGENT_ID_API || 'https://agentid.fluxapay.xyz').replace(/\/$/, '');
 const pendingPath = path.join(DATA_ROOT, 'pending-connect.json');
 type Pending = { request_id: string; poll_secret: string; authorization_url: string; expires_in: number;
-  poll_interval: number; started_at: number; agent_api: string; requested_agent_id?: string; client_name: string };
+  poll_interval: number; started_at: number; agent_api: string; requested_agent_id?: string; requested_validity?: string; client_name: string };
 export class ConnectionError extends Error {
   constructor(public code: string, message = code, public retryable = false) { super(message); }
 }
-type Options = { agent_id?: string; client_name?: string; runtime?: string; hosting?: string; reconnect?: boolean };
+export const CONNECT_VALIDITIES = ['1h', '24h', '7d', '1mo', '180d', '1y'] as const;
+type Options = { agent_id?: string; client_name?: string; runtime?: string; hosting?: string; validity?: string; reconnect?: boolean };
 
 function savePending(pending: Pending) {
   const temp = `${pendingPath}.${crypto.randomUUID()}`;
@@ -53,7 +54,7 @@ async function request(endpoint: string, body: unknown) {
   if (response.status === 202 || (response.status === 429 && data.error === 'slow_down')) return null;
   if (!response.ok) {
     if (['token_expired', 'token_revoked', 'invalid_token'].includes(data.error)) throw new CredentialError(data.error, data.agent_id);
-    const known = ['connection_expired', 'connection_claimed', 'access_denied', 'invalid_poll_secret', 'invalid_request', 'token_expired', 'token_revoked'];
+    const known = ['connection_expired', 'connection_claimed', 'access_denied', 'invalid_poll_secret', 'invalid_request', 'invalid_validity', 'token_expired', 'token_revoked'];
     const code = known.includes(data.error) ? data.error : response.status >= 500 ? 'connection_service_unavailable' : 'connection_failed';
     throw new ConnectionError(code, code, response.status >= 500 || response.status === 429);
   }
@@ -61,6 +62,9 @@ async function request(endpoint: string, body: unknown) {
 }
 
 export async function beginConnection(options: Options = {}) {
+  if (options.validity !== undefined && !CONNECT_VALIDITIES.includes(options.validity as typeof CONNECT_VALIDITIES[number])) {
+    throw new ConnectionError('invalid_validity', 'Valid values: 1h, 24h, 7d, 1mo, 180d, 1y');
+  }
   const config = getEffectiveAgentId();
   const explicitEnvironment = ['AGENT_ID', 'AGENT_TOKEN', 'AGENT_JWT'].some(key => Boolean(process.env[key]));
   if (explicitEnvironment && !getAgentIdFromEnv()) throw new CredentialError('env_credentials_invalid', process.env.AGENT_ID, true);
@@ -84,7 +88,10 @@ export async function beginConnection(options: Options = {}) {
   const existing = readPending();
   if (existing) {
     if (existing.requested_agent_id !== target) throw new ConnectionError('pending_connection_conflict', 'A different identity connection is pending. Complete it using connect-status, or wait for it to expire.');
-    if (Date.now() < existing.started_at + existing.expires_in * 1000) return publicPending(existing);
+    if (Date.now() < existing.started_at + existing.expires_in * 1000) {
+      if (options.validity !== undefined && existing.requested_validity !== options.validity) throw new ConnectionError('pending_connection_conflict', 'A connection with another validity preference is pending. Complete it using connect-status, or wait for it to expire.');
+      return publicPending(existing);
+    }
     // The owner may have approved near the original request deadline.
     try { return await connectionStatus(); }
     catch (error) { if (!(error instanceof ConnectionError) || !['connection_expired', 'connection_claimed', 'access_denied'].includes(error.code)) throw error; }
@@ -107,16 +114,19 @@ export async function beginConnection(options: Options = {}) {
     const raced = readPending();
     if (raced) {
       if (raced.requested_agent_id !== target) throw new ConnectionError('pending_connection_conflict');
+      if (options.validity !== undefined && raced.requested_validity !== options.validity) throw new ConnectionError('pending_connection_conflict');
       return publicPending(raced);
     }
     const clientName = options.client_name || process.env.CLIENT_INFO || 'FluxA CLI';
-    const result = await request('/connect/requests', { client_name: clientName, environment: executionEnvironment(options.runtime, options.hosting), ...(target ? { agent_id: target } : {}) });
+    const result = await request('/connect/requests', { client_name: clientName, environment: executionEnvironment(options.runtime, options.hosting),
+      ...(target ? { agent_id: target } : {}), ...(options.validity !== undefined ? { validity: options.validity } : {}) });
     if (!result?.request_id || !result.poll_secret || !result.authorization_url) throw new ConnectionError('invalid_connection_response');
     const url = new URL(result.authorization_url);
     const expected = new URL(process.env.AGENT_WALLET_APP || 'https://agentwallet.fluxapay.xyz');
     if (url.origin !== expected.origin || url.pathname !== '/connect-agent') throw new ConnectionError('connection_url_mismatch', 'AgentDID returned a wallet link for another environment. Check AGENT_WALLET_APP.');
     const pending: Pending = { ...result, expires_in: result.expires_in || CONNECT_TTL_SECONDS,
-      poll_interval: result.poll_interval || 5, started_at: Date.now(), agent_api: api(), requested_agent_id: target, client_name: clientName };
+      poll_interval: result.poll_interval || 5, started_at: Date.now(), agent_api: api(), requested_agent_id: target,
+      requested_validity: options.validity, client_name: clientName };
     savePending(pending);
     return publicPending(pending);
   } finally { fs.closeSync(fd); fs.rmSync(lock, { force: true }); }

@@ -557,14 +557,16 @@ function parseArgs(args: string[]): { command: string; options: Record<string, s
 }
 
 const COMMAND_USAGE: Record<string, string> = {
-  'connect': `Usage: fluxa-wallet connect [--client <name>] [--agent-id <id>] [--reconnect] [--wait [seconds]]
+  'connect': `Usage: fluxa-wallet connect [--client <name>] [--agent-id <id>] [--validity <duration>] [--reconnect] [--wait [seconds]]
 
 Default wallet setup. Reuse valid credentials or return a browser approval URL.
 Known Agent IDs are retained on reconnect and locked in the authorization page.
 Without an Agent ID the owner can select an existing identity or create one.
 New identity names use --client (default CLIENT_INFO or FluxA CLI), without an edit field.
 --runtime local|vm|container|unknown and --hosting local|cloud|unknown describe the execution environment.
-Request/link/claim windows default to 10800 seconds (3 hours); token validity is selected by the user (default 7 days).
+Request/link/claim windows default to 10800 seconds (3 hours).
+Token validity is omitted by default: the server suggests 180 days for local clients or macOS/Windows, 7 days for cloud/VM/container or other environments.
+--validity 1h|24h|7d|1mo|180d|1y is sent only when explicitly supplied; the owner can change it on the page.
 No comparison code, no session fields, and no credentials in output.
 --reconnect explicitly requests a new token even when credentials are currently valid.
 With --wait, print the link event first, then poll (0..10800 seconds; bare --wait means 10800).
@@ -3548,7 +3550,7 @@ async function main() {
       const wait = options.wait === undefined ? undefined : options.wait === 'true' ? 10800 : Number(options.wait);
       if (wait !== undefined && (!Number.isInteger(wait) || wait < 0 || wait > 10800)) throw new ConnectionError('invalid_wait', '--wait must be 0..10800 seconds');
       const data = await beginConnection({ agent_id: options['agent-id'], client_name: options.client,
-        runtime: options.runtime, hosting: options.hosting, reconnect: options.reconnect !== undefined });
+        runtime: options.runtime, hosting: options.hosting, validity: options.validity, reconnect: options.reconnect !== undefined });
       if (wait !== undefined && !data.connected) {
         console.log(JSON.stringify({ event: 'authorization_required', ...data }));
         result = { success: true, data: await connectionStatus(wait) };

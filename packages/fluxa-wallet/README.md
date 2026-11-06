@@ -32,6 +32,12 @@ fluxa-wallet <command> --help     # full options for any command
 
 ### Setup
 
+`connect` omits token validity by default; AgentDID suggests 180 days for local
+execution or macOS/Windows, and 7 days for cloud/VM/container or other environments.
+Only pass `--validity 1h|24h|7d|1mo|180d|1y` when the user explicitly requests
+a duration. The owner can change it on the approval page. To replace already
+valid credentials with a new connection, also pass `--reconnect`.
+
 | Command | Description |
 |---------|-------------|
 | `connect` | Default browser connection (`--client`, optional `--agent-id`, `--reconnect`, `--runtime`, `--hosting`, `--wait`) |

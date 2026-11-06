@@ -51,7 +51,15 @@ fluxa-wallet connect-status --wait 100
 Continue bounded waits while `connected: false`. Do not ask the user to reply
 "done". The connection request, approval link, and claim/retry windows each
 default to **3 hours (10800 seconds)**. The owner separately chooses token
-validity: 1 hour, 24 hours, 7 days (default), one calendar month, or one year.
+validity: 1 hour, 24 hours, 7 days, one calendar month, 180 days, or one year.
+Omit `--validity` (MCP: omit `validity`) unless the USER explicitly specifies
+a duration; never calculate or fill a default yourself. The server suggests
+180 days for explicit local execution or macOS/Windows, and 7 days for
+cloud/VM/container or other environments. Explicit cloud/virtual execution
+takes priority over OS. The owner's page selection has final priority.
+For an explicit user duration, use e.g. `--validity 180d`; accepted values are
+`1h`, `24h`, `7d`, `1mo`, `180d`, `1y`. Existing valid credentials are reused;
+use `--reconnect` if the user wants a new token with a different duration.
 There is no comparison code. The page shows the requester name and execution
 environment. These are self-reported display information.
 

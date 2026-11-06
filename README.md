@@ -82,8 +82,13 @@ locks that identity and rejects a different owner account. Empty accounts create
 an identity named after the requester only when the owner approves.
 
 The request, approval link, and credential claim/retry windows each default to
-3 hours (10800 seconds). Token validity is separately chosen by the owner,
-defaulting to 7 days. The page displays requester name and execution environment,
+3 hours (10800 seconds). Token validity is separately chosen by the owner.
+The CLI omits validity by default: the server suggests 180 days for local
+execution or macOS/Windows, and 7 days for cloud/VM/container or other environments.
+Only send `--validity 1h|24h|7d|1mo|180d|1y` when the user explicitly specifies
+a duration; the owner can still change it on the page. Use `--reconnect` to
+request a new token when credentials are already valid.
+The page displays requester name and execution environment,
 without a comparison code. Credentials and login JWTs retain their existing
 shape; consumers do not need session-aware authentication.
 

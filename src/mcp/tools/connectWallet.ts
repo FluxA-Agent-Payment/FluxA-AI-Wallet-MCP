@@ -1,6 +1,6 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { beginConnection, connectionStatus, ConnectionError } from '../../agent/connect.js';
+import { beginConnection, connectionStatus, ConnectionError, CONNECT_VALIDITIES } from '../../agent/connect.js';
 import { CredentialError, credentialFailure } from '../../agent/credentialError.js';
 
 export function missingConnectionToolResult(agentId?: string) {
@@ -24,6 +24,7 @@ export function registerConnectWalletTools(server: McpServer) {
     description: 'Default wallet onboarding and reconnect entry point. Reuses valid credentials; otherwise returns a browser approval link. Include the existing agent_id when reconnecting. The user chooses an identity only if none was requested. Show the link, then use get_wallet_connection; never ask for a done reply. client_name is the requester name used for newly created identities.',
     inputSchema: { agent_id: z.string().max(128).optional(), client_name: z.string().max(120).optional(),
       runtime: z.enum(['local', 'vm', 'container', 'unknown']).optional(), hosting: z.enum(['local', 'cloud', 'unknown']).optional(),
+      validity: z.enum(CONNECT_VALIDITIES).optional().describe('Only pass when the user explicitly requests a token duration. Otherwise omit it; the server chooses the default from the execution environment. The owner can change it on the approval page.'),
       reconnect: z.boolean().optional() },
   }, async args => {
     try { return { content: [{ type: 'text', text: JSON.stringify(await beginConnection(args)) }] }; }

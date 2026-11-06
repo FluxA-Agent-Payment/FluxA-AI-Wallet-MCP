@@ -100,10 +100,12 @@ try {
   assert.equal(first.code, 0); assert.equal(first.output.data.expires_in, 10800);
   assert.equal(starts[0].agent_id, undefined);
   assert.equal(starts[0].environment.hosting, 'cloud');
+  assert.ok(!('validity' in starts[0]), 'CLI must omit validity unless explicitly supplied');
   const requestId = first.output.data.request_id;
   const endpoint = `/api/agent-connect/requests/${requestId}`;
   const page = await browser(endpoint);
   assert.deepEqual(page.body.agents, []); assert.equal(creates, 0);
+  assert.equal(page.body.request.default_validity, '7d');
   const approval = { decision: 'approve', assignment: { mode: 'new' }, validity: '7d', session_signer_id: 'offline-signer' };
   assert.equal((await browser(`${endpoint}/decision`, approval)).status, 200);
   assert.equal((await browser(`${endpoint}/decision`, approval)).status, 200);
@@ -121,20 +123,33 @@ try {
   const expired = await cli('balance');
   assert.equal(expired.output.code, 'token_expired'); assert.equal(expired.output.reconnect_required, true);
   assert.equal((await readConfig()).agentId.agent_id, agentId);
-  const reconnect = await cli('connect', '--client', 'Cloud AI');
+  const reconnect = await cli('connect', '--client', 'Cloud AI', '--runtime', 'local', '--hosting', 'local');
   assert.equal(starts[1].agent_id, agentId);
+  assert.ok(!('validity' in starts[1]));
   const nextEndpoint = `/api/agent-connect/requests/${reconnect.output.data.request_id}`;
   assert.equal((await browser(nextEndpoint, undefined, 8)).body.code, 'agent_not_owned');
   assert.equal((await browser(nextEndpoint)).body.target.agent_id, agentId);
+  assert.equal((await browser(nextEndpoint)).body.request.default_validity, '180d');
   assert.equal((await browser(`${nextEndpoint}/decision`, approval)).body.code, 'requested_agent_mismatch');
-  assert.equal((await browser(`${nextEndpoint}/decision`, { decision: 'approve', validity: '24h' })).status, 200);
+  assert.equal((await browser(`${nextEndpoint}/decision`, { decision: 'approve' })).status, 200);
   assert.equal((await cli('connect-status')).output.data.connected, true);
   const replaced = await readConfig();
   assert.equal(replaced.agentId.agent_id, agentId); assert.notEqual(replaced.agentId.token, config.agentId.token);
   assert.equal(creates, 1);
+  const longToken = sql.prepare('SELECT t.expires_at,r.approved_at FROM agent_tokens t JOIN agent_connect_requests r ON r.request_id=t.request_id WHERE t.request_id=?').get(reconnect.output.data.request_id);
+  assert.equal(longToken.expires_at - longToken.approved_at, 180 * 86400000);
+  const requested = await cli('connect', '--reconnect', '--validity', '24h', '--runtime', 'local', '--hosting', 'local');
+  assert.equal(starts[2].validity, '24h');
+  const requestedEndpoint = `/api/agent-connect/requests/${requested.output.data.request_id}`;
+  assert.equal((await browser(requestedEndpoint)).body.request.default_validity, '24h');
+  // The owner can still override a requester-specified duration on the page.
+  assert.equal((await browser(`${requestedEndpoint}/decision`, { decision: 'approve', validity: '1h' })).status, 200);
+  assert.equal((await cli('connect-status')).output.data.connected, true);
+  const shortToken = sql.prepare('SELECT t.token_ref,t.expires_at,r.approved_at FROM agent_tokens t JOIN agent_connect_requests r ON r.request_id=t.request_id WHERE t.request_id=?').get(requested.output.data.request_id);
+  assert.equal(shortToken.expires_at - shortToken.approved_at, 3600000);
   const list = await browser(`/api/agents/${agents[0].id}/connections`);
-  assert.equal(list.body.connections.length, 2);
-  const active = list.body.connections.find(c => c.status === 'active');
+  assert.equal(list.body.connections.length, 3);
+  const active = list.body.connections.find(c => c.token_ref === shortToken.token_ref);
   assert.equal((await browser(`/api/agents/${agents[0].id}/connections/${active.token_ref}`, undefined, 7, 'DELETE')).status, 200);
   assert.equal((await cli('refreshJWT')).output.code, 'token_revoked');
 
@@ -142,7 +157,7 @@ try {
   const legacyRefresh = await fetch(`${didBase}/refresh`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ agent_id: legacy.agent_id, token: legacy.token }) });
   assert.equal(legacyRefresh.status, 200);
   assert.deepEqual(Object.keys(requireDid('jsonwebtoken').decode((await legacyRefresh.json()).jwt)).sort(), ['agent_id', 'exp', 'iat']);
-  console.log('PASS: empty-account create, idempotent approval, unchanged JWT verification, expired-token recovery with locked Agent ID, foreign-owner rejection, independent token revocation, legacy registration/refresh.');
+  console.log('PASS: empty-account create, idempotent approval, unchanged JWT verification, expired-token recovery with locked Agent ID, server-selected durations, explicit request and owner overrides, foreign-owner rejection, independent token revocation, legacy registration/refresh.');
 } finally {
   didServer.closeAllConnections(); walletServer.closeAllConnections();
   await Promise.all([new Promise(resolve => didServer.close(resolve)), new Promise(resolve => walletServer.close(resolve))]);

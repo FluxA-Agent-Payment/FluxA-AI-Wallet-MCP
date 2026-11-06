@@ -19,7 +19,9 @@ fluxa-wallet connect --agent-id <original-id> --client "MyApp v1.0"
 ```
 
 Show the returned authorization URL before waiting. Requests/links/claim windows
-last three hours. The owner chooses token validity (default seven days). A
+last three hours. The owner chooses token validity. CLI omits `--validity` unless the user
+explicitly specifies it; the server suggests 180 days for local execution or
+macOS/Windows, and 7 days for cloud/VM/container or other environments. A
 requested identity is locked to its owner; otherwise the page offers existing
 identities or creates one on approval. No comparison code or session fields are
 added. Network/503 failures are retried without creating a new identity.

@@ -24,7 +24,9 @@ The owner selects an existing identity or New Agent ID. Empty accounts default
 to creating one, named after the requester, only on approval. A supplied Agent
 ID is locked and must belong to the signed-in owner. The page shows requester
 name/environment, without a comparison code. Request/link/claim/retry windows
-are three hours; token validity defaults to seven days. Reconnect the same ID
+are three hours; the server suggests 180-day tokens for local execution or macOS/Windows,
+and 7-day tokens for cloud/VM/container or other environments. CLI omits validity
+unless the user explicitly requests `--validity`; the owner can change it on the page. Reconnect the same ID
 on `token_expired`/`token_revoked`; retry service failures without registration.
 `connect_wallet` and `get_wallet_connection` are the equivalent MCP tools.
 
