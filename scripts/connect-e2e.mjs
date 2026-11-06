@@ -39,12 +39,12 @@ Object.assign(process.env, { AGENTID_SERVICE_URL: didBase, AGENTID_SERVICE_API_K
   AGENT_JWKS_URL: `${didBase}/.well-known/jwks.json` });
 
 const { createRouters } = requireWallet(path.join(walletRoot, 'backend/routes/agentConnect.js'));
-const { verifyAgentJwt } = requireWallet(path.join(walletRoot, 'backend/utils/agentAuth.js'));
 const agents = [];
 let creates = 0;
 const owner = id => ({ id, email: `owner-${id}@example.com`, wallet_id: `wallet-${id}`, wallet_address: `0x${String(id).repeat(40)}` });
 const routes = createRouters({ statements: {
   getUserByPrivyId: async id => owner(Number(id)),
+  getAgentByExternalIdOnly: async external => agents.find(a => a.external_agent_id === external && !a.is_deleted),
   getAgentsByUserIdActive: async id => agents.filter(a => a.user_id === id),
   getAgentByExternalId: async (external, id) => agents.find(a => a.external_agent_id === external && a.user_id === id),
   getAgentByExternalIdAny: async external => agents.find(a => a.external_agent_id === external),
@@ -65,13 +65,6 @@ verify: (req, res, next) => {
 } });
 const walletApp = express(); walletApp.use(express.json());
 walletApp.use('/api/agent-connect', routes.requests); walletApp.use('/api/agents', routes.management);
-walletApp.get('/api/mandates', async (req, res) => {
-  try {
-    const payload = await verifyAgentJwt(req.headers.authorization);
-    if (!agents.some(a => a.external_agent_id === payload.agent_id)) return res.sendStatus(403);
-    return res.json({ mandates: [] });
-  } catch { return res.sendStatus(401); }
-});
 const walletServer = await listen(walletApp);
 const walletBase = `http://127.0.0.1:${walletServer.address().port}`;
 const dataDir = path.join(temp, 'client'); await mkdir(dataDir);
@@ -110,7 +103,7 @@ try {
   assert.equal((await browser(`${endpoint}/decision`, approval)).status, 200);
   assert.equal((await browser(`${endpoint}/decision`, approval)).status, 200);
   assert.equal(creates, 1); assert.equal(agents[0].name, 'Cloud AI');
-  assert.equal((await cli('connect-status')).output.data.connected, true);
+  assert.equal((await cli('connect')).output.data.connected, true);
   const config = await readConfig();
   const agentId = config.agentId.agent_id;
   assert.equal(agentId, agents[0].external_agent_id);
@@ -118,12 +111,10 @@ try {
   assert.equal((await cli('connect')).output.data.connected, true, 'real Wallet JWT verifier accepts unchanged login JWT');
 
   sql.prepare('UPDATE agent_tokens SET expires_at=? WHERE agent_id=?').run(Date.now() - 1000, agentId);
-  config.agentId.jwt = `e30.${Buffer.from(JSON.stringify({ agent_id: agentId, exp: 1 })).toString('base64url')}.test`;
-  await writeFile(configPath, JSON.stringify(config));
-  const expired = await cli('balance');
-  assert.equal(expired.output.code, 'token_expired'); assert.equal(expired.output.reconnect_required, true);
+  // Cached JWT is still live; connect must detect expiry of the actual token.
   assert.equal((await readConfig()).agentId.agent_id, agentId);
   const reconnect = await cli('connect', '--client', 'Cloud AI', '--runtime', 'local', '--hosting', 'local');
+  assert.equal(starts.length, 2); assert.notEqual(reconnect.output.data.request_id, requestId);
   assert.equal(starts[1].agent_id, agentId);
   assert.ok(!('validity' in starts[1]));
   const nextEndpoint = `/api/agent-connect/requests/${reconnect.output.data.request_id}`;
@@ -132,7 +123,7 @@ try {
   assert.equal((await browser(nextEndpoint)).body.request.default_validity, '180d');
   assert.equal((await browser(`${nextEndpoint}/decision`, approval)).body.code, 'requested_agent_mismatch');
   assert.equal((await browser(`${nextEndpoint}/decision`, { decision: 'approve' })).status, 200);
-  assert.equal((await cli('connect-status')).output.data.connected, true);
+  assert.equal((await cli('connect')).output.data.connected, true);
   const replaced = await readConfig();
   assert.equal(replaced.agentId.agent_id, agentId); assert.notEqual(replaced.agentId.token, config.agentId.token);
   assert.equal(creates, 1);
@@ -144,7 +135,7 @@ try {
   assert.equal((await browser(requestedEndpoint)).body.request.default_validity, '24h');
   // The owner can still override a requester-specified duration on the page.
   assert.equal((await browser(`${requestedEndpoint}/decision`, { decision: 'approve', validity: '1h' })).status, 200);
-  assert.equal((await cli('connect-status')).output.data.connected, true);
+  assert.equal((await cli('connect')).output.data.connected, true);
   const shortToken = sql.prepare('SELECT t.token_ref,t.expires_at,r.approved_at FROM agent_tokens t JOIN agent_connect_requests r ON r.request_id=t.request_id WHERE t.request_id=?').get(requested.output.data.request_id);
   assert.equal(shortToken.expires_at - shortToken.approved_at, 3600000);
   const list = await browser(`/api/agents/${agents[0].id}/connections`);
@@ -157,12 +148,24 @@ try {
   const legacyRefresh = await fetch(`${didBase}/refresh`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ agent_id: legacy.agent_id, token: legacy.token }) });
   assert.equal(legacyRefresh.status, 200);
   assert.deepEqual(Object.keys(requireDid('jsonwebtoken').decode((await legacyRefresh.json()).jwt)).sort(), ['agent_id', 'exp', 'iat']);
+  const statusUrl = `${walletBase}/api/agent-connect/status`;
+  assert.equal((await fetch(statusUrl)).status, 401);
+  const inspect = async () => (await fetch(statusUrl, { headers: { authorization: `Bearer ${legacy.jwt}` } })).json();
+  assert.equal((await inspect()).status, 'unlinked');
   // An already linked legacy identity must remain usable without new approval.
   agents.push({ id: agents.length + 1, user_id: 7, external_agent_id: legacy.agent_id,
     name: 'Legacy', is_authorized: 1, is_deleted: 0 });
   await writeFile(configPath, JSON.stringify({ agentId: { agent_id: legacy.agent_id, token: legacy.token,
     jwt: `e30.${Buffer.from(JSON.stringify({ agent_id: legacy.agent_id, exp: 1 })).toString('base64url')}.test` } }));
   const count = starts.length;
+  const legacyRecord = agents.find(a => a.external_agent_id === legacy.agent_id);
+  legacyRecord.is_authorized = 0;
+  const unapproved = await inspect();
+  assert.equal(unapproved.status, 'unauthorized');
+  assert.equal(new URL(unapproved.authorization_path, 'https://wallet.example').searchParams.get('agentId'), legacy.agent_id);
+  assert.equal((await cli('connect')).output.data.connected, true);
+  legacyRecord.is_authorized = 1;
+  assert.equal((await inspect()).status, 'authorized');
   const legacyStatus = await cli('status');
   assert.equal(legacyStatus.output.data.configured, true); assert.equal(legacyStatus.output.data.wallet_linked, true);
   const legacyConnect = await cli('connect');

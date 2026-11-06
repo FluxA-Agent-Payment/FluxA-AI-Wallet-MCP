@@ -32,11 +32,11 @@ fluxa-wallet <command> --help     # full options for any command
 
 ### Setup
 
-Run `status` first. `configured:true` and `wallet_linked:true` means ready: keep
-the current identity/token and continue. `connect` performs the same check and
-returns `connected:true` when ready; only show a link and poll if authorization
-is required. Expired JWTs refresh silently. Unknown status/network failures
-should be retried without creating an authorization request.
+Run `status` first. It refreshes the current token and checks wallet access.
+`connect` claims a pending request first or refreshes existing credentials.
+`connected:true` confirms token refresh. `wallet_status` separately reports
+authorized, unauthorized, unlinked or unknown. Use the wallet-provided URL for
+wallet authorization and recheck status after approval.
 
 `connect` omits token validity by default; AgentDID suggests 180 days for local
 execution or macOS/Windows, and 7 days for cloud/VM/container or other environments.
@@ -193,7 +193,7 @@ Run `fluxa-wallet <command> --help` for the complete option list of any command.
 ```bash
 # Check first; if configured:true and wallet_linked:true, skip connection.
 fluxa-wallet status
-# Only when credentials/linking are missing or a token has expired:
+# Only when credentials are missing or expired:
 fluxa-wallet connect --client "My AI Client"
 # Only after connect returns authorization_required:true and authorization_url:
 fluxa-wallet connect-status --wait 100

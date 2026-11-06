@@ -12,7 +12,6 @@ test('MCP credential expiry preserves identity and directs the agent to browser 
   const server = http.createServer(async (req, res) => {
     for await (const _ of req) {}
     requests.push(req.url);
-    if (req.url === '/api/mandates') { res.writeHead(200, { 'content-type': 'application/json' }); return res.end('{}'); }
     assert.equal(req.url, '/refresh');
     if (refreshCode === 'valid') {
       res.writeHead(200, { 'content-type': 'application/json' });

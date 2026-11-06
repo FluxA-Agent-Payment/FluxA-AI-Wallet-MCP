@@ -21,7 +21,7 @@ function failure(error: unknown) {
 
 export function registerConnectWalletTools(server: McpServer) {
   server.registerTool('connect_wallet', {
-    description: 'Check and reuse existing wallet credentials/access. connected:true means ready: continue without authorization or polling. Only when authorization_url is returned, show the link and use get_wallet_connection. Retain a known agent_id.',
+    description: 'Claim a pending request or refresh the current token. connected:true confirms usable AgentDID credentials. Wallet authorization is checked separately. Only when authorization_url is returned, show the link and use get_wallet_connection. Retain a known agent_id.',
     inputSchema: { agent_id: z.string().max(128).optional(), client_name: z.string().max(120).optional(),
       runtime: z.enum(['local', 'vm', 'container', 'unknown']).optional(), hosting: z.enum(['local', 'cloud', 'unknown']).optional(),
       validity: z.enum(CONNECT_VALIDITIES).optional().describe('Omit unless the user explicitly requests a token duration.'),

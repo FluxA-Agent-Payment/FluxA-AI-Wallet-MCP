@@ -15,6 +15,7 @@ test('CLI reconnect preserves identity, keeps secrets private, and consumes the 
   const configPath = path.join(dir, 'config.json');
   const old = { agent_id: 'existing-agent', token: 'old-token', jwt: jwt(1) };
   let starts = [], refreshCode = 'token_expired', poll = 'pending', claimAgent = 'existing-agent', walletStatus = 200;
+  let walletState = { status: 'authorized' };
   const requests = [];
   const server = http.createServer(async (req, res) => {
     let raw = ''; for await (const chunk of req) raw += chunk;
@@ -22,7 +23,7 @@ test('CLI reconnect preserves identity, keeps secrets private, and consumes the 
     requests.push(req.url);
     res.setHeader('content-type', 'application/json');
     if (req.url === '/refresh') {
-      if (refreshCode === 'valid') return res.end(JSON.stringify({ jwt: jwt(4102444800) }));
+      if (refreshCode === 'valid' || body.token === 'private-new-token') return res.end(JSON.stringify({ jwt: jwt(4102444800) }));
       res.statusCode = refreshCode === 'unavailable' ? 503 : 401; return res.end(JSON.stringify({ error: refreshCode }));
     }
     if (req.url === '/connect/requests') {
@@ -36,7 +37,7 @@ test('CLI reconnect preserves identity, keeps secrets private, and consumes the 
       if (poll === 'denied') { res.statusCode = 403; return res.end(JSON.stringify({ error: 'access_denied' })); }
       return res.end(JSON.stringify({ agent_id: claimAgent, token: 'private-new-token', jwt: jwt(4102444800) }));
     }
-    if (req.url === '/api/mandates') { res.statusCode = walletStatus; return res.end('{}'); }
+    if (req.url.startsWith('/api/agent-connect/status')) { res.statusCode = walletStatus; return res.end(JSON.stringify(walletState)); }
     res.statusCode = 404; res.end('{}');
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
@@ -81,7 +82,7 @@ test('CLI reconnect preserves identity, keeps secrets private, and consumes the 
   await t.test('pending status is resumable and claim atomically replaces the credentials', async () => {
     assert.equal((await run(['connect-status'])).data.data.connected, false);
     poll = 'approved';
-    const result = await run(['connect-status', '--wait', '1']);
+    const result = await run(['connect']);
     assert.equal(result.code, 0, result.stdout + result.stderr);
     assert.equal(result.data.data.connected, true);
     assert.ok(!result.stdout.includes('private-new-token'));
@@ -120,15 +121,19 @@ test('CLI reconnect preserves identity, keeps secrets private, and consumes the 
     assert.equal(starts.length, count); assert.ok(!requests.includes('/register'));
   });
   await t.test('valid unlinked credentials keep their identity/token and request only wallet linking', async () => {
-    walletStatus = 403;
     const count = starts.length;
-    const config = await readFile(configPath, 'utf8');
-    assert.equal((await run(['status'])).data.data.wallet_linked, false);
-    const result = await run(['connect']);
-    assert.equal(result.data.data.connected, false); assert.equal(result.data.data.agent_id, old.agent_id);
-    const link = new URL(result.data.data.authorization_url);
-    assert.equal(link.pathname, '/add-agent'); assert.equal(link.searchParams.get('agentId'), old.agent_id);
-    assert.equal(starts.length, count); assert.equal(await readFile(configPath, 'utf8'), config);
+    for (const status of ['unlinked', 'unauthorized']) {
+      walletState = { status, authorization_path: '/add-agent?agentId=existing-agent' };
+      const checked = (await run(['status'])).data.data;
+      assert.equal(checked.wallet_linked, false); assert.equal(checked.wallet_status, status);
+      const before = requests.length;
+      const result = await run(['connect']);
+      assert.equal(result.data.data.connected, true);
+      assert.deepEqual(requests.slice(before), ['/refresh']);
+      assert.equal((await run(['link-wallet'])).data.data.linkUrl, 'https://wallet.example/add-agent?agentId=existing-agent');
+    }
+    assert.equal(starts.length, count);
+    walletState = { status: 'authorized' };
     walletStatus = 200;
   });
   await t.test('missing JWT caches refresh with existing file or injected credentials without reauthorization', async () => {
@@ -154,7 +159,7 @@ test('CLI reconnect preserves identity, keeps secrets private, and consumes the 
     walletStatus = 503;
     const count = starts.length;
     assert.equal((await run(['status'])).data.data.wallet_linked, null);
-    assert.equal((await run(['connect'])).code, 1);
+    assert.equal((await run(['connect'])).data.data.connected, true);
     assert.equal(starts.length, count); assert.ok(!requests.includes('/register'));
     walletStatus = 200;
   });

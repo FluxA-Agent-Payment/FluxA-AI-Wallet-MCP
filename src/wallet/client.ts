@@ -826,6 +826,7 @@ export async function refreshJWT(
 
   const response = await fetch(url, {
     method: 'POST',
+    signal: AbortSignal.timeout(15000),
     headers: {
       'Content-Type': 'application/json',
     },
@@ -1403,40 +1404,25 @@ export async function getReceivedPayment(
   }
 }
 
-/**
- * Check if agent is linked to a user's wallet
- * Returns linked: true on 200, linked: false on 403
- */
-export async function checkWalletLinked(
-  jwt: string
-): Promise<{ linked: boolean }> {
-  const url = `${WALLET_API}/api/mandates`;
-
+export async function checkWalletLinked(jwt: string, name = '') {
+  const url = new URL(`${WALLET_API}/api/agent-connect/status`);
+  if (name) url.searchParams.set('name', name);
   const response = await fetch(url, {
-    method: 'GET',
-    headers: {
-      'Authorization': `Bearer ${jwt}`,
-    },
+    headers: { Authorization: `Bearer ${jwt}` }, signal: AbortSignal.timeout(15000),
   });
-
-  if (response.ok) {
-    return { linked: true };
+  if (!response.ok) throw new WalletApiError(
+    response.status === 404 ? 'Wallet backend does not support the connection status endpoint.' : 'Wallet connection status unavailable.',
+    response.status, null);
+  const data = await response.json();
+  if (data.status === 'authorized') return { linked: true, status: 'authorized' as const, linkUrl: undefined };
+  if ((data.status !== 'unlinked' && data.status !== 'unauthorized') || typeof data.authorization_path !== 'string') {
+    throw new Error('Invalid wallet connection status response.');
   }
-
-  if (response.status === 403) {
-    return { linked: false };
+  const link = new URL(data.authorization_path, AGENT_WALLET_APP);
+  if (link.origin !== new URL(AGENT_WALLET_APP).origin || !data.authorization_path.startsWith('/')) {
+    throw new Error('Invalid wallet authorization URL.');
   }
-
-  const text = await response.text();
-  throw new WalletApiError(text || `Check wallet linked failed (${response.status})`, response.status, text || null);
-}
-
-/**
- * Build the URL for linking an agent to a user's wallet
- */
-export function buildLinkWalletUrl(agentId: string, agentName: string): string {
-  const params = new URLSearchParams({ agentId, name: agentName });
-  return `${AGENT_WALLET_APP}/add-agent?${params.toString()}`;
+  return { linked: false, status: data.status as 'unlinked' | 'unauthorized', linkUrl: link.toString() };
 }
 
 export interface MandateStatusResponse {

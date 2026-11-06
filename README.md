@@ -78,11 +78,12 @@ CLI/MCP 0.6.0 adds browser connection as the default setup. Use `connect_wallet`
 and `get_wallet_connection` in MCP. No persistent identity is required before
 connecting: the owner chooses an existing Agent ID or creates one in the wallet.
 Check `fluxa-wallet status` first: `configured:true` with `wallet_linked:true`
-means ready; continue the task without a connection link or polling. An expired
-JWT refreshes with the existing token. `connect` repeats these checks internally
-and returns `connected:true` for an already usable wallet. Only show a link and
-poll when it returns `authorization_required:true` and `authorization_url`.
-Unknown wallet status/network failures are retried, not treated as token expiry.
+means ready; continue the task without a connection link or polling. Token refresh and wallet access are independent.
+`connect` checks a pending request first or calls AgentDID refresh. Successful refresh
+returns `connected:true`, including when the wallet has yet to authorize this agent.
+`status` reports `wallet_status` from the wallet status endpoint and supplies the
+wallet-selected link when needed. Retry unknown status. When `connect` returns
+an authorization URL, use `connect-status` to wait or rerun `connect` to claim.
 If the client knows its ID, send `agent_id` (`connect --agent-id <id>`); the page
 locks that identity and rejects a different owner account. Empty accounts create
 an identity named after the requester only when the owner approves.

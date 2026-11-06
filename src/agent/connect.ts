@@ -2,10 +2,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
-import { DATA_ROOT } from '../store/store.js';
+import { DATA_ROOT, loadConfig } from '../store/store.js';
 import { getEffectiveAgentId, getAgentIdFromEnv, saveAgentId, updateJWT } from './agentId.js';
 import { CredentialError } from './credentialError.js';
-import { buildLinkWalletUrl, checkWalletLinked, isJWTExpired, refreshJWT } from '../wallet/client.js';
+import { refreshJWT } from '../wallet/client.js';
 
 export const CONNECT_TTL_SECONDS = 10800;
 const api = () => (process.env.AGENT_ID_API || 'https://agentid.fluxapay.xyz').replace(/\/$/, '');
@@ -61,41 +61,9 @@ async function request(endpoint: string, body: unknown) {
   return data;
 }
 
-export async function beginConnection(options: Options = {}) {
-  if (options.validity !== undefined && !CONNECT_VALIDITIES.includes(options.validity as typeof CONNECT_VALIDITIES[number])) {
-    throw new ConnectionError('invalid_validity', 'Valid values: 1h, 24h, 7d, 1mo, 180d, 1y');
-  }
-  const config = getEffectiveAgentId();
-  const explicitEnvironment = ['AGENT_ID', 'AGENT_TOKEN', 'AGENT_JWT'].some(key => Boolean(process.env[key]));
-  if (explicitEnvironment && !getAgentIdFromEnv()) throw new CredentialError('env_credentials_invalid', process.env.AGENT_ID, true);
-  if (options.agent_id && (options.agent_id.length > 128 || !options.agent_id.trim())) throw new ConnectionError('invalid_agent_id');
-  const target = options.agent_id || config?.agent_id;
-  if (config && !options.reconnect && (!options.agent_id || options.agent_id === config.agent_id)) {
-    let jwt = config.jwt;
-    try {
-      if (isJWTExpired(jwt)) { jwt = await refreshJWT(config.agent_id, config.token); updateJWT(jwt); }
-      const { linked } = await checkWalletLinked(jwt);
-      if (linked) return { connected: true, agent_id: config.agent_id };
-      return { connected: false, authorization_required: true, agent_id: config.agent_id,
-        authorization_url: buildLinkWalletUrl(config.agent_id, config.agent_name || ''),
-        next_command: 'fluxa-wallet connect-status --wait 100' };
-    } catch (error) {
-      if (!(error instanceof CredentialError)) throw error;
-      if (explicitEnvironment) throw new CredentialError(error.code, target, true);
-    }
-  }
-  if (explicitEnvironment) throw new CredentialError('env_credentials_conflict', target, true);
-  const existing = readPending();
-  if (existing) {
-    if (existing.requested_agent_id !== target) throw new ConnectionError('pending_connection_conflict', 'A different identity connection is pending. Complete it using connect-status, or wait for it to expire.');
-    if (Date.now() < existing.started_at + existing.expires_in * 1000) {
-      if (options.validity !== undefined && existing.requested_validity !== options.validity) throw new ConnectionError('pending_connection_conflict', 'A connection with another validity preference is pending. Complete it using connect-status, or wait for it to expire.');
-      return publicPending(existing);
-    }
-    // The owner may have approved near the original request deadline.
-    try { return await connectionStatus(); }
-    catch (error) { if (!(error instanceof ConnectionError) || !['connection_expired', 'connection_claimed', 'access_denied'].includes(error.code)) throw error; }
-  }
+// Serialize request creation, claims and config writes across CLI processes.
+// Pollers release the lock between attempts, including while waiting for a user.
+async function withConnectionLock<T>(run: () => Promise<T>): Promise<T> {
   const lock = `${pendingPath}.lock`;
   if (fs.existsSync(lock) && Date.now() - fs.statSync(lock).mtimeMs > 30000) {
     const pid = Number(fs.readFileSync(lock, 'utf8'));
@@ -108,67 +76,105 @@ export async function beginConnection(options: Options = {}) {
   }
   let fd: number;
   try { fd = fs.openSync(lock, 'wx', 0o600); }
-  catch { throw new ConnectionError('connection_in_progress', 'Another process is starting a connection. Retry connect-status shortly.', true); }
+  catch { throw new ConnectionError('connection_in_progress', 'Another connection operation is in progress. Retry shortly.', true); }
   try {
     fs.writeFileSync(fd, String(process.pid));
-    const raced = readPending();
-    if (raced) {
-      if (raced.requested_agent_id !== target) throw new ConnectionError('pending_connection_conflict');
-      if (options.validity !== undefined && raced.requested_validity !== options.validity) throw new ConnectionError('pending_connection_conflict');
-      return publicPending(raced);
-    }
-    const clientName = options.client_name || process.env.CLIENT_INFO || 'FluxA CLI';
-    const result = await request('/connect/requests', { client_name: clientName, environment: executionEnvironment(options.runtime, options.hosting),
-      ...(target ? { agent_id: target } : {}), ...(options.validity !== undefined ? { validity: options.validity } : {}) });
-    if (!result?.request_id || !result.poll_secret || !result.authorization_url) throw new ConnectionError('invalid_connection_response');
-    const url = new URL(result.authorization_url);
-    const expected = new URL(process.env.AGENT_WALLET_APP || 'https://agentwallet.fluxapay.xyz');
-    if (url.origin !== expected.origin || url.pathname !== '/connect-agent') throw new ConnectionError('connection_url_mismatch', 'AgentDID returned a wallet link for another environment. Check AGENT_WALLET_APP.');
-    const pending: Pending = { ...result, expires_in: result.expires_in || CONNECT_TTL_SECONDS,
-      poll_interval: result.poll_interval || 5, started_at: Date.now(), agent_api: api(), requested_agent_id: target,
-      requested_validity: options.validity, client_name: clientName };
-    savePending(pending);
-    return publicPending(pending);
+    await loadConfig();
+    return await run();
   } finally { fs.closeSync(fd); fs.rmSync(lock, { force: true }); }
+}
+
+export function beginConnection(options: Options = {}) {
+  return withConnectionLock(() => beginLocked(options));
+}
+
+async function beginLocked(options: Options) {
+  if (options.validity !== undefined && !CONNECT_VALIDITIES.includes(options.validity as typeof CONNECT_VALIDITIES[number])) {
+    throw new ConnectionError('invalid_validity', 'Valid values: 1h, 24h, 7d, 1mo, 180d, 1y');
+  }
+  const config = getEffectiveAgentId();
+  const explicitEnvironment = ['AGENT_ID', 'AGENT_TOKEN', 'AGENT_JWT'].some(key => Boolean(process.env[key]));
+  if (explicitEnvironment && !getAgentIdFromEnv()) throw new CredentialError('env_credentials_invalid', process.env.AGENT_ID, true);
+  if (options.agent_id && (options.agent_id.length > 128 || !options.agent_id.trim())) throw new ConnectionError('invalid_agent_id');
+  const pending = readPending();
+  const target = options.agent_id || pending?.requested_agent_id || config?.agent_id;
+  if (pending) {
+    if (options.agent_id && options.agent_id !== pending.requested_agent_id) throw new ConnectionError('pending_connection_conflict');
+    if (explicitEnvironment) throw new CredentialError('env_credentials_conflict', target, true);
+    if (options.validity !== undefined && pending.requested_validity !== options.validity) throw new ConnectionError('pending_connection_conflict');
+    try {
+      return await pollConnection(pending);
+    } catch (error) {
+      // Only the server can declare a request expired; a near-deadline approval can still be claimed.
+      if (!(error instanceof ConnectionError) || error.code !== 'connection_expired') throw error;
+    }
+  }
+
+  if (config && !options.reconnect && target === config.agent_id) {
+    try {
+      updateJWT(await refreshJWT(config.agent_id, config.token));
+      return { connected: true, agent_id: config.agent_id };
+    } catch (error) {
+      if (!(error instanceof CredentialError)) throw error;
+      if (explicitEnvironment) throw new CredentialError(error.code, target, true);
+    }
+  }
+  if (explicitEnvironment) throw new CredentialError('env_credentials_conflict', target, true);
+  const clientName = options.client_name || process.env.CLIENT_INFO || 'FluxA CLI';
+  const result = await request('/connect/requests', { client_name: clientName, environment: executionEnvironment(options.runtime, options.hosting),
+    ...(target ? { agent_id: target } : {}), ...(options.validity !== undefined ? { validity: options.validity } : {}) });
+  if (!result?.request_id || !result.poll_secret || !result.authorization_url) throw new ConnectionError('invalid_connection_response');
+  const url = new URL(result.authorization_url);
+  const expected = new URL(process.env.AGENT_WALLET_APP || 'https://agentwallet.fluxapay.xyz');
+  if (url.origin !== expected.origin || url.pathname !== '/connect-agent') throw new ConnectionError('connection_url_mismatch', 'AgentDID returned a wallet link for another environment. Check AGENT_WALLET_APP.');
+  const created: Pending = { ...result, expires_in: result.expires_in || CONNECT_TTL_SECONDS,
+    poll_interval: result.poll_interval || 5, started_at: Date.now(), agent_api: api(), requested_agent_id: target,
+    requested_validity: options.validity, client_name: clientName };
+  savePending(created);
+  return publicPending(created);
+}
+
+async function pollConnection(pending: Pending) {
+  try {
+    const result = await request('/connect/token', { request_id: pending.request_id, poll_secret: pending.poll_secret });
+    if (!result) return publicPending(pending);
+    if (typeof result.agent_id !== 'string' || typeof result.token !== 'string' || typeof result.jwt !== 'string') throw new ConnectionError('invalid_connection_response');
+    if (pending.requested_agent_id && result.agent_id !== pending.requested_agent_id) throw new ConnectionError('requested_agent_mismatch');
+    if (getAgentIdFromEnv()) throw new CredentialError('env_credentials_conflict', result.agent_id, true);
+    const jwt = await refreshJWT(result.agent_id, result.token);
+    saveAgentId({ agent_id: result.agent_id, token: result.token, jwt });
+    fs.rmSync(pendingPath, { force: true });
+    return { connected: true, agent_id: result.agent_id };
+  } catch (error) {
+    const terminal = error instanceof CredentialError ? !error.environmentCredentials
+      : error instanceof ConnectionError && ['connection_expired', 'connection_claimed', 'access_denied', 'invalid_poll_secret'].includes(error.code);
+    if (error instanceof CredentialError) error.agentId ||= pending.requested_agent_id;
+    if (terminal && readPending()?.request_id === pending.request_id) fs.rmSync(pendingPath, { force: true });
+    throw error;
+  }
 }
 
 export async function connectionStatus(waitSeconds = 0) {
   if (!Number.isInteger(waitSeconds) || waitSeconds < 0 || waitSeconds > CONNECT_TTL_SECONDS) throw new ConnectionError('invalid_wait', '--wait must be 0..10800 seconds');
   const deadline = Date.now() + waitSeconds * 1000;
   while (true) {
-    const pending = readPending();
-    if (!pending) {
-      const config = getEffectiveAgentId();
-      if (!config) throw new ConnectionError('no_pending_connection', 'Run fluxa-wallet connect first.');
-      let jwt = config.jwt;
-      if (isJWTExpired(jwt)) { jwt = await refreshJWT(config.agent_id, config.token); updateJWT(jwt); }
-      if ((await checkWalletLinked(jwt)).linked) return { connected: true, agent_id: config.agent_id };
-      if (Date.now() >= deadline) return { connected: false, authorization_required: true, agent_id: config.agent_id,
-        authorization_url: buildLinkWalletUrl(config.agent_id, config.agent_name || ''), next_command: 'fluxa-wallet connect-status --wait 100' };
-      await new Promise(resolve => setTimeout(resolve, Math.min(5000, deadline - Date.now())));
-      continue;
-    }
-    let result;
-    try { result = await request('/connect/token', { request_id: pending.request_id, poll_secret: pending.poll_secret }); }
-    catch (error) {
-      if (error instanceof CredentialError) {
-        error.agentId ||= pending.requested_agent_id;
-        fs.rmSync(pendingPath, { force: true });
-        throw error;
-      }
-      if (error instanceof ConnectionError && ['connection_expired', 'connection_claimed', 'access_denied'].includes(error.code)) fs.rmSync(pendingPath, { force: true });
+    let interval = 5;
+    try {
+      const result = await withConnectionLock(async () => {
+        const pending = readPending();
+        if (pending) {
+          interval = Math.max(5, pending.poll_interval);
+          return pollConnection(pending);
+        }
+        const config = getEffectiveAgentId();
+        if (!config) throw new ConnectionError('no_pending_connection', 'Run fluxa-wallet connect first.');
+        updateJWT(await refreshJWT(config.agent_id, config.token));
+        return { connected: true, agent_id: config.agent_id };
+      });
+      if (result.connected || Date.now() >= deadline) return result;
+    } catch (error) {
       if (!(error instanceof ConnectionError) || !error.retryable || Date.now() >= deadline) throw error;
     }
-    if (result) {
-      if (typeof result.agent_id !== 'string' || typeof result.token !== 'string' || typeof result.jwt !== 'string') throw new ConnectionError('invalid_connection_response');
-      if (pending.requested_agent_id && result.agent_id !== pending.requested_agent_id) throw new ConnectionError('requested_agent_mismatch');
-      // Explicit environment credentials would still win over the saved file.
-      if (getAgentIdFromEnv()) throw new CredentialError('env_credentials_conflict', result.agent_id, true);
-      saveAgentId({ agent_id: result.agent_id, token: result.token, jwt: result.jwt });
-      fs.rmSync(pendingPath, { force: true });
-      return { connected: true, agent_id: result.agent_id };
-    }
-    if (Date.now() >= deadline) return publicPending(pending);
-    await new Promise(resolve => setTimeout(resolve, Math.min(Math.max(5, pending.poll_interval) * 1000, deadline - Date.now())));
+    await new Promise(resolve => setTimeout(resolve, Math.min(interval * 1000, deadline - Date.now())));
   }
 }

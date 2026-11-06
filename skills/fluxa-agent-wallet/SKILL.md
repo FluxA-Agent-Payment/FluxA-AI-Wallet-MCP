@@ -37,11 +37,11 @@ fluxa-wallet --version
 
 Wallet operations require an Agent ID linked to the user's FluxA AgentWallet account.
 
-**First, check the wallet.** Run `fluxa-wallet status`. If `configured` and `wallet_linked` are both `true`, continue the user's task. If the status is unknown or the service is temporarily unavailable, retry the check.
+**First, check the wallet.** Run `fluxa-wallet status`. If `configured` and `wallet_linked` are both `true`, continue the user's task. If status returns a wallet authorization URL, show it and recheck status after approval. If status is unknown, retry the check.
 
-**Otherwise, connect.** Run `fluxa-wallet connect`. It checks for an existing connection first.
+**Otherwise, connect.** Run `fluxa-wallet connect`. It checks pending approval or refreshes the current token.
 
-- If it returns `connected: true`, continue the user's task.
+- If it returns `connected: true`, credentials are ready. Use `status` to confirm wallet access.
 - If it returns an `authorization_url`, send the clickable link to the user. Run `fluxa-wallet connect-status --wait 100` and repeat while pending. Once connected, continue the task.
 - If the service is temporarily unavailable, retry the command.
 

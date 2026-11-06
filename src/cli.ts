@@ -46,7 +46,6 @@ import {
   listReceivedPayments,
   getReceivedPayment,
   checkWalletLinked,
-  buildLinkWalletUrl,
   resolveCurrency,
   initiateRefund,
   listRefunds,
@@ -559,7 +558,7 @@ function parseArgs(args: string[]): { command: string; options: Record<string, s
 const COMMAND_USAGE: Record<string, string> = {
   'connect': `Usage: fluxa-wallet connect [--client <name>] [--agent-id <id>] [--validity <duration>] [--reconnect] [--wait [seconds]]
 
-Default wallet setup. Reuse valid credentials or return a browser approval URL.
+Check a pending request first, or refresh the existing token. connected:true confirms AgentDID credentials. Use status to check wallet access.
 Known Agent IDs are retained on reconnect and locked in the authorization page.
 Without an Agent ID the owner can select an existing identity or create one.
 New identity names use --client (default CLIENT_INFO or FluxA CLI), without an edit field.
@@ -1467,10 +1466,11 @@ async function cmdStatus(): Promise<CommandResult> {
   const regInfo = getRegistrationInfoFromEnv();
 
   if (agentConfig?.agent_id && agentConfig.token) {
-    await ensureValidJWT();
+    updateJWT(await refreshJWT(agentConfig.agent_id, agentConfig.token));
     agentConfig = getEffectiveAgentId()!;
     const data: any = {
       configured: true,
+      connected: true,
       agent_id: agentConfig.agent_id,
       has_token: !!agentConfig.token,
       has_jwt: !!agentConfig.jwt,
@@ -1478,14 +1478,14 @@ async function cmdStatus(): Promise<CommandResult> {
       agent_name: agentConfig.agent_name,
     };
 
-    // Check wallet linking if JWT is valid
-    if (agentConfig.jwt && !isJWTExpired(agentConfig.jwt)) {
-      try {
-        const { linked } = await checkWalletLinked(agentConfig.jwt);
-        data.wallet_linked = linked;
-      } catch {
-        data.wallet_linked = null; // unable to determine
-      }
+    try {
+      const wallet = await checkWalletLinked(agentConfig.jwt, agentConfig.agent_name);
+      data.wallet_linked = wallet.linked;
+      data.wallet_status = wallet.status;
+      if (wallet.linkUrl) data.authorization_url = wallet.linkUrl;
+    } catch {
+      data.wallet_linked = null;
+      data.wallet_status = 'unknown';
     }
 
     return { success: true, data };
@@ -3164,18 +3164,8 @@ async function cmdCheckWallet(): Promise<CommandResult> {
   }
 
   try {
-    const { linked } = await checkWalletLinked(auth.jwt);
-    const agentConfig = getEffectiveAgentId();
-
-    if (linked) {
-      return { success: true, data: { linked: true } };
-    }
-
-    const linkUrl = agentConfig?.agent_id
-      ? buildLinkWalletUrl(agentConfig.agent_id, agentConfig.agent_name || '')
-      : undefined;
-
-    return { success: true, data: { linked: false, linkUrl } };
+    const wallet = await checkWalletLinked(auth.jwt, getEffectiveAgentId()?.agent_name);
+    return { success: true, data: wallet };
   } catch (err: any) {
     return { success: false, error: err.message || 'Check wallet linking failed' };
   }
@@ -3188,25 +3178,9 @@ async function cmdLinkWallet(): Promise<CommandResult> {
   }
 
   try {
-    const { linked } = await checkWalletLinked(auth.jwt);
-
-    if (linked) {
-      return { success: true, data: { linked: true, message: "Agent is already linked to user's wallet." } };
-    }
-
-    const agentConfig = getEffectiveAgentId();
-    const linkUrl = agentConfig?.agent_id
-      ? buildLinkWalletUrl(agentConfig.agent_id, agentConfig.agent_name || '')
-      : undefined;
-
-    return {
-      success: true,
-      data: {
-        linked: false,
-        linkUrl,
-        message: 'Please ask user to open this URL to authorize wallet access.',
-      },
-    };
+    const wallet = await checkWalletLinked(auth.jwt, getEffectiveAgentId()?.agent_name);
+    return { success: true, data: { ...wallet, message: wallet.linked
+      ? "Agent is already linked to user's wallet." : 'Please ask user to open this URL to authorize wallet access.' } };
   } catch (err: any) {
     return { success: false, error: err.message || 'Link wallet failed' };
   }
