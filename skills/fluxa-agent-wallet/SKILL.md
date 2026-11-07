@@ -86,7 +86,7 @@ Trial Scenarios: guide the user with wording such as: Let’s try what this wall
 | **Token usage management** | Manage provider accounts, API keys, usage and top-ups through TokenGo | Only when the user explicitly requests TokenGo or token-management setup; not part of wallet onboarding | [TOKEN-MANAGEMENT.md](TOKEN-MANAGEMENT.md) |
 | **Agent VC & Agent ID** | Issue a short-lived verifiable credential to prove agent identity to third parties (SSO, account binding) without handing over the login JWT | Use when a third-party service asks the agent to authenticate via a signed token | VC-ISSUE.md |
 | **Agent Market: discover & plan** | Search the marketplace for APIs, models, and skills, and get a recommended tool plan for a task | Use when you need to find paid resources, or plan which tools a task needs | `fluxa-wallet market search "<q>"` (add `--models` or `--vendors` to scope); `fluxa-wallet plan-tool-use "<task>"` |
-| **Prepaid AgentMarket Balance** | Call LLMs on one prepaid balance, spendable at any provider, and read it | Use when calling models via `/llm/{merchant}`, or checking what is left | `fluxa-wallet market model remainingUsage`; `fluxa-wallet market model usageHistory` |
+| **Prepaid AgentMarket Balance** | Call LLMs on one prepaid balance, spendable at any provider, and read it | Use when calling models via `/llm/v1`, or checking what is left | `fluxa-wallet market model remainingUsage`; `fluxa-wallet market model usageHistory` |
 | **Top up the AgentMarket Balance** | Fund the Balance over x402 with on-chain Base USDC. Reuse an approved mandate, or ask the user to approve a new one | Use when the balance is low or negative and the wallet holds enough USDC | `fluxa-wallet market model topup --bundle starter --mandate <id>` reuses an approved USDC mandate; omit `--mandate` to create a new USDC mandate; procedure: https://agentmarket.fluxapay.xyz/marketplace/models/agent-topup.md |
 
 
@@ -301,7 +301,7 @@ For CARD_USD, amounts are in cents ($1 = 100). Payments support only **Card** an
 | `market search` | (query arg) | Discover APIs, models, and skills (`--models` or `--vendors` to scope) |
 | `market model remainingUsage` | (none) | The account's prepaid Balance ($1 = 1 Balance) |
 | `market model topup` | (none) | Top up the Balance via x402: `--bundle <slug>` (mini, starter, mid, pro) or `--amount <dollars>` ($1 to $1,000, CLI 0.5.7+); `--mandate <id>` reuses an approved USDC mandate. Otherwise creates a new USDC mandate for user approval. USDC on Base is the default and only x402 top-up rail; Card checkout is separate |
-| `market model usageHistory` | (none) | Spend and topup history |
+| `market model usageHistory` | `--kind all\|spend\|purchases`, `--limit <1-100>`, `--offset <n>`, `--all`, `--json` | Spend and topup history, newest first, times in UTC. `--json` gives `total`, `complete` and `nextOffset` |
 | `market keys create` | (none) | Mint an `fxa_live_` API key (`--name`, `--limit <Balance>` optional) |
 | `market keys list` | (none) | List your `fxa_live_` keys |
 | `market keys update` | (id arg) | Update a key (`--name`, `--limit <Balance>`; `--limit 0` clears the limit) |

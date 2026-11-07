@@ -58,6 +58,13 @@ const usd = (units: number): string => { const v = (units || 0) * UNIT_USD; retu
 // takes the Balance field and falls back to converting the old Units one.
 const bal = (balance: unknown, units?: unknown): number =>
   balance != null && Number.isFinite(Number(balance)) ? Number(balance) : Number(units || 0) * UNIT_USD;
+/** Like bal(), but null when neither field is a number: unknown is not 0. */
+const balOrNull = (balance: unknown, units?: unknown): number | null => {
+  const num = (v: unknown) => v != null && v !== '' && Number.isFinite(Number(v));
+  if (num(balance)) return Number(balance);
+  if (num(units)) return Number((Number(units) / 100_000).toFixed(5)); // 100,000 Units = $1
+  return null;
+};
 const fmtBal = (v: number): string => {
   const a = Math.abs(v);
   const s = a.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: a < 1 ? 5 : 2 });
@@ -168,7 +175,7 @@ async function cmdSearch(query: string, scope: 'all' | 'models' | 'vendors'): Pr
   const rows = [
     ...(data.apiServers || []).map((r: any) => ({ kind: 'api', slug: r.slug, desc: r.description || '', price: r.priceUsd ? (r.priceUsd.min === r.priceUsd.max ? `$${r.priceUsd.min}` : `$${r.priceUsd.min}-${r.priceUsd.max}`) : '' })),
     ...(data.skills || []).map((r: any) => ({ kind: 'skill', slug: r.slug, desc: r.description || '', price: '' })),
-    ...(data.models || []).map((r: any) => ({ kind: 'model', slug: `${r.provider}/${r.id}`, desc: r.displayName || '', price: r.inputUnitsPer1M != null ? `${r.inputUnitsPer1M.toLocaleString()}u/Mtok in` : '' })),
+    ...(data.models || []).map((r: any) => ({ kind: 'model', slug: `${r.provider}/${r.id}`, desc: r.displayName || '', price: r.inputPer1M != null ? `${perM(r.inputPer1M)}/1M in` : r.inputUnitsPer1M != null ? `${perM(r.inputUnitsPer1M * UNIT_USD)}/1M in` : '' })),
   ];
   const lines: string[] = [];
   if (!rows.length) return c.dim('  no matches' + (query ? ` for "${query}"` : ''));
@@ -219,31 +226,153 @@ async function cmdRemainingUsage(): Promise<string> {
   const { data } = await http(`${PROXY}/llm/wallet/balances`, { auth: true });
   const a = data.balance ?? (data.accounts || [])[0];
   if (!a) return c.dim('  no Balance yet — `fluxa-wallet market model topup` to start');
-  const available = bal(a.available, a.balance);
-  const burn = bal(a.burnPerDay, a.burn7dPerDay);
-  const owed = bal(a.owed, a.pendingSettlement);
-  const low = available < burn * 3;
-  const status = owed > 0 ? c.red('owed ' + fmtBal(owed)) : low ? c.red('low') : c.green('ok');
+  // A field the server left out is unknown, not zero: "spent 0/day, ok" from a
+  // missing burn rate would tell the agent its Balance lasts forever.
+  const available = balOrNull(a.available, a.balance);
+  const burn = balOrNull(a.burnPerDay, a.burn7dPerDay);
+  const owed = balOrNull(a.owed, a.pendingSettlement) ?? (available != null && available < 0 ? -available : 0);
+  const unknown = c.dim('unknown');
+  const status =
+    owed > 0 ? c.red('owed ' + fmtBal(owed))
+    : available == null || burn == null ? c.dim('unknown — usage data missing')
+    : available < burn * 3 ? c.red('low')
+    : c.green('ok');
   return [
     '  ' + c.dim(pad('balance', 18) + pad('spent/day (7d)', 16) + 'status'),
-    `  ${pad(fmtBal(available), 18)}${pad(fmtBal(burn), 16)}${status}`,
+    `  ${pad(available == null ? unknown : fmtBal(available), 18 + (tty && available == null ? 8 : 0))}${pad(burn == null ? unknown : fmtBal(burn), 16 + (tty && burn == null ? 8 : 0))}${status}`,
     c.dim('  $1 = 1 Balance'),
   ].join('\n');
 }
 
-async function cmdUsageHistory(): Promise<string> {
-  // Unscoped: the ledger belongs to the account. The server keeps a
-  // /ledger/:vendor route for callers that still scope, and nothing here does.
-  const { data } = await http(`${PROXY}/llm/wallet/ledger?limit=20`, { auth: true });
-  const entries = data.entries || [];
-  if (!entries.length) return c.dim('  no ledger entries yet');
-  const lines: string[] = [];
-  lines.push('  ' + c.dim(pad('when', 22) + pad('type', 12) + pad('change', 14) + 'balance after'));
-  for (const e of entries) {
-    const change = bal(e.change, e.amount);
-    const amt = (change > 0 ? c.green('+') : c.red('')) + fmtBal(change);
-    lines.push(`  ${pad(new Date(e.ts).toISOString().replace('T', ' ').slice(0, 19), 22)}${pad(e.type, 12)}${pad(amt, 14 + (tty ? 9 : 0))}${fmtBal(bal(e.balanceRemaining, e.balanceAfter))}`);
+// --- usageHistory ------------------------------------------------------------
+// The router pages the ledger newest first with offset/limit (limit <= 100)
+// and answers with `total`. One page by default; --all walks every page.
+const LEDGER_KINDS = ['all', 'spend', 'purchases'];
+const LEDGER_PAGE_MAX = 100;
+const LEDGER_ALL_MAX = 10_000;
+
+const intOpt = (v: string | undefined, name: string, min: number, max: number, dflt: number): number => {
+  if (v == null) return dflt;
+  const n = Number(v);
+  if (!Number.isInteger(n) || n < min || n > max) die(`--${name} must be a whole number from ${min} to ${max}`);
+  return n;
+};
+const tokensOf = (u: any) => {
+  if (!u || typeof u !== 'object') return undefined;
+  const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
+  const input = num(u.prompt_tokens) ?? num(u.input_tokens);
+  const output = num(u.completion_tokens) ?? num(u.output_tokens);
+  return input == null && output == null ? undefined : { input, output };
+};
+/** One ledger row as this CLI prints it. Metadata is narrowed to named fields,
+ *  never passed through whole. */
+function ledgerRow(e: any) {
+  const m = e.metadata && typeof e.metadata === 'object' ? e.metadata : {};
+  const t = new Date(e.ts);
+  const str = (v: unknown) => (typeof v === 'string' && v ? v : undefined);
+  return {
+    id: str(e.id) ?? null,
+    ts: Number.isNaN(t.getTime()) ? null : t.toISOString(),
+    type: str(e.type) ?? null,
+    change: balOrNull(e.change, e.amount),
+    balanceRemaining: balOrNull(e.balanceRemaining, e.balanceAfter),
+    model: str(m.model),
+    tokens: tokensOf(m.usage),
+    apiKeyId: str(m.api_key_id),
+    orderId: str(m.order_id),
+    bundle: str(m.package_slug),
+    txHash: str(m.x402_tx_hash),
+  };
+}
+
+async function ledgerPage(kind: string, offset: number, limit: number) {
+  const u = new URL(`${PROXY}/llm/wallet/ledger`);
+  u.searchParams.set('kind', kind);
+  u.searchParams.set('limit', String(limit));
+  u.searchParams.set('offset', String(offset));
+  const { data } = await http(u, { auth: true });
+  if (!data || !Array.isArray(data.entries)) die('the router sent no ledger entries; nothing is known about this page');
+  const total = Number.isInteger(data.total) ? Number(data.total) : null;
+  return { entries: data.entries as any[], total };
+}
+
+async function cmdUsageHistory(options: Record<string, string>): Promise<string> {
+  const kind = options.kind ?? 'all';
+  if (!LEDGER_KINDS.includes(kind)) die(`--kind must be one of: ${LEDGER_KINDS.join(', ')}`);
+  const all = options.all === 'true';
+  if (all && (options.offset != null || options.limit != null)) die('--all reads every page; leave out --limit and --offset');
+  const limit = intOpt(options.limit, 'limit', 1, LEDGER_PAGE_MAX, 20);
+  const offset = intOpt(options.offset, 'offset', 0, Number.MAX_SAFE_INTEGER, 0);
+
+  let rows: ReturnType<typeof ledgerRow>[] = [];
+  let total: number | null = null;
+  let complete: boolean;
+  let note: string | undefined;
+  if (!all) {
+    const page = await ledgerPage(kind, offset, limit);
+    rows = page.entries.map(ledgerRow);
+    total = page.total;
+    complete = total != null && offset === 0 && rows.length >= total;
+  } else {
+    // Pages are newest first, so a call landing mid-walk pushes older rows one
+    // place down and the next page repeats one. Rows are de-duplicated by id;
+    // without ids (an older router) a moving total means the walk can't be
+    // trusted, and it says so.
+    const seen = new Set<string>();
+    let first: number | null = null;
+    let moved = false;
+    for (let off = 0; ; off += LEDGER_PAGE_MAX) {
+      const page = await ledgerPage(kind, off, LEDGER_PAGE_MAX);
+      if (first == null) first = page.total;
+      else if (page.total !== first) moved = true;
+      for (const e of page.entries) {
+        const r = ledgerRow(e);
+        if (r.id) { if (seen.has(r.id)) continue; seen.add(r.id); }
+        rows.push(r);
+      }
+      total = page.total;
+      if (page.entries.length < LEDGER_PAGE_MAX || (total != null && off + page.entries.length >= total)) break;
+      if (rows.length >= LEDGER_ALL_MAX) { note = `stopped at ${LEDGER_ALL_MAX} entries`; break; }
+    }
+    const ids = rows.every((r) => r.id);
+    complete = !note && total != null && !(moved && !ids);
+    if (moved && !ids) note = 'new entries arrived while reading and this router sends no ids, so rows may repeat; run it again';
+    else if (moved) note = 'new entries arrived while reading; they are included';
   }
+  const nextOffset = !all && total != null && offset + rows.length < total ? offset + rows.length : null;
+
+  if (options.json === 'true') {
+    return JSON.stringify({
+      unit: 'Balance', // $1 = 1 Balance
+      timezone: 'UTC',
+      kind,
+      order: 'newest first',
+      offset: all ? 0 : offset,
+      limit: all ? null : limit,
+      total,
+      returned: rows.length,
+      complete,
+      nextOffset,
+      ...(note ? { note } : {}),
+      entries: rows,
+    }, null, 2);
+  }
+
+  if (!rows.length) return c.dim(offset > 0 ? `  no entries at offset ${offset}${total != null ? ` (total ${total})` : ''}` : '  no ledger entries yet');
+  const lines: string[] = [];
+  lines.push('  ' + c.dim(pad('when (UTC)', 22) + pad('type', 12) + pad('change', 14) + 'balance after'));
+  for (const r of rows) {
+    const when = r.ts ? r.ts.replace('T', ' ').slice(0, 19) : '?';
+    const amt = r.change == null ? c.dim('?') : (r.change > 0 ? c.green('+') : c.red('')) + fmtBal(r.change);
+    const after = r.balanceRemaining == null ? c.dim('?') : fmtBal(r.balanceRemaining);
+    lines.push(`  ${pad(when, 22)}${pad(r.type ?? '?', 12)}${pad(amt, 14 + (tty ? 9 : 0))}${after}`);
+  }
+  const shown = rows.length ? `${(all ? 0 : offset) + 1}–${(all ? 0 : offset) + rows.length}` : '0';
+  if (total == null) lines.push(c.dim(`  entries ${shown}; the router did not say how many there are`));
+  else if (nextOffset != null) lines.push(c.dim(`  entries ${shown} of ${total}, newest first · older: --offset ${nextOffset}, or --all`));
+  else lines.push(c.dim(`  entries ${shown} of ${total}, newest first`));
+  if (note) lines.push(c.red('  ' + note));
+  lines.push(c.dim('  $1 = 1 Balance'));
   return lines.join('\n');
 }
 
@@ -361,7 +490,7 @@ ${c.bold('market')} ${c.dim('— what you\'re working with')}
 
   ${c.bold('Products')}:
     ${KIND.api}  Oneshot APIs  — pay-per-call endpoints (scrape, search, video, …)
-    ${KIND.model}  Models        — LLM endpoints, billed per token, via /llm/{merchant}
+    ${KIND.model}  Models        — LLM endpoints, billed per token, via /llm/v1
     ${c.cyan('tokenplan')} Token Plans — monthly model allowance on the provider's own endpoint
     ${KIND.skill}  Skills        — packaged multi-step routines
 
@@ -443,7 +572,7 @@ ${c.bold('API keys — programmatic management')} ${c.dim('(Agent VC only)')}
 `,
   pay: () => `
 ${c.bold('Paying — x402 v3')}
-  Prepaid: one account-wide Units balance is shared across providers; while it's funded, calls just work.
+  Prepaid: one account-wide Balance is shared across providers; while it's funded, calls just work.
   On a shortfall a paid endpoint returns HTTP 402 with an x402 challenge. Settle it with
   the wallet:
     1. sign a spending ${c.bold('mandate')} once (you pre-approve a budget + time window)
@@ -453,11 +582,11 @@ ${c.bold('Paying — x402 v3')}
   Reuse the signed mandate for later calls in its window. ${c.cyan('market model topup')} prefunds instead.
 `,
   models: () => `
-${c.bold('Models — shared prepaid Units')}
-  A ${c.bold('merchant')} (provider) exposes many models; all providers draw from one account-wide Units balance.
-  An offering is ${c.dim('(merchant, model)')}; the lane is ${c.dim('POST /llm/{merchant}/v1/chat/completions')}
-  (OpenAI wire format), billed per token.
-    ${c.cyan('fluxa-wallet market search --models')}          list models + Units rates
+${c.bold('Models — shared prepaid Balance')}
+  A ${c.bold('merchant')} (provider) exposes many models; all providers draw from one account-wide Balance ($1 = 1 Balance).
+  Call ${c.dim('POST /llm/v1/chat/completions')} (OpenAI wire format) or ${c.dim('POST /llm/v1/messages')}, billed per token.
+  To pin one provider, put its slug in the path: ${c.dim('/llm/<merchant>/v1/...')}
+    ${c.cyan('fluxa-wallet market search --models')}          list models + $ per 1M tokens
     ${c.cyan('fluxa-wallet market search --vendors')}         list model providers
     ${c.cyan('fluxa-wallet market model remainingUsage')}     shared balance and recent burn rate
     ${c.cyan('fluxa-wallet market model usageHistory')}       spend and topup history
@@ -470,7 +599,7 @@ ${c.bold('Models — shared prepaid Units')}
   tokenplan: () => `
 ${c.bold('Token Plans — monthly model allowance')}
   Use a plan for a monthly allowance on the provider's own endpoint.
-  The plan's provider key is separate from the ${c.dim('fxa_live_')} key used for prepaid Units.
+  The plan's provider key is separate from the ${c.dim('fxa_live_')} key used for prepaid Balance.
 
     ${c.cyan('fluxa-wallet market tokenplan buy <plan>')}          create a USDC checkout link (lite, standard, advanced)
     ${c.cyan('fluxa-wallet market tokenplan order <orderId>')}     check payment and provisioning separately
@@ -574,9 +703,9 @@ export async function topupFinalize(resourceUrl: string, xPayment: string): Prom
 // --- commands: token plans ---------------------------------------------------
 //
 // A Token Plan is the other way to reach a model: one flat monthly allowance on
-// the PROVIDER's endpoint, rather than per-call Units on ours. The key these
+// the PROVIDER's endpoint, rather than per-call Balance on ours. The key these
 // commands surface is the provider's, so it does not authenticate at
-// /llm/{merchant} and an fxa_live_ key does not authenticate at the provider.
+// /llm/v1 and an fxa_live_ key does not authenticate at the provider.
 //
 // Buying is deliberately absent. That flow is published, tested and kept
 // current at /marketplace/tokenplans/topup.md; a second copy here would drift
@@ -755,7 +884,7 @@ export async function runMarketCommand(
         raw = await cmdRemainingUsage();
         break;
       case 'market model usageHistory':
-        raw = await cmdUsageHistory();
+        raw = await cmdUsageHistory(options);
         break;
       // 'market model topup' is orchestrated in cli.ts (it needs the wallet's
       // in-process mandate + x402-v3 primitives); it never reaches here.
