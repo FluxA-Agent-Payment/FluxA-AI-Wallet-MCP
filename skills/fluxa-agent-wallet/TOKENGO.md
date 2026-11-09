@@ -105,6 +105,9 @@ question. Recommend USDC only when there is no usable card. Do not silently
 switch an approved Card workflow to USDC. Verify the resulting AgentMarket
 balance and order, then record the completed top-up and API key in TokenGo.
 For recurring top-ups, use the approved method, rules and spending limit.
+TokenGo settings/budget records use `currency: "USD"` for Card payments and
+`"USDC"` for USDC payments; `CARD_USD` is the wallet mandate currency, not a
+TokenGo record currency.
 
 ## Supported providers
 
