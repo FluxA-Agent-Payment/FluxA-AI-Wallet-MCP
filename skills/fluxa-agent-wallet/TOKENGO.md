@@ -54,8 +54,9 @@ Proceed one decision at a time, reusing anything the user has already specified:
    If the user chooses an unsupported provider, use the response above and
    stop. Do not save it as the selected provider or advance its onboarding.
 3. **Try the first top-up and key.** Offer "Let's start with a $1 top-up and
-   your first API key so you can try it out." Use the chosen payment method
-   as described below. Reuse existing accounts, keys and suitable signed
+   your first API key so you can try it out." Recommend FluxA Card first
+   as described below, unless the user has already chosen a payment method.
+   Reuse existing accounts, keys and suitable signed
    authorizations. Verify the top-up and first key, save the results in
    TokenGo, and show the user what is ready.
 4. **Offer automation after the trial.** Ask whether they want automatic
@@ -86,18 +87,22 @@ retrying.
 
 AgentMarket supports two top-up payment methods:
 
-- **Card:** Request the appropriate card spending authorization and send its
+- **Card (recommended default):** Reuse a suitable signed `CARD_USD` mandate
+  or request `mandate-create --currency CARD_USD` with the merchant flags
+  and the budget in cents ($1 = 100). Send its
   approval link directly. The authorization UI guides the user through binding
   a card when needed; do not require a separate card-binding step beforehand.
   After approval, continue through the linked-card checkout flow.
-- **USDC:** Run `fluxa-wallet balance` first. If the wallet has insufficient
-  USDC on Base, tell the user to deposit stablecoins into their wallet and
+- **USDC (fallback when no usable card):** Run `fluxa-wallet balance` first.
+  If the wallet has insufficient USDC on Base, tell the user to deposit stablecoins into their wallet and
   continue after the balance is sufficient. Reuse a suitable signed USDC
   authorization or send a new approval link, then execute the top-up.
 
 `fluxa-wallet market model topup --amount 1` uses the USDC route. Card payments
-use the linked-card checkout flow. Reuse the user's chosen method; ask which
-method they prefer only when it is missing. Verify the resulting AgentMarket
+use the linked-card checkout flow in [LINKED-CARD.md](LINKED-CARD.md). Reuse the
+user's chosen method; otherwise recommend Card without asking a payment-method
+question. Recommend USDC only when there is no usable card. Do not silently
+switch an approved Card workflow to USDC. Verify the resulting AgentMarket
 balance and order, then record the completed top-up and API key in TokenGo.
 For recurring top-ups, use the approved method, rules and spending limit.
 

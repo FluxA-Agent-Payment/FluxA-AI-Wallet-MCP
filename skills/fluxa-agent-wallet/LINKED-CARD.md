@@ -8,7 +8,8 @@ agent pays a WPE payment attempt with `headless-checkout`.
 ## When to use
 
 - A merchant / Monetize checkout hands you a **payment attempt id** (`wpa_...`)
-  and the user wants to pay with their linked card.
+  and the purchase supports Card. Recommend this route by default unless the
+  user has chosen another payment method.
 - You need to know which cards the user has linked, or which `CARD_USD`
   mandates you already hold.
 
@@ -17,8 +18,9 @@ Not for: prepaid agent cards (`fluxa-wallet card ...`), x402 API payments
 
 ## Hard rules
 
-- Confirm the purchase (merchant, amount, product) with the user before creating
-  the mandate and before `headless-checkout`.
+- Present the purchase (merchant, amount, product) in the mandate approval
+  request. Send the approval link directly and wait for signing; the signed
+  mandate authorizes payments within that scope without another chat confirmation.
 - Amounts are **cents**: `2000` = $20.00. `--amount` is the authorization ceiling.
 - Scope the mandate to the real merchant: `--merchant-url` must be the merchant's
   HTTPS site and `--merchant-name` the name approved for it on the CardVault side.
@@ -27,8 +29,9 @@ Not for: prepaid agent cards (`fluxa-wallet card ...`), x402 API payments
 ## Flow
 
 ```
-1. fluxa-wallet linked-card list                          → user has ≥1 ACTIVE linked card?
-   (none → ask the user to link a card on the wallet Cards page, then retry)
+1. fluxa-wallet linked-card list                          → inspect available cards
+   (if none, the mandate approval UI can bind a card; recommend USDC second
+    when the user has no usable card, and obtain matching authorization)
 2. fluxa-wallet linked-card mandates --host <merchant host> --amount <cents>
    (an eligible signed mandate → skip to step 5)
 3. fluxa-wallet mandate-create --currency CARD_USD --desc "..." --amount <cents> \
