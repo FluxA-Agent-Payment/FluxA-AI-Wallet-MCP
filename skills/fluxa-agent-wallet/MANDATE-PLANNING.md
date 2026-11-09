@@ -8,7 +8,7 @@ You **MUST** to clearly define the purpose of this budget so the user knows what
 
 When applying for the budget, you may already know the exact number of payments and amounts (for example, calling an image generation api three times). or you may not know the exact payments in advance, and the spending will only be determined dynamically during task execution, including the number of transactions and total cost. both cases are allowed. you just need to apply for a reasonable budget.
 
-Create one mandate per user task, not one per provider. If the task calls APIs from several providers, pay all of them with the same mandate. A mandate is not limited to a provider; it stops working only when its budget is used up or it expires.
+A mandate belongs to the user's task. Create one mandate per task and pay every API call in the task with it.
 
 You must avoid applying for a budget for each individual payment, as this creates a poor user experience. You should analyze the user’s intent and determine whether a reusable budget can be requested so related tasks can use the same budget. For example: recurring video production for operations, or ongoing fund transfers to friends.
 
@@ -38,9 +38,8 @@ A task that requires multiple paid API calls in sequence.
 - Auth → get-card → get-card-data (Laso)
 - Discover API → pay → generate → poll result (Banana/Seedance)
 - Search x402 services → call multiple APIs to compare results
-- Look up a company in a registry API, then enrich it with a second provider's API
 
-**Strategy:** Estimate the **total cost across all steps** before creating the mandate. Include retry buffer (1 extra attempt per step). Create **one mandate** covering the entire workflow, across every provider it uses — do NOT create a new mandate per step or per provider.
+**Strategy:** Estimate the **total cost across all steps** before creating the mandate. Include retry buffer (1 extra attempt per step). Create **one mandate** covering the entire workflow — do NOT create a new mandate per step.
 
 ### Type 3 — Recurring / Long-Term Task
 
@@ -63,7 +62,7 @@ Approve a ${budget} budget (valid {duration}): {authorizationUrl}
 I'll continue as soon as you approve.
 ```
 
-If the task uses more than one API, name each one's price on the first line (e.g. `Handelsregister charges $0.05 per lookup and Fundable $0.02 per search.`) and still send one budget and one link. In `--desc`, describe the user's goal (e.g. "research German fintech companies"), not one provider.
+If the task calls more than one API, list each price on the first line and still send one budget and one link. In `--desc`, describe the task.
 
 `{duration}` is 7 days for a short-term task. For a background or recurring task, or when the user asks for a long-term budget, use the Type 3 validity (e.g. 30 days) and size the budget for the expected usage over that period.
 
@@ -81,7 +80,7 @@ Check if any mandate has already been created or used in the current conversatio
 
 ### Source 2 — The wallet
 
-Run `fluxa-wallet mandates`. It lists this agent's mandates with limit / spent / remaining, across conversations. Reuse a `signed`, unexpired mandate in the right currency with enough remaining, even if it was created for another API or provider.
+Run `fluxa-wallet mandates`. It lists this agent's mandates with limit / spent / remaining, across conversations. Reuse a `signed`, unexpired mandate in the right currency with enough remaining for the task.
 
 ### Source 3 — Local State File
 
@@ -89,7 +88,6 @@ Read `~/.fluxa-ai-wallet-mcp/mandates.json` and look for a mandate where:
 - `status` is `"signed"`
 - `validUntil` is in the future
 - `currency` matches the required currency
-- `scope` is a note only: don't skip a mandate because its scope or purpose names another provider
 
 If a match is found, query its latest status via `mandate-status --id <mandateId>` to confirm it's still valid and has sufficient remaining budget. If confirmed → **reuse it**.
 
@@ -110,7 +108,6 @@ The agent MUST persist mandate state to `~/.fluxa-ai-wallet-mcp/mandates.json` s
       "mandateId": "mand_xxxxxxxxxxxxx",
       "status": "signed",
       "purpose": "Laso auth and card ordering",
-      "scope": "laso.finance",
       "taskType": "multi-step",
       "currency": "USDC",
       "limitAmount": "21000000",
