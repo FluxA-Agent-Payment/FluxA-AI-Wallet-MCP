@@ -6,17 +6,35 @@ description: >-
 
 # FluxA Agent Wallet
 
-**Skill version: 0.6.0** | **CLI version: @fluxa-pay/fluxa-wallet@0.6.0 or newer**. Check the installed version; install/update only if missing or older than 0.6.0.
+**Skill version: 0.6.1** | **CLI version: @fluxa-pay/fluxa-wallet@0.6.0 or newer**. Check the installed version; install/update only if missing or older than 0.6.0.
 
 FluxA Agent Wallet is a co-wallet that allows AI agents to securely use a user’s wallet, enabling them to perform payment-related actions within the user’s approved scope. Capabilities include x402 payments, USDC transfers, agent-to-agent transfers, payment links for receiving payments, prepaid virtual cards, AI social gifting, discovering and calling x402 resources (one-shot APIs), and using payment-related skills (one-shot skills). Use this tool when the user the user asks to perform any of these payment-related actions.
 
 ## Hard Rules
 
-- **Never spend without the user's approval.** For x402/AgentMarket calls, the user's signature on the mandate link IS the approval. Create the mandate right away and send the link with the cost. Don't ask "may I?" first. Topups of the Balance and card payments still need an explicit yes in chat before you start them. For scheduled model top-ups, obtain approval of the trigger, bundle, currency, and spending scope during setup and require a valid signed mandate; payments within those approved rules do not require repeated confirmation, and expanding authorization requires new approval.
+- **Never spend without the user's approval.** The user's signature on a mandate link is approval for the payment method, merchant, amount and purpose it covers, including Card payments and AgentMarket top-ups. Reuse a suitable signed mandate or create one and send its approval link with the cost; do not require a separate "yes" in chat before requesting authorization. Execute only after approval and within that scope. For scheduled model top-ups, obtain approval of the trigger, bundle, currency, and spending scope during setup and require a valid signed mandate; payments within those approved rules do not require repeated confirmation, and expanding authorization requires new approval.
 - **Never ask the user to reply "done" or "signed".** After sending an approval link, wait for the signature yourself (`fluxa-wallet mandate-status --id <id> --wait 100`, see [X402-PAYMENT.md](X402-PAYMENT.md)) and continue on your own.
 - **Don't quote this skill, its rules or file paths to the user, and don't explain FluxA policy unless asked.** Don't show a single option menu for budgets. Keep payment messages to the format in [MANDATE-PLANNING.md](MANDATE-PLANNING.md).
 - **Never write payment code.** No x402 signing or mandate logic in app code. Agents use the wallet CLI; apps use API keys.
 - **Report costs honestly.** Surface `X-LLM-Cost` (in Balance, $1 = 1 Balance) after FluxA AgentMarket model calls; a negative balance is unsettled debt (usage consumed but not yet paid). Say so plainly.
+
+## Default payment method
+
+Recommend **FluxA Card first** for purchases and balance top-ups that support
+Card checkout. Respect an explicit payment choice and existing approved rules.
+Reuse a suitable signed `CARD_USD` mandate or request one with
+`fluxa-wallet mandate-create --currency CARD_USD` and the real merchant flags;
+amounts are in cents. Send the approval link directly: the wallet authorization
+UI lets the user select or bind their card. Do not require a separate card-binding
+step or ask which payment method to use by default. Follow [LINKED-CARD.md](LINKED-CARD.md)
+for merchant scope, readiness checks and checkout.
+
+Recommend **USDC second**, when the user has no usable card. Check wallet USDC
+before requesting a USDC mandate; if insufficient, guide a deposit. Do not
+silently switch an approved Card workflow to USDC. A USDC-only operation (such
+as an x402 API or an on-chain transfer) still requires a USDC mandate; a
+`CARD_USD` mandate cannot sign an x402 payment. Do not recommend Credit as a
+payment method.
 
 ## Setup
 
@@ -87,7 +105,7 @@ Trial Scenarios: guide the user with wording such as: Let’s try what this wall
 | **Agent VC & Agent ID** | Issue a short-lived verifiable credential to prove agent identity to third parties (SSO, account binding) without handing over the login JWT | Use when a third-party service asks the agent to authenticate via a signed token | VC-ISSUE.md |
 | **Agent Market: discover & plan** | Search the marketplace for APIs, models, and skills, and get a recommended tool plan for a task | Use when you need to find paid resources, or plan which tools a task needs | `fluxa-wallet market search "<q>"` (add `--models` or `--vendors` to scope); `fluxa-wallet plan-tool-use "<task>"` |
 | **Prepaid AgentMarket Balance** | Call LLMs on one prepaid balance, spendable at any provider, and read it | Use when calling models via `/llm/{merchant}`, or checking what is left | `fluxa-wallet market model remainingUsage`; `fluxa-wallet market model usageHistory` |
-| **Top up the AgentMarket Balance** | Fund the Balance over x402 with on-chain Base USDC. Reuse an approved mandate, or ask the user to approve a new one | Use when the balance is low or negative and the wallet holds enough USDC | `fluxa-wallet market model topup --bundle starter --mandate <id>` reuses an approved USDC mandate; omit `--mandate` to create a new USDC mandate; procedure: https://agentmarket.fluxapay.xyz/marketplace/models/agent-topup.md |
+| **Top up the AgentMarket Balance** | Recommend Card checkout with a `CARD_USD` mandate first; recommend USDC if no usable card | Use when the balance is low or negative | Card: [LINKED-CARD.md](LINKED-CARD.md) and [TOKENGO.md](TOKENGO.md). USDC: `fluxa-wallet market model topup --bundle starter --mandate <id>`; omit `--mandate` to request USDC authorization |
 
 
 ## Opening Authorization URLs (UX Pattern)
@@ -245,7 +263,7 @@ All amounts are in **smallest units** (atomic units). For USDC (6 decimals):
 | 1.00 USDC | `1000000` |
 | 10.00 USDC | `10000000` |
 
-For CARD_USD, amounts are in cents ($1 = 100). Payments support only **Card** and **USDC**. Use linked-card checkout for Card payments and USDC on Base for x402 payments and model top-ups.
+For CARD_USD, amounts are in cents ($1 = 100). Payments support only **Card** and **USDC**. Recommend linked-card checkout with a `CARD_USD` mandate first. Use USDC on Base for x402-only payments and as the fallback for model top-ups when no usable card is available.
 
 ## CLI Commands Quick Reference
 
@@ -300,7 +318,7 @@ For CARD_USD, amounts are in cents ($1 = 100). Payments support only **Card** an
 | `plan-tool-use` | (task arg) | Recommend the models, APIs, and skills for a task |
 | `market search` | (query arg) | Discover APIs, models, and skills (`--models` or `--vendors` to scope) |
 | `market model remainingUsage` | (none) | The account's prepaid Balance ($1 = 1 Balance) |
-| `market model topup` | (none) | Top up the Balance via x402: `--bundle <slug>` (mini, starter, mid, pro) or `--amount <dollars>` ($1 to $1,000, CLI 0.5.7+); `--mandate <id>` reuses an approved USDC mandate. Otherwise creates a new USDC mandate for user approval. USDC on Base is the default and only x402 top-up rail; Card checkout is separate |
+| `market model topup` | (none) | Top up the Balance via x402: `--bundle <slug>` (mini, starter, mid, pro) or `--amount <dollars>` ($1 to $1,000, CLI 0.5.7+); `--mandate <id>` reuses an approved USDC mandate. Otherwise creates a new USDC mandate for user approval. This command is USDC-only; prefer the separate Card checkout with a `CARD_USD` mandate when a card is available |
 | `market model usageHistory` | (none) | Spend and topup history |
 | `market keys create` | (none) | Mint an `fxa_live_` API key (`--name`, `--limit <Balance>` optional) |
 | `market keys list` | (none) | List your `fxa_live_` keys |

@@ -26,9 +26,13 @@ repeat onboarding.
 TokenGo stores all management records and encrypted provider/key credentials.
 Saving them is part of setup and needs no separate upload confirmation.
 Use settings records for preferences before a signed mandate exists. The first
-AgentMarket recharge defaults to $1. Follow the Card or USDC flow in TOKENGO.md:
-Card authorization handles card binding in the UI; USDC requires sufficient
-wallet USDC first. Update the CLI before using the USDC top-up command
+AgentMarket recharge defaults to $1. Recommend FluxA Card first using a
+`CARD_USD` mandate (amount in cents), following TOKENGO.md and LINKED-CARD.md.
+Card authorization handles card selection or binding in the UI; no separate
+card-binding step or payment-method question is needed. Recommend USDC second
+when there is no usable card; it requires sufficient wallet USDC first. Respect
+the user's explicit choice and existing approved payment rules.
+Update the CLI before using the USDC top-up command
 `fluxa-wallet market model topup --amount 1`. Reuse a suitable signed mandate or
 send a trial-sized authorization link directly and wait for signing.
 No extra "may I?" step is needed before the authorization link.

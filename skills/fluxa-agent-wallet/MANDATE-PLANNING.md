@@ -10,6 +10,16 @@ When applying for the budget, you may already know the exact number of payments 
 
 You must avoid applying for a budget for each individual payment, as this creates a poor user experience. You should analyze the user’s intent and determine whether a reusable budget can be requested so related tasks can use the same budget. For example: recurring video production for operations, or ongoing fund transfers to friends.
 
+## Payment method
+
+For purchases and top-ups with Card checkout, recommend FluxA Card first and
+reuse or request a merchant-scoped `CARD_USD` mandate. See [LINKED-CARD.md](LINKED-CARD.md).
+Use cents for Card amounts ($1 = 100). The approval page handles card selection
+or binding; send the link directly. Recommend USDC when there is no usable card,
+or use it for a USDC-only operation or an explicit user choice. USDC amounts use
+6 decimals ($1 = 1000000). Match both payment method and merchant when reusing
+mandates, and never substitute a Card mandate for an x402 USDC mandate.
+
 ## Task Classification
 
 Before creating a mandate, classify the current task:
