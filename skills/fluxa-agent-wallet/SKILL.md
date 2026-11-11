@@ -6,7 +6,7 @@ description: >-
 
 # FluxA Agent Wallet
 
-**Skill version: 0.6.1** | **CLI version: @fluxa-pay/fluxa-wallet@0.6.0 or newer**. Check the installed version; install/update only if missing or older than 0.6.0.
+**Skill version: 0.6.2** | **CLI version: @fluxa-pay/fluxa-wallet@0.6.0 or newer**. Check the installed version; install/update only if missing or older than 0.6.0.
 
 FluxA Agent Wallet is a co-wallet that allows AI agents to securely use a user’s wallet, enabling them to perform payment-related actions within the user’s approved scope. Capabilities include x402 payments, USDC transfers, agent-to-agent transfers, payment links for receiving payments, prepaid virtual cards, AI social gifting, discovering and calling x402 resources (one-shot APIs), and using payment-related skills (one-shot skills). Use this tool when the user the user asks to perform any of these payment-related actions.
 
@@ -55,12 +55,12 @@ fluxa-wallet --version
 
 Wallet operations require an Agent ID linked to the user's FluxA AgentWallet account.
 
-**First, check the wallet.** Run `fluxa-wallet status`. If `configured` and `wallet_linked` are both `true`, continue the user's task. If status returns a wallet authorization URL, show it and recheck status after approval. If status is unknown, retry the check.
+**First, check the wallet.** Run `fluxa-wallet status`. If `configured` and `wallet_linked` are both `true`, continue the user's task. If status returns a wallet authorization URL, share it using the [approval link format](#opening-authorization-urls-ux-pattern) and recheck status after approval. If status is unknown, retry the check.
 
 **Otherwise, connect.** Run `fluxa-wallet connect --client "<your client name>"` using your AI client’s name, for example `Claude Code`, `Codex`, or `Manus`.
 
 - If it returns `connected: true`, credentials are ready. Use `status` to confirm wallet access.
-- If it returns an `authorization_url`, send the clickable link to the user. Run `fluxa-wallet connect-status --wait 100` and repeat while pending. Once connected, continue the task.
+- If it returns an `authorization_url`, use the [approval link format](#opening-authorization-urls-ux-pattern) to ask the user to approve the agent identity connection. Run `fluxa-wallet connect-status --wait 100` and repeat while pending. Once connected, continue the task.
 - If the service is temporarily unavailable, retry the command.
 
 ### Step 3 — Scheduled Tasks
@@ -110,14 +110,13 @@ Trial Scenarios: guide the user with wording such as: Let’s try what this wall
 
 ## Opening Authorization URLs (UX Pattern)
 
-Many operations require user authorization via a URL (such as mandate signing, payout approval, and agent registration).
+Many operations require user authorization via a URL (such as mandate signing, payout approval, and agent identity connection).
 
 To provide a better user experience:
 
 - Clearly inform the user that their approval is required, as the wallet is always under the user's control.
-- Return a clickable URL instead of asking the user to copy and paste it.
-- Always return the complete URL.
-- If you are an agent such as Claude Code, use your built in interactive UI components to present the URL to the user.
+- Prefer a Markdown hyperlink in chat. Use the complete URL returned by the tool as the destination and label it with the action in the user's language, for example `[Approve this authorization in FluxA Wallet]({approvalUrl})` or `[Approve the agent identity connection in FluxA Wallet]({authorization_url})`.
+- If Markdown links are unavailable, use a native labeled link if supported. Otherwise, show the action text with the complete URL.
 - Don't ask whether to open the link, and don't ask the user to reply "done": wait for the approval yourself (for mandates: `fluxa-wallet mandate-status --id <id> --wait 100`).
 
 
@@ -212,7 +211,7 @@ You must:
   ```
   User: Use this x402 API to search social media.
   Agent: SocialAPI charges $0.01 per call. This task needs about $0.01.
-         Approve a $1 budget (valid 7 days): <authorizationUrl>
+         [Approve a $1 budget (valid 7 days) in FluxA Wallet]({authorizationUrl})
          I'll continue as soon as you approve.
   ```
 
@@ -236,7 +235,7 @@ You must:
   Correct:
   User: Generate a cat image and turn it into a funny video.
   Agent: The image API charges $0.01 per call and the video API $0.05. This task needs about $0.06.
-         Approve a $5 budget (valid 7 days): <authorizationUrl>
+         [Approve a $5 budget (valid 7 days) in FluxA Wallet]({authorizationUrl})
          I'll continue as soon as you approve.
   ```
 

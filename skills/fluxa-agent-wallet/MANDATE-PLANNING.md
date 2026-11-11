@@ -62,11 +62,11 @@ A task the user will repeat regularly or that the agent expects to do again.
 
 ## Payment Message Format
 
-When a new mandate is needed, create it right away and send the user exactly this, and nothing else:
+When a new mandate is needed, create it right away and send only the message below. Follow the [approval link format](SKILL.md#opening-authorization-urls-ux-pattern) for the link.
 
 ```
 {Provider} charges ${unit_price} per {unit}. This task needs about ${estimate}.
-Approve a ${budget} budget (valid {duration}): {authorizationUrl}
+[Approve a ${budget} budget (valid {duration}) in FluxA Wallet]({authorizationUrl})
 I'll continue as soon as you approve.
 ```
 
