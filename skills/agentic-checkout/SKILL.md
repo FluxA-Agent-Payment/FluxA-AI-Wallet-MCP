@@ -6,7 +6,7 @@ description: FluxA Agentic Checkout is a general-purpose checkout automation and
 # FluxA Agentic Checkout
 
 
-**Skill version: 0.4.0** | **Product surface: deterministic checkout automation + explicit human handoff**
+**Skill version: 0.4.1** | **Product surface: deterministic checkout automation + explicit human handoff**
 
 ## Overview
 
@@ -40,11 +40,12 @@ python3 scripts/checkout_playwright_handoff.py \
   --secrets-path /data/workspace/.clawdbot/credentials/real_card.json \
   --resident-id-number "<required only when the merchant asks for it>" \
   --out-dir artifacts/checkout-preview \
-  --headless \
-  --record-video
+  --headless
 ```
 
-3. If `preview` succeeds, send the screenshots and video to the user so they can review the automated checkout preview, and tell the user: "The automated checkout preview completed successfully, and the checkout information has been filled in. Please confirm that the delivery information is correct. If everything looks right, we can proceed with the final checkout step."
+   Add `--record-trace` or `--record-video` only when you need to debug a failed run. Traces and videos capture the page as typed, including the full card number and CVC, so never send them to the user or upload them anywhere. The `filledCheckoutScreenshot` masks the card number and CVC and is the artifact to share.
+
+3. If `phase` is `preview_complete`, send `filledCheckoutScreenshot` to the user so they can review the automated checkout preview, and tell the user: "The automated checkout preview completed successfully, and the checkout information has been filled in. Please confirm that the delivery information is correct. If everything looks right, we can proceed with the final checkout step."
 
    Do not delete screenshots, traces, videos, or result JSON files under the local `artifacts/` directory by default. They are part of the audit trail and manual handoff record for checkout continuation.
    Only clean up local artifacts if the user explicitly asks for cleanup, or explicitly asks to delete sensitive files among them.
@@ -86,6 +87,16 @@ python3 scripts/order_manager.py summary --days 30
 8. Judge the next action from the JSON result, not from transient browser logs.
    Use `phase`, `provider`, `handoffRequired`, `handoffReason`, `contactFilled`, `deliveryFilled`, `billingIdentityFilled`, `postalFilled`, `paymentFieldVerification`, `legalConsentChecked`, and `filledCheckoutScreenshot`.
    If `handoffRequired=true`, stop automation and pass the active context to a human operator instead of inventing a fallback flow.
+
+   | `phase` | Meaning | Next step |
+   |---|---|---|
+   | `preview_complete` | Every field the page asked for was filled and read back | Share the screenshot, confirm delivery details, then run `execute` |
+   | `payment_details_filled` | Some fields were filled, but at least one flag is `false` or a blocking field remains | Do not run `execute`; tell the user which details are missing and return the checkout link |
+   | `needs_manual_verification` | CAPTCHA, Cloudflare, OTP, or 3DS appeared | Hand off with the live checkout link |
+   | `unsupported_provider` | The payment surface has no adapter | Hand off with the live checkout link |
+   | `execute_success` / `execute_fail` | Result of a submitted payment | Report the outcome; never re-run `execute` after an unclear result without checking for an existing order first |
+
+   For each `*Filled` flag, `null` means the page did not show that field, not that it failed. The script exits with code `0` only for `preview_complete` and `execute_success`.
 
 ## Product Capabilities
 
@@ -153,7 +164,7 @@ This skill is an execution and handoff product, not a recommendation report.
 - If the route is blocked by verification or unsupported flow, return the handoff state clearly
 - If the provider is outside the validated surface list, report that explicitly instead of claiming partial support
 - If a delivery step is present, surface whether it was filled via `deliveryFilled`
-- If the payment iframe visually masks values in screenshots, rely on `paymentFieldVerification` for card-field confirmation instead of claiming the fields are empty from the screenshot alone
+- The card number and CVC are deliberately masked in `filledCheckoutScreenshot`, and payment iframes may also hide values; rely on `paymentFieldVerification` for card-field confirmation instead of judging from the screenshot
 - If the page shows a required legal/privacy consent checkbox, only auto-check it after the user explicitly agrees; surface the result via `legalConsentChecked`
 - If `execute` reaches success and order recording is enabled, include `orderRecorded`, `orderId`, `orderPath`, and `orderStorageDir` in the final result
 - If checkout succeeds but ledger persistence fails, surface `orderRecordError` without pretending the order was recorded
