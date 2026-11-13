@@ -223,6 +223,8 @@ You must:
   Agent: I found an existing spending budget, so I'll use that budget to complete this request.
   ```
 
+- **One mandate per task.** Pay every API call in the task with the same mandate. Create a new one only when it has expired or has too little remaining.
+
 - **Whenever the user invokes a tool style x402 API, always request a budget for at least 100 calls. Do not request only enough budget for the current task.**
 
   ```

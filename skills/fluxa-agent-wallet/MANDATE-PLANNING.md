@@ -8,6 +8,8 @@ You **MUST** to clearly define the purpose of this budget so the user knows what
 
 When applying for the budget, you may already know the exact number of payments and amounts (for example, calling an image generation api three times). or you may not know the exact payments in advance, and the spending will only be determined dynamically during task execution, including the number of transactions and total cost. both cases are allowed. you just need to apply for a reasonable budget.
 
+A mandate belongs to the user's task. Create one mandate per task and pay every API call in the task with it.
+
 You must avoid applying for a budget for each individual payment, as this creates a poor user experience. You should analyze the user’s intent and determine whether a reusable budget can be requested so related tasks can use the same budget. For example: recurring video production for operations, or ongoing fund transfers to friends.
 
 ## Payment method
@@ -70,6 +72,8 @@ When a new mandate is needed, create it right away and send only the message bel
 I'll continue as soon as you approve.
 ```
 
+If the task calls more than one API, list each price on the first line and still send one budget and one link. In `--desc`, describe the task.
+
 `{duration}` is 7 days for a short-term task. For a background or recurring task, or when the user asks for a long-term budget, use the Type 3 validity (e.g. 30 days) and size the budget for the expected usage over that period.
 
 Then wait for the signature yourself (`fluxa-wallet mandate-status --id <mandateId> --wait 100`, see [X402-PAYMENT.md](X402-PAYMENT.md)). Don't ask "may I spend?" first, and don't ask the user to reply "done". A call that fails before settling keeps its price reserved on the mandate for about 6 minutes, by design; the 100-call budget absorbs it.
@@ -86,7 +90,7 @@ Check if any mandate has already been created or used in the current conversatio
 
 ### Source 2 — The wallet
 
-Run `fluxa-wallet mandates`. It lists this agent's mandates with limit / spent / remaining, across conversations.
+Run `fluxa-wallet mandates`. It lists this agent's mandates with limit / spent / remaining, across conversations. Reuse a `signed`, unexpired mandate in the right currency with enough remaining for the task.
 
 ### Source 3 — Local State File
 
@@ -94,7 +98,6 @@ Read `~/.fluxa-ai-wallet-mcp/mandates.json` and look for a mandate where:
 - `status` is `"signed"`
 - `validUntil` is in the future
 - `currency` matches the required currency
-- `scope` matches the target host/service (if set)
 
 If a match is found, query its latest status via `mandate-status --id <mandateId>` to confirm it's still valid and has sufficient remaining budget. If confirmed → **reuse it**.
 
@@ -115,7 +118,6 @@ The agent MUST persist mandate state to `~/.fluxa-ai-wallet-mcp/mandates.json` s
       "mandateId": "mand_xxxxxxxxxxxxx",
       "status": "signed",
       "purpose": "Laso auth and card ordering",
-      "scope": "laso.finance",
       "taskType": "multi-step",
       "currency": "USDC",
       "limitAmount": "21000000",
