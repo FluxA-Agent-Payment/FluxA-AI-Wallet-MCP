@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from typing import Any, Callable
 import asyncio
+import json
 import re
 import sys
 
@@ -356,6 +357,15 @@ CHECKBOX_STATE_SCRIPT = """(payload) => {
 }"""
 
 
+def _parse_checkbox_state(raw: Any) -> dict[str, Any]:
+    # CHECKBOX_STATE_SCRIPT returns JSON.stringify output, which has no spaces after colons.
+    try:
+        state = json.loads(raw) if isinstance(raw, str) else raw
+    except (TypeError, ValueError):
+        return {}
+    return state if isinstance(state, dict) else {}
+
+
 async def disable_save_info(page: Any, phrases: list[str], config: Any) -> bool | None:
     phrases = [normalize_text(phrase).lower() for phrase in phrases]
     for context in await _iter_contexts(page):
@@ -363,14 +373,10 @@ async def disable_save_info(page: Any, phrases: list[str], config: Any) -> bool 
             raw = await context.evaluate(CHECKBOX_STATE_SCRIPT, {"phrases": phrases, "desiredState": False})
         except Exception:
             continue
-        lowered = normalize_text(raw)
-        if not lowered:
+        state = _parse_checkbox_state(raw)
+        if not state.get("found"):
             continue
-        if "\"unchecked\": true" in lowered.lower():
-            await pause(config, 0.2)
-            return True
-        if "\"unchecked\": false" in lowered.lower():
-            return False
+        return state.get("checked") is False
     return None
 
 
@@ -384,14 +390,12 @@ async def ensure_checkbox_state(page: Any, phrases: list[str], config: Any, shou
             )
         except Exception:
             continue
-        lowered = normalize_text(raw)
-        if not lowered:
-            continue
-        if "\"found\": false" in lowered.lower():
+        state = _parse_checkbox_state(raw)
+        if not state.get("found"):
             continue
         await pause(config, 0.2)
-        if "\"checked\": true" in lowered.lower():
+        if state.get("checked") is True:
             return True
-        if "\"checked\": false" in lowered.lower():
+        if state.get("checked") is False:
             return False
     return None

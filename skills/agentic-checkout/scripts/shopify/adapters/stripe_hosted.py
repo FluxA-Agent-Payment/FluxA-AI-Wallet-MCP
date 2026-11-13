@@ -221,6 +221,119 @@ async def _type_by_role_in_stripe_frames(page: Any, role: str, name: str, value:
     return False
 
 
+COUNTRY_CODES = {
+    "united states": "US",
+    "united states of america": "US",
+    "usa": "US",
+    "china": "CN",
+    "japan": "JP",
+    "united kingdom": "GB",
+    "canada": "CA",
+    "australia": "AU",
+    "germany": "DE",
+    "france": "FR",
+    "singapore": "SG",
+    "hong kong": "HK",
+}
+
+NAME_SELECTORS = ["input[autocomplete='cc-name']", "input[name='billingName']"]
+COUNTRY_SELECTORS = ["select[autocomplete='billing country']", "select[name='billingCountry']"]
+CARD_NUMBER_SELECTORS = ["input[autocomplete='cc-number']", "input[name='cardNumber']", "input[name='cardnumber']"]
+CARD_EXP_SELECTORS = ["input[autocomplete='cc-exp']", "input[name='cardExpiry']", "input[name='exp-date']"]
+CARD_CVC_SELECTORS = ["input[autocomplete='cc-csc']", "input[name='cardCvc']", "input[name='cvc']"]
+
+
+async def _first_visible(page: Any, selectors: list[str]) -> Any | None:
+    for context in await _get_candidate_frames(page):
+        for selector in selectors:
+            locator = context.locator(selector)
+            try:
+                count = min(await locator.count(), 4)
+            except Exception:
+                continue
+            for index in range(count):
+                candidate = locator.nth(index)
+                try:
+                    if await candidate.is_visible():
+                        return candidate
+                except Exception:
+                    continue
+    return None
+
+
+async def _read_value(page: Any, selectors: list[str]) -> str:
+    field = await _first_visible(page, selectors)
+    if field is None:
+        return ""
+    try:
+        return str(await field.input_value())
+    except Exception:
+        return ""
+
+
+async def _fill_billing_identity(page: Any, config: Any, sensitive_data: dict[str, str]) -> tuple[bool | None, bool | None]:
+    """Fill the cardholder name and billing country rendered inside the Stripe form.
+
+    Each result is None when the surface does not render that field.
+    """
+    name = normalize_text(sensitive_data.get("card_name") or sensitive_data.get("billing_name") or sensitive_data.get("delivery_name"))
+    name_ok: bool | None = None
+    if await _first_visible(page, NAME_SELECTORS) is not None:
+        name_ok = False
+        if name:
+            name_ok, _ = await fill_first_matching(
+                page,
+                NAME_SELECTORS,
+                name,
+                lambda raw: normalize_text(raw).lower() == name.lower(),
+                config,
+                timeout_seconds=3,
+            )
+
+    country = normalize_text(sensitive_data.get("billing_country") or sensitive_data.get("card_country"))
+    code = COUNTRY_CODES.get(country.lower(), country.upper() if len(country) == 2 else "")
+    country_ok: bool | None = None
+    select = await _first_visible(page, COUNTRY_SELECTORS)
+    if select is not None:
+        country_ok = False
+        attempts = ([{"value": code}] if code else []) + ([{"label": country}] if country else [])
+        for kwargs in attempts:
+            try:
+                await select.select_option(timeout=1_000, **kwargs)
+                break
+            except Exception:
+                continue
+        try:
+            selected = await select.evaluate(
+                "(el) => ({ value: el.value, label: el.selectedOptions[0] ? el.selectedOptions[0].textContent : '' })"
+            )
+        except Exception:
+            selected = {}
+        selected_value = normalize_text(selected.get("value")).upper()
+        selected_label = normalize_text(selected.get("label")).lower()
+        country_ok = bool(country) and (
+            (bool(code) and selected_value == code) or selected_label == country.lower()
+        )
+    return name_ok, country_ok
+
+
+async def _verify_payment_fields(page: Any, sensitive_data: dict[str, str], name_ok: bool | None) -> dict[str, Any]:
+    number_value = digits(await _read_value(page, CARD_NUMBER_SELECTORS))
+    exp_value = digits(await _read_value(page, CARD_EXP_SELECTORS))
+    cvc_value = digits(await _read_value(page, CARD_CVC_SELECTORS))
+    expected_number = digits(sensitive_data["card_number"])
+    expected_exp = digits(sensitive_data["card_exp"])
+    if len(expected_exp) == 6:  # MM/YYYY -> MMYY, matching Stripe's "MM / YY" display.
+        expected_exp = expected_exp[:2] + expected_exp[-2:]
+    return {
+        "cardNumberFilled": bool(number_value) and number_value == expected_number,
+        "expiryFilled": bool(exp_value) and exp_value == expected_exp,
+        "cvcFilled": len(cvc_value) == len(digits(sensitive_data["card_cvc"])),
+        "nameFilled": name_ok is not False,
+        "cardLast4": (number_value or expected_number)[-4:],
+    }
+
+
 async def _click_embedded_modal_submit(page: Any) -> bool:
     dialog = await _find_embedded_checkout_dialog(page)
     if dialog is None:
@@ -384,22 +497,31 @@ async def run(page: Any, config: Any, sensitive_data: dict[str, str]) -> dict[st
         result["outcome"] = {"status": "execute_fail", "hint": "Stripe CVC input was not confirmed filled."}
         return result
 
+    # Billing identity lives inside the Stripe form; the country must be set before the
+    # postal field (which only exists for some countries) can appear.
+    name_ok, country_ok = await _fill_billing_identity(page, config, sensitive_data)
+    if name_ok is not None or country_ok is not None:
+        result["billingIdentityFilled"] = name_ok is not False and country_ok is not False
+
+    postal_selectors = [
+        "input[autocomplete='postal-code']",
+        "input[autocomplete='billing postal-code']",
+        "input[name='billingPostalCode']",
+        "input[name='postal']",
+        "input[name*='postal' i]",
+        "input[name*='zip' i]",
+        "input[aria-label*='ZIP' i]",
+        "input[aria-label*='Postal' i]",
+        "input[placeholder*='12345']",
+    ]
     postal_ok, _ = await fill_first_matching(
         page,
-        [
-            "input[autocomplete='postal-code']",
-            "input[name='postal']",
-            "input[name*='postal' i]",
-            "input[name*='zip' i]",
-            "input[aria-label*='ZIP' i]",
-            "input[aria-label*='Postal' i]",
-            "input[placeholder*='12345']",
-        ],
+        postal_selectors,
         sensitive_data["card_postal"],
         lambda raw: normalize_text(raw).replace(" ", "").upper()
         == normalize_text(sensitive_data["card_postal"]).replace(" ", "").upper(),
         config,
-        timeout_seconds=8,
+        timeout_seconds=3,
     )
     if not postal_ok:
         postal_ok = await _type_in_stripe_frames(
@@ -414,11 +536,12 @@ async def run(page: Any, config: Any, sensitive_data: dict[str, str]) -> dict[st
                 "input[placeholder*='12345']",
             ],
             sensitive_data["card_postal"],
-            timeout_ms=12_000,
+            timeout_ms=3_000,
         )
     if not postal_ok:
-        postal_ok = await _type_by_role_in_stripe_frames(page, "textbox", r"zip code|postal code", sensitive_data["card_postal"], timeout_ms=8_000)
+        postal_ok = await _type_by_role_in_stripe_frames(page, "textbox", r"zip code|postal code", sensitive_data["card_postal"], timeout_ms=2_000)
     result["postalFilled"] = postal_ok
+    result["paymentFieldVerification"] = await _verify_payment_fields(page, sensitive_data, name_ok)
 
     result["saveInfoUnchecked"] = await disable_save_info(page, SAVE_INFO_PHRASES, config)
     result["legalConsentChecked"] = await ensure_checkbox_state(

@@ -67,14 +67,16 @@ async def fill_contact(page: Any, sensitive_data: dict[str, str], config: Any) -
         return False
 
     contact_phone = sensitive_data.get("delivery_phone") or sensitive_data.get("billing_phone")
-    if contact_phone:
+    phone_selectors = [
+        "input[autocomplete='tel']",
+        "input[name='phone']",
+        "input[name*='phone' i]",
+    ]
+    # Polling for a phone field that the surface never renders (e.g. Stripe hosted) cost a full timeout.
+    if contact_phone and await _has_visible_candidate(page, phone_selectors):
         await fill_first_matching(
             page,
-            [
-                "input[autocomplete='tel']",
-                "input[name='phone']",
-                "input[name*='phone' i]",
-            ],
+            phone_selectors,
             contact_phone,
             lambda raw: normalize_text(raw) == normalize_text(contact_phone),
             config,
@@ -1001,7 +1003,8 @@ async def verify_delivery(page: Any, sensitive_data: dict[str, str]) -> bool | N
 
 async def verify_billing_identity(page: Any, sensitive_data: dict[str, str]) -> bool | None:
     if normalize_text(sensitive_data.get("billing_same_as_delivery", "")).lower() in {"1", "true", "yes", "on"}:
-        return True
+        # Nothing was filled or checked here; payment adapters report what the page holds.
+        return None
     checks: list[tuple[str, list[str]]] = []
     _billing_name, first_name, last_name = _resolved_name(sensitive_data, "billing")
     if not first_name and not last_name and sensitive_data.get("card_name"):
@@ -1105,12 +1108,27 @@ async def verify_billing_identity(page: Any, sensitive_data: dict[str, str]) -> 
     return True
 
 
+# Card number and CVC are masked in screenshots shared with the user; use
+# paymentFieldVerification to confirm those fields instead.
+PCI_SCREENSHOT_MASK_SELECTORS = [
+    "input[autocomplete='cc-number']",
+    "input[autocomplete='cc-csc']",
+    "input[name='cardNumber']",
+    "input[name='cardCvc']",
+    "iframe[name^='card-fields-number']",
+    "iframe[name^='card-fields-verification_value']",
+    "iframe[title*='card number' i]",
+    "iframe[title*='CVC' i]",
+]
+
+
 async def save_checkout_screenshot(page: Any, traces_dir: Path, run_id: str, stem: str) -> str | None:
     screenshot_dir = traces_dir.parent / "screenshots" / run_id
     screenshot_dir.mkdir(parents=True, exist_ok=True)
     path = screenshot_dir / f"{stem}.png"
+    mask = [page.locator(selector) for selector in PCI_SCREENSHOT_MASK_SELECTORS]
     try:
-        await page.screenshot(path=str(path), full_page=True)
+        await page.screenshot(path=str(path), full_page=True, mask=mask)
     except Exception:
         return None
     return str(path)
@@ -1324,6 +1342,9 @@ async def run_checkout_flow(
                     "outcome": adapter_result.get("outcome", {"status": "unknown", "hint": None}),
                 }
             )
+            if adapter_result.get("billingIdentityFilled") is not None:
+                # Adapters that own the billing identity fields report what the page actually holds.
+                payload["billingIdentityFilled"] = adapter_result["billingIdentityFilled"]
             payload["filledCheckoutScreenshot"] = await save_checkout_screenshot(page, traces_dir, run_id, "02-filled-checkout")
             return normalize_checkout_state(config.mode, payload, max_total_usd=config.max_total_usd)
         finally:
