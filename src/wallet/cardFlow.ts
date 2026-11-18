@@ -6,6 +6,7 @@ import type {
 } from './client.js';
 
 type Completion = CompleteCardResponse | CompleteRechargeResponse;
+export type PrepaidCardCommandGroup = 'prepaid-card' | 'card';
 
 export interface CardFlowDependencies {
   initiate: () => Promise<CardChargeInitiateResponse>;
@@ -21,6 +22,7 @@ export interface CardFlowOptions {
   requestType: 'issue' | 'recharge';
   cardId?: string;
   waitSeconds: number;
+  commandGroup?: PrepaidCardCommandGroup;
 }
 
 export interface CardFlowResult {
@@ -95,13 +97,15 @@ export async function runCardFlow(options: CardFlowOptions, deps: CardFlowDepend
     if (!id) throw error;
     const body = error instanceof WalletApiError && error.details && typeof error.details === 'object'
       ? error.details : {};
+    const commandGroup = options.commandGroup ?? 'card';
+    const command = options.requestType === 'issue' ? 'create' : 'recharge';
     throw new WalletApiError(error?.message || 'Card request failed', error?.status, {
       ...body,
       details: {
         ...body.details,
         pendingRequestId: id,
         requestType: options.requestType,
-        continueCommand: `fluxa-wallet card ${options.requestType === 'issue' ? 'create' : 'recharge'} --request-id ${id} --mandate <mandate_id>`,
+        continueCommand: `fluxa-wallet ${commandGroup} ${command} --request-id ${id} --mandate <mandate_id>`,
         ...(request?.cardId || options.cardId ? { cardId: request?.cardId || options.cardId } : {}),
       },
     });

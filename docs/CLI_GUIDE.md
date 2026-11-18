@@ -45,7 +45,7 @@ Run `fluxa-wallet <command> --help` for the full option list of any command.
 | `x402` / `x402-v3` | Execute an x402 payment (`--mandate`, `--payload`) |
 | `linked-card list` | List the linked (source) cards in the user's wallet (`--limit`, `--cursor`) |
 | `linked-card mandates` | List `CARD_USD` mandates: all, per card (`--card`), or eligible for an amount (`--host`, `--amount`) |
-| `linked-card subcard` | Show the credential issued under one `CARD_USD` mandate (`--mandate`) |
+| `linked-card single-use-card create` | Issue and redeem a single-use card (`--mandate`, `--amount`, optional `--transaction-ref` and `--output-file`) |
 | `headless-checkout` | Pay a WPE payment attempt with a signed `CARD_USD` mandate (`--mandate`, `--attempt`, `--billing`) |
 | `payout` | Send USDC to a wallet address (`--to`, `--amount`, `--id`) |
 | `payout-status` | Query a payout (`--id`) |
@@ -63,10 +63,10 @@ Run `fluxa-wallet <command> --help` for the full option list of any command.
 
 | Command | Description |
 |---------|-------------|
-| `card holder create` / `update` / `me` | Create/update an account KYC profile and inspect verification |
-| `card types` / `create` / `list` / `details` / `balance` | Choose products, issue, and inspect virtual cards |
-| `card transactions` / `card 3ds latest` / `card 3ds latest_1h` | Inspect card transactions and 3DS challenges |
-| `card recharge` / `withdraw` / `withdrawals` / `withdrawal` | Add funds and withdraw card balance |
+| `prepaid-card holder create` / `update` / `me` | Create/update an account KYC profile and inspect verification |
+| `prepaid-card types` / `create` / `list` / `details` / `balance` | Choose products, issue, and inspect virtual cards |
+| `prepaid-card transactions` / `prepaid-card 3ds latest` / `prepaid-card 3ds latest_1h` | Inspect card transactions and 3DS challenges |
+| `prepaid-card recharge` / `withdraw` / `withdrawals` / `withdrawal` | Add funds and withdraw card balance |
 | `agent-vc` | Issue a short-lived agent VC for a third party (`--audience`, `--challenge`) |
 | `help` | Show usage information |
 
@@ -84,7 +84,7 @@ Most commands output a JSON envelope to stdout:
 The read commands `wallet-address`, `balance`, `mandates`, `recent-transactions`,
 and successful `card ...` commands print their value **directly** — a bare
 address string or bare JSON — without the `{success,data}` wrapper, so they pipe
-cleanly. `card list` prints the cards array directly. `version` prints just the
+cleanly. `prepaid-card list` prints the cards array directly. `version` prints just the
 version string.
 
 On error, every command falls back to the envelope:
@@ -379,44 +379,41 @@ card API. The linked wallet must be present; otherwise card commands return
 
 ```bash
 # Read the existing profile first; approved legacy holders can keep using it
-fluxa-wallet card holder me
+fluxa-wallet prepaid-card holder me
 # Only if absent, create a profile from the real account owner's materials
-fluxa-wallet card holder create --profile @profile.json
+fluxa-wallet prepaid-card holder create --profile @profile.json
 # Complete verificationUrl, then check the KYC status with holder me
-fluxa-wallet card holder update --profile @patch.json --revision 2
+fluxa-wallet prepaid-card holder update --profile @patch.json --revision 2
 
 # Cards: default list is current-agent only; --global shows all cards in the linked account
-fluxa-wallet card list
-fluxa-wallet card list --global
-fluxa-wallet card types
-fluxa-wallet card create --card-type-id <cardTypeId> --amount 25.00 --mandate mand_xxx
+fluxa-wallet prepaid-card list
+fluxa-wallet prepaid-card list --global
+fluxa-wallet prepaid-card types
+fluxa-wallet prepaid-card create --card-type-id <cardTypeId> --amount 25.00 --mandate mand_xxx
 # Continue the same issuance after a pending result
-fluxa-wallet card create --request-id <pendingRequestId> --mandate mand_xxx
-fluxa-wallet card details --id card_xxx
-fluxa-wallet card balance --id card_xxx
-fluxa-wallet card transactions --id card_xxx
-fluxa-wallet card transactions --id card_xxx --type purchase --limit 10
-fluxa-wallet card 3ds latest --id card_xxx
-fluxa-wallet card 3ds latest_1h --id card_xxx
+fluxa-wallet prepaid-card create --request-id <pendingRequestId> --mandate mand_xxx
+fluxa-wallet prepaid-card details --id card_xxx
+fluxa-wallet prepaid-card balance --id card_xxx
+fluxa-wallet prepaid-card transactions --id card_xxx
+fluxa-wallet prepaid-card transactions --id card_xxx --type purchase --limit 10
+fluxa-wallet prepaid-card 3ds latest --id card_xxx
+fluxa-wallet prepaid-card 3ds latest_1h --id card_xxx
 
 # Add or withdraw funds
-fluxa-wallet card recharge --id card_xxx --amount 10.00 --mandate mand_xxx
-fluxa-wallet card recharge --request-id <rechargeRequestId> --mandate mand_xxx
-fluxa-wallet card withdraw --id card_xxx
-fluxa-wallet card withdraw --id card_xxx --amount 5.00
-fluxa-wallet card withdrawals --id card_xxx
-fluxa-wallet card withdrawal --id card_xxx --withdrawal-id wdr_xxx
+fluxa-wallet prepaid-card recharge --id card_xxx --amount 10.00 --mandate mand_xxx
+fluxa-wallet prepaid-card recharge --request-id <rechargeRequestId> --mandate mand_xxx
+fluxa-wallet prepaid-card withdraw --id card_xxx
+fluxa-wallet prepaid-card withdraw --id card_xxx --amount 5.00
+fluxa-wallet prepaid-card withdrawals --id card_xxx
+fluxa-wallet prepaid-card withdrawal --id card_xxx --withdrawal-id wdr_xxx
 ```
 
 ### Linked cards (VIC)
 
-Linked cards are the user's own cards, linked once in the wallet UI. The agent
-never sees card numbers: it creates a `CARD_USD` mandate scoped to one
-merchant, the user approves it on a linked card, and the agent pays a WPE
-payment attempt (`wpa_...`, issued by the merchant / Monetize checkout) with
-`headless-checkout`. Amounts are in cents (`2000` = $20.00). Read commands
-print the wallet's data object directly; `mandate-create` and
-`headless-checkout` use the CLI envelope.
+Linked cards are the user's own cards, linked once in the wallet UI. The user
+approves a `CARD_USD` mandate scoped to one merchant. The agent can pay a WPE
+attempt (`wpa_...`, issued by merchant checkout) with `headless-checkout`, or
+issue a single-use card under the mandate. Amounts are in cents (`2000` = $20.00).
 
 ```bash
 # 1. Create the mandate (8h validity by default), then send approvalUrl to the user.
@@ -425,11 +422,15 @@ fluxa-wallet mandate-create --currency CARD_USD --desc "Buy a USB-C cable on Ama
   --merchant-name Amazon --merchant-url https://www.amazon.com --merchant-country US
 # optional: --transaction-ref <order ref>   or   --ext @ext.json  ({ "merchant": {...}, "transaction_reference_id": "..." })
 
-# 2. Wait until isReady=true (status=signed and cardvault.canTransact=true)
-fluxa-wallet linked-card subcard --mandate mand_xxx
+# 2. Wait until mandate.status=signed and mandate.cardvault.canTransact=true
+fluxa-wallet mandate-status --id mand_xxx
 
 # 3. Pay the attempt; open attempt.actionUrl with the user if 3-D Secure is required
 fluxa-wallet headless-checkout --mandate mand_xxx --attempt wpa_xxx --billing @billing.json
+
+# For a checkout that accepts single-use credentials
+fluxa-wallet linked-card single-use-card create --mandate mand_xxx --amount 1234 \
+  --transaction-ref order-1 --output-file /tmp/linked-card.json
 
 # Reads
 fluxa-wallet linked-card list
@@ -438,12 +439,24 @@ fluxa-wallet linked-card mandates --card <card_id>
 fluxa-wallet linked-card mandates --host www.amazon.com --amount 3000
 ```
 
+`single-use-card create` prints the card ID, reference, amount, merchant and
+remaining mandate allowance. Pass `--output-file` to write the credential to a
+new file with mode `0600`. Stdout contains the file path and card metadata.
+Omit it to get the same fields in the `credential` object on stdout. The
+credential fields are `pan`, `exp_month`, `exp_year`, `dynamic_value`,
+`dynamic_data_type` and `credential_expires_at`. CardVault currently supplies an
+encrypted DAVV in `dynamic_value`.
+
+When omitted, `--transaction-ref` is generated and returned. Retry with the
+same reference and amount to keep the same card and reservation. After the
+credential expires, a new reference issues another card and reserves its amount.
+
 If the wallet answers that linked cards are not available, the user's wallet
 is not enabled for linked cards yet; ask them to check the Cards page in the
 FluxA wallet.
 
 All AgentCard calls, including the authentication challenge, use `/api/v2`.
-`card types` returns the published products with string public IDs, BINs, fees,
+`prepaid-card types` returns the published products with string public IDs, BINs, fees,
 limits, and availability. New issuance requires exactly one selector:
 `--card-type-id`, `--bin-id`, or `--bin`. An ambiguous BIN is rejected; no default
 product is substituted. Unknown fee/capability fields remain unknown. Existing
@@ -456,23 +469,23 @@ with `--profile @file.json`, or individual flags shown by command help. There is
 no default country or invented contact information. KYC responses include
 `kycStatus`, `verificationUrl`, and `nextAction`. Approved legacy holders with
 `source:"legacy"` / `kycStatus:"not_recorded"` may continue with their approved
-product without creating a new profile. `card holder update` accepts a partial
+product without creating a new profile. `prepaid-card holder update` accepts a partial
 profile; optional `--revision` sends an `If-Match` revision from `holder me`.
 
-`card create` and `card recharge` sign the returned x402 request using the
+`prepaid-card create` and `prepaid-card recharge` sign the returned x402 request using the
 existing mandate-backed signing protocol. AgentCard API version and x402
 protocol version are independent. A `pending_cardholder` request is not payable;
 the CLI polls that request and only signs when it becomes `pending_payment` with
 a payment request. A 202 `payment_submitted` result means settlement is pending.
-The background service finishes the work; use `card list` to see issued cards
-or `card balance` for a live recharge result. Card lists do not contain pending
+The background service finishes the work; use `prepaid-card list` to see issued cards
+or `prepaid-card balance` for a live recharge result. Card lists do not contain pending
 applications.
 
 The commands poll for up to 30 seconds by default. `--wait <seconds>` accepts
 0..300; zero skips waiting but still signs/completes an immediately payable
 request. Pending output contains the original `pendingRequestId`, `status`, and
-`continueCommand`. Continue using `card create --request-id ... --mandate ...`
-or `card recharge --request-id ... --mandate ...`; omit amount/product selectors.
+`continueCommand`. Continue using `prepaid-card create --request-id ... --mandate ...`
+or `prepaid-card recharge --request-id ... --mandate ...`; omit amount/product selectors.
 Recharge infers its card from the stored request, or accepts the original `--id`.
 Submitted payments are not automatically signed again. Terminal/action-required
 states return an error with the request ID. Errors after a request is created
@@ -486,10 +499,10 @@ means access could not be checked; retry later. Neither rejection enters signing
 or completion. Existing card queries/recharges/withdrawals remain available.
 
 Successful `card ...` commands print card-service business data directly, not a
-CLI envelope. For example, `card list` prints the cards array, `card holder me`
-prints the cardholder object, and `card withdrawals` prints the withdrawals
-array. `card 3ds latest` prints the latest challenge object or `null`, while
-`card 3ds latest_1h` prints the one-hour challenge array. Error output remains
+CLI envelope. For example, `prepaid-card list` prints the cards array, `prepaid-card holder me`
+prints the cardholder object, and `prepaid-card withdrawals` prints the withdrawals
+array. `prepaid-card 3ds latest` prints the latest challenge object or `null`, while
+`prepaid-card 3ds latest_1h` prints the one-hour challenge array. Error output remains
 `{ "success": false, "error": "..." }`.
 
 ---

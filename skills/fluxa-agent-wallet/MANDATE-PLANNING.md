@@ -55,7 +55,6 @@ A task the user will repeat regularly or that the agent expects to do again.
 
 **Examples:**
 - Frequent small API calls to the same service
-- Regular ClawPI posting
 - Periodic data queries
 
 **Strategy:** Create a reusable mandate with longer validity (`--seconds`, e.g., 7 days = 604800, 30 days = 2592000), covering expected usage over the period.

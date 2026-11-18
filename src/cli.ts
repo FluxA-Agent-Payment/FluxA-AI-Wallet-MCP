@@ -60,8 +60,9 @@ import {
   submitHeadlessCheckout,
 } from './wallet/client.js';
 import { getUsdcMandate, isUsdcPayment, requestCliX402V2Payment as requestX402V2Payment } from './wallet/cliPayment.js';
-import { runCardFlow } from './wallet/cardFlow.js';
+import { runCardFlow, type PrepaidCardCommandGroup } from './wallet/cardFlow.js';
 import { cardAmount, cardSelector, cardProfile } from './wallet/cardOptions.js';
+import { createSingleUseCard, SingleUseCardError } from './wallet/singleUseCard.js';
 import type { CardChargeInitiateResponse } from './wallet/client.js';
 import {
   CARD_USD_CURRENCY,
@@ -79,10 +80,12 @@ import {
   getRegistrationInfoFromEnv,
   hasRegistrationInfo,
 } from './agent/agentId.js';
-import { ensureDataDirs, loadConfig, recordAudit } from './store/store.js';
+import { DATA_ROOT, ensureDataDirs, loadConfig, recordAudit } from './store/store.js';
 import { beginConnection, connectionStatus, ConnectionError } from './agent/connect.js';
 import { CredentialError, credentialFailure } from './agent/credentialError.js';
 import fs from 'node:fs';
+import { open, realpath, unlink, type FileHandle } from 'node:fs/promises';
+import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -130,21 +133,21 @@ COMMANDS:
   connect-status            Wait for browser approval and save credentials
   init                      Explicitly register a new standalone Agent ID (legacy)
   refreshJWT                Refresh expired JWT and print new token
-  card list                 List cards created by this agent
-  card types                List card products, fees, and availability
-  card create               Issue a funded card
-  card details              Reveal full card details
-  card balance              Refresh and query card balance
-  card transactions         List card transaction history
-  card 3ds latest           Show the latest 3DS challenge from the last 24 hours
-  card 3ds latest_1h        Show 3DS challenges from the last hour
-  card holder create        Create the account profile and start KYC
-  card holder update        Update the account profile
-  card holder me            Show the account cardholder
-  card recharge             Add funds to an existing card
-  card withdraw             Withdraw card balance back to the agent wallet
-  card withdrawals          List withdrawals for a card
-  card withdrawal           Get one withdrawal for a card
+  prepaid-card list           List cards created by this agent
+  prepaid-card types          List card products, fees, and availability
+  prepaid-card create         Issue a funded card
+  prepaid-card details        Reveal full card details
+  prepaid-card balance        Refresh and query card balance
+  prepaid-card transactions   List card transaction history
+  prepaid-card 3ds latest     Show the latest 3DS challenge from the last 24 hours
+  prepaid-card 3ds latest_1h  Show 3DS challenges from the last hour
+  prepaid-card holder create  Create the account profile and start KYC
+  prepaid-card holder update  Update the account profile
+  prepaid-card holder me      Show the account cardholder
+  prepaid-card recharge       Add funds to an existing card
+  prepaid-card withdraw       Withdraw card balance back to the agent wallet
+  prepaid-card withdrawals    List withdrawals for a card
+  prepaid-card withdrawal     Get one withdrawal for a card
   payout                    Create a payout
   payout-status             Query payout status
   x402                      Generate x402 payment (delegates to x402-v3)
@@ -152,7 +155,7 @@ COMMANDS:
   mandate-status            Query mandate status
   linked-card list          List the linked (source) cards in the user's wallet
   linked-card mandates      List CARD_USD mandates (all, per card, or eligible for an amount)
-  linked-card subcard       Show the credential issued under one CARD_USD mandate
+  linked-card single-use-card create   Issue a single-use card under a CARD_USD mandate
   headless-checkout         Pay a WPE attempt with a signed CARD_USD mandate
   x402-v3                   Generate x402 v2/v3 payment with mandate
   paymentlink-create        Create a payment link
@@ -208,23 +211,23 @@ OPTIONS FOR 'payout':
   --biz-id <biz_id>         External business ID for dedup (optional)
   --description <text>      Human-readable description (optional)
 
-OPTIONS FOR 'card list':
+OPTIONS FOR 'prepaid-card list':
   --global                  Show all cards in the linked account, not just this agent's cards
 
-OPTIONS FOR 'card create':
+OPTIONS FOR 'prepaid-card create':
   --card-type-id <id>       Public product ID (or use --bin-id / --bin; exactly one)
   --amount <usd>            Initial load in USD (new requests only)
   --mandate <mandate_id>    Mandate ID for x402 payment (required)
   --request-id <id>         Continue the original request; omit amount/selector
   --wait <seconds>          Poll for 0..300 seconds (default: 30)
 
-OPTIONS FOR 'card details':
+OPTIONS FOR 'prepaid-card details':
   --id <card_id>            Card ID (required)
 
-OPTIONS FOR 'card balance':
+OPTIONS FOR 'prepaid-card balance':
   --id <card_id>            Card ID (required)
 
-OPTIONS FOR 'card transactions':
+OPTIONS FOR 'prepaid-card transactions':
   --id <card_id>            Card ID (required)
   --type <type>             purchase | refund | verification | reversal | fee | deposit | withdrawal
   --page <n>                Page number (alias: --page-num)
@@ -232,13 +235,13 @@ OPTIONS FOR 'card transactions':
   --start-time <ms>         Start timestamp in milliseconds
   --end-time <ms>           End timestamp in milliseconds
 
-OPTIONS FOR 'card 3ds latest':
+OPTIONS FOR 'prepaid-card 3ds latest':
   --id <card_id>            Card ID (required)
 
-OPTIONS FOR 'card 3ds latest_1h':
+OPTIONS FOR 'prepaid-card 3ds latest_1h':
   --id <card_id>            Card ID (required)
 
-OPTIONS FOR 'card holder create':
+OPTIONS FOR 'prepaid-card holder create':
   --profile <json|@file>    Complete real account profile (or individual flags)
   --first-name <name>       firstName (required)
   --last-name <name>        lastName (required)
@@ -251,25 +254,25 @@ OPTIONS FOR 'card holder create':
   --region <text>           address.region (optional)
   --address-line2 <text>    address.line2 (optional)
 
-OPTIONS FOR 'card holder update':
+OPTIONS FOR 'prepaid-card holder update':
   --profile <json|@file>    Partial profile (or individual flags from create)
   --revision <n>           Current profile revision for If-Match (optional)
 
-OPTIONS FOR 'card recharge':
+OPTIONS FOR 'prepaid-card recharge':
   --id <card_id>            Card ID (required for new requests, inferred on retry)
   --amount <usd>            Recharge amount in USD (new requests only)
   --mandate <mandate_id>    Mandate ID for x402 payment (required)
   --request-id <id>         Continue the original recharge; omit amount
   --wait <seconds>          Poll for 0..300 seconds (default: 30)
 
-OPTIONS FOR 'card withdraw':
+OPTIONS FOR 'prepaid-card withdraw':
   --id <card_id>            Card ID (required)
   --amount <usd>            Withdrawal amount in USD (optional; defaults to full remaining balance)
 
-OPTIONS FOR 'card withdrawals':
+OPTIONS FOR 'prepaid-card withdrawals':
   --id <card_id>            Card ID (required)
 
-OPTIONS FOR 'card withdrawal':
+OPTIONS FOR 'prepaid-card withdrawal':
   --id <card_id>            Card ID (required)
   --withdrawal-id <id>      Withdrawal ID (required)
 
@@ -385,25 +388,25 @@ EXAMPLES:
   fluxa-wallet payout --to 0x1234...abcd --amount 1000000 --id pay_001
 
   # List cards
-  fluxa-wallet card list
-  fluxa-wallet card list --global
+  fluxa-wallet prepaid-card list
+  fluxa-wallet prepaid-card list --global
 
   # Create a real account profile only if absent, then complete its verification URL
-  fluxa-wallet card holder create --profile @profile.json
-  fluxa-wallet card holder me
+  fluxa-wallet prepaid-card holder create --profile @profile.json
+  fluxa-wallet prepaid-card holder me
 
   # Issue a card (requires mandate for x402 payment)
-  fluxa-wallet card create --card-type-id <cardTypeId> --amount 25.00 --mandate mand_xxxxx
+  fluxa-wallet prepaid-card create --card-type-id <cardTypeId> --amount 25.00 --mandate mand_xxxxx
 
   # Reveal card details
-  fluxa-wallet card details --id card_xxx
-  fluxa-wallet card transactions --id card_xxx
-  fluxa-wallet card 3ds latest --id card_xxx
-  fluxa-wallet card 3ds latest_1h --id card_xxx
+  fluxa-wallet prepaid-card details --id card_xxx
+  fluxa-wallet prepaid-card transactions --id card_xxx
+  fluxa-wallet prepaid-card 3ds latest --id card_xxx
+  fluxa-wallet prepaid-card 3ds latest_1h --id card_xxx
 
   # Recharge or withdraw a card
-  fluxa-wallet card recharge --id card_xxx --amount 10.00 --mandate mand_xxxxx
-  fluxa-wallet card withdraw --id card_xxx
+  fluxa-wallet prepaid-card recharge --id card_xxx --amount 10.00 --mandate mand_xxxxx
+  fluxa-wallet prepaid-card withdraw --id card_xxx
 
   # Query payout status
   fluxa-wallet payout-status --id pay_001
@@ -422,7 +425,7 @@ EXAMPLES:
   fluxa-wallet linked-card list
   fluxa-wallet linked-card mandates --card <card_id>
   fluxa-wallet linked-card mandates --host www.amazon.com --amount 3000
-  fluxa-wallet linked-card subcard --mandate mand_xxxxx
+  fluxa-wallet linked-card single-use-card create --mandate mand_xxxxx --amount 1234 --output-file /tmp/linked-card.json
 
   # Pay a WPE attempt with a signed CARD_USD mandate
   fluxa-wallet headless-checkout --mandate mand_xxxxx --attempt wpa_xxxxx --billing @billing.json
@@ -481,26 +484,27 @@ EXAMPLES:
 }
 
 function parseArgs(args: string[]): { command: string; options: Record<string, string>; positionals: string[]; helpRequested: boolean } {
-  let command = args[0] || 'help';
+  // Deprecated alias for scripts that still use the original command name.
+  let command = args[0] === 'card' ? 'prepaid-card' : args[0] || 'help';
   const options: Record<string, string> = {};
   const positionals: string[] = [];
   let helpRequested = false;
   let optionStartIndex = 1;
 
-  if (command === 'card') {
+  if (command === 'prepaid-card') {
     const subcommand = args[1];
     if (subcommand && !subcommand.startsWith('-')) {
       if (subcommand === 'holder' || subcommand === '3ds') {
         const nestedSubcommand = args[2];
         if (nestedSubcommand && !nestedSubcommand.startsWith('-')) {
-          command = `card ${subcommand} ${nestedSubcommand}`;
+          command = `prepaid-card ${subcommand} ${nestedSubcommand}`;
           optionStartIndex = 3;
         } else {
-          command = `card ${subcommand}`;
+          command = `prepaid-card ${subcommand}`;
           optionStartIndex = 2;
         }
       } else {
-        command = `card ${subcommand}`;
+        command = `prepaid-card ${subcommand}`;
         optionStartIndex = 2;
       }
     }
@@ -509,10 +513,15 @@ function parseArgs(args: string[]): { command: string; options: Record<string, s
     if (subcommand && !subcommand.startsWith('-')) {
       command = `linked-card ${subcommand}`;
       optionStartIndex = 2;
+      const action = args[2];
+      if (subcommand === 'single-use-card' && action && !action.startsWith('-')) {
+        command += ` ${action}`;
+        optionStartIndex = 3;
+      }
     }
   } else if (command === 'market') {
     // `market model <verb>` and `market keys <verb>` resolve to three-word
-    // commands (like `card holder <verb>`); `market search` / `market info`
+    // commands (like `prepaid-card holder <verb>`); `market search` / `market info`
     // stay two-word. Everything after is captured as positionals.
     const sub = args[1];
     if (sub && !sub.startsWith('-')) {
@@ -545,7 +554,7 @@ function parseArgs(args: string[]): { command: string; options: Record<string, s
         options[key] = value;
         i++;
       } else {
-        options[key] = 'true';
+        options[key] = command === 'linked-card single-use-card create' ? '' : 'true';
       }
     } else {
       positionals.push(arg);
@@ -696,7 +705,7 @@ Options:
 Example:
   fluxa-wallet init --name "My Agent" --client "CLI v1.0"`,
 
-  'card list': `Usage: fluxa-wallet card list [--global]
+  'prepaid-card list': `Usage: fluxa-wallet prepaid-card list [--global]
 
 List cards created by the current authorized agent.
 
@@ -704,23 +713,23 @@ Options:
   --global            Show all cards in the linked account, including cards created by sibling agents.
 
 Example:
-  fluxa-wallet card list
-  fluxa-wallet card list --global`,
+  fluxa-wallet prepaid-card list
+  fluxa-wallet prepaid-card list --global`,
 
-  'card types': `Usage: fluxa-wallet card types
+  'prepaid-card types': `Usage: fluxa-wallet prepaid-card types
 
 List published card products, BINs, fees, load limits, and availability.
 Use the returned public cardTypeId (not a provider numeric type ID).
 Unknown fees/capabilities remain unknown; availability does not grant Prepaid access.`,
 
-  'card create': `Usage: fluxa-wallet card create --card-type-id <id> --amount <usd> --mandate <id> [--wait <seconds>]
-       fluxa-wallet card create --request-id <id> --mandate <id> [--wait <seconds>]
+  'prepaid-card create': `Usage: fluxa-wallet prepaid-card create --card-type-id <id> --amount <usd> --mandate <id> [--wait <seconds>]
+       fluxa-wallet prepaid-card create --request-id <id> --mandate <id> [--wait <seconds>]
 
 Issue a prepaid card using AgentCard v2. Wait for product-holder review before
 signing the returned x402 payment. Pending settlement completes in the background.
 
 Options:
-  --card-type-id <id>       Public product ID from "card types"
+  --card-type-id <id>       Public product ID from "prepaid-card types"
   --bin-id <id>             String BIN registry ID (alternative selector)
   --bin <prefix>            BIN prefix (alternative selector; must be unambiguous)
                            Exactly one selector is required for a new request.
@@ -730,13 +739,13 @@ Options:
   --wait <seconds>          Poll for 0..300 seconds (default: 30; 0 skips waiting)
 
 Examples:
-  fluxa-wallet card types
-  fluxa-wallet card create --card-type-id <cardTypeId> --amount 25.00 --mandate mand_xxx
-  fluxa-wallet card create --request-id <pendingRequestId> --mandate mand_xxx
+  fluxa-wallet prepaid-card types
+  fluxa-wallet prepaid-card create --card-type-id <cardTypeId> --amount 25.00 --mandate mand_xxx
+  fluxa-wallet prepaid-card create --request-id <pendingRequestId> --mandate mand_xxx
 
-Use "card list" to see issued cards. Do not start another request to retry payment.`,
+Use "prepaid-card list" to see issued cards. Do not start another request to retry payment.`,
 
-  'card details': `Usage: fluxa-wallet card details --id <card_id>
+  'prepaid-card details': `Usage: fluxa-wallet prepaid-card details --id <card_id>
 
 Reveal the full PAN, CVV, and expiry for a specific card.
 
@@ -744,9 +753,9 @@ Options:
   --id <card_id>       Card ID (required)
 
 Example:
-  fluxa-wallet card details --id card_xxx`,
+  fluxa-wallet prepaid-card details --id card_xxx`,
 
-  'card balance': `Usage: fluxa-wallet card balance --id <card_id>
+  'prepaid-card balance': `Usage: fluxa-wallet prepaid-card balance --id <card_id>
 
 Refresh and retrieve the current balance for a specific card.
 
@@ -754,9 +763,9 @@ Options:
   --id <card_id>       Card ID (required)
 
 Example:
-  fluxa-wallet card balance --id card_xxx`,
+  fluxa-wallet prepaid-card balance --id card_xxx`,
 
-  'card transactions': `Usage: fluxa-wallet card transactions --id <card_id> [options]
+  'prepaid-card transactions': `Usage: fluxa-wallet prepaid-card transactions --id <card_id> [options]
 
 List card transaction history from the card service.
 
@@ -769,10 +778,10 @@ Options:
   --end-time <ms>          End timestamp in milliseconds
 
 Examples:
-  fluxa-wallet card transactions --id card_xxx
-  fluxa-wallet card transactions --id card_xxx --type purchase --limit 10`,
+  fluxa-wallet prepaid-card transactions --id card_xxx
+  fluxa-wallet prepaid-card transactions --id card_xxx --type purchase --limit 10`,
 
-  'card 3ds latest': `Usage: fluxa-wallet card 3ds latest --id <card_id>
+  'prepaid-card 3ds latest': `Usage: fluxa-wallet prepaid-card 3ds latest --id <card_id>
 
 Show the newest 3DS challenge from the last 24 hours.
 
@@ -780,9 +789,9 @@ Options:
   --id <card_id>       Card ID (required)
 
 Example:
-  fluxa-wallet card 3ds latest --id card_xxx`,
+  fluxa-wallet prepaid-card 3ds latest --id card_xxx`,
 
-  'card 3ds latest_1h': `Usage: fluxa-wallet card 3ds latest_1h --id <card_id>
+  'prepaid-card 3ds latest_1h': `Usage: fluxa-wallet prepaid-card 3ds latest_1h --id <card_id>
 
 Show all 3DS challenges from the last hour.
 
@@ -790,13 +799,13 @@ Options:
   --id <card_id>       Card ID (required)
 
 Example:
-  fluxa-wallet card 3ds latest_1h --id card_xxx`,
+  fluxa-wallet prepaid-card 3ds latest_1h --id card_xxx`,
 
-  'card holder create': `Usage: fluxa-wallet card holder create --profile @profile.json
-       fluxa-wallet card holder create --first-name <name> --last-name <name> --email <email> --phone <E.164> --country <code> --city <city> --address-line1 <address> --postal-code <code>
+  'prepaid-card holder create': `Usage: fluxa-wallet prepaid-card holder create --profile @profile.json
+       fluxa-wallet prepaid-card holder create --first-name <name> --last-name <name> --email <email> --phone <E.164> --country <code> --city <city> --address-line1 <address> --postal-code <code>
 
 Create an account profile and start initial KYC. Use the real account owner's
-materials. Complete the returned verificationUrl, then check "card holder me".
+materials. Complete the returned verificationUrl, then check "prepaid-card holder me".
 Read the existing profile first; a legacy holder does not require a new profile.
 
 Options:
@@ -812,22 +821,22 @@ Options:
   --region <region>        address.region (optional)
   --address-line2 <text>   address.line2 (optional)`,
 
-  'card holder update': `Usage: fluxa-wallet card holder update --profile @patch.json [--revision <n>]
+  'prepaid-card holder update': `Usage: fluxa-wallet prepaid-card holder update --profile @patch.json [--revision <n>]
 
 Partially update the account profile using the same profile flags as create.
 Supply only the changed fields. --revision sends If-Match with the revision from
-"card holder me"; on a conflict, fetch the latest profile before retrying.
+"prepaid-card holder me"; on a conflict, fetch the latest profile before retrying.
 Name locks and verification transitions are enforced by the service.`,
 
-  'card holder me': `Usage: fluxa-wallet card holder me
+  'prepaid-card holder me': `Usage: fluxa-wallet prepaid-card holder me
 
 Show the account cardholder and review status.
 
 Example:
-  fluxa-wallet card holder me`,
+  fluxa-wallet prepaid-card holder me`,
 
-  'card recharge': `Usage: fluxa-wallet card recharge --id <card_id> --amount <usd> --mandate <id> [--wait <seconds>]
-       fluxa-wallet card recharge --request-id <id> --mandate <id> [--id <card_id>] [--wait <seconds>]
+  'prepaid-card recharge': `Usage: fluxa-wallet prepaid-card recharge --id <card_id> --amount <usd> --mandate <id> [--wait <seconds>]
+       fluxa-wallet prepaid-card recharge --request-id <id> --mandate <id> [--id <card_id>] [--wait <seconds>]
 
 Add funds using the returned x402 payment. Continue a pending recharge using its
 original request ID; omit --amount. --id is inferred from the request when available.
@@ -840,12 +849,12 @@ Options:
   --wait <seconds>          Wait up to 0..300 seconds (default: 30)
 
 Examples:
-  fluxa-wallet card recharge --id card_xxx --amount 10.00 --mandate mand_xxx
-  fluxa-wallet card recharge --request-id <pendingRequestId> --mandate mand_xxx
+  fluxa-wallet prepaid-card recharge --id card_xxx --amount 10.00 --mandate mand_xxx
+  fluxa-wallet prepaid-card recharge --request-id <pendingRequestId> --mandate mand_xxx
 
-Use "card balance" for the live balance once settlement finishes.`,
+Use "prepaid-card balance" for the live balance once settlement finishes.`,
 
-  'card withdraw': `Usage: fluxa-wallet card withdraw --id <card_id> [--amount <usd>]
+  'prepaid-card withdraw': `Usage: fluxa-wallet prepaid-card withdraw --id <card_id> [--amount <usd>]
 
 Withdraw card balance back to the requesting agent's linked wallet.
 
@@ -854,9 +863,9 @@ Options:
   --amount <usd>       Amount in USD (optional; defaults to full remaining balance)
 
 Example:
-  fluxa-wallet card withdraw --id card_xxx`,
+  fluxa-wallet prepaid-card withdraw --id card_xxx`,
 
-  'card withdrawals': `Usage: fluxa-wallet card withdrawals --id <card_id>
+  'prepaid-card withdrawals': `Usage: fluxa-wallet prepaid-card withdrawals --id <card_id>
 
 List withdrawal records for a card.
 
@@ -864,9 +873,9 @@ Options:
   --id <card_id>       Card ID (required)
 
 Example:
-  fluxa-wallet card withdrawals --id card_xxx`,
+  fluxa-wallet prepaid-card withdrawals --id card_xxx`,
 
-  'card withdrawal': `Usage: fluxa-wallet card withdrawal --id <card_id> --withdrawal-id <withdrawal_id>
+  'prepaid-card withdrawal': `Usage: fluxa-wallet prepaid-card withdrawal --id <card_id> --withdrawal-id <withdrawal_id>
 
 Get one withdrawal record for a card.
 
@@ -875,7 +884,7 @@ Options:
   --withdrawal-id <id>        Withdrawal ID (required)
 
 Example:
-  fluxa-wallet card withdrawal --id card_xxx --withdrawal-id wdr_xxxxx`,
+  fluxa-wallet prepaid-card withdrawal --id card_xxx --withdrawal-id wdr_xxxxx`,
 
   payout: `Usage: fluxa-wallet payout [options]
 
@@ -932,7 +941,8 @@ Example:
 
 Create an intent mandate. USDC mandates are used for x402 v3
 payments; CARD_USD mandates authorize a linked (source) card in the user's
-wallet for one merchant and are paid with "headless-checkout".
+wallet for one merchant and support "headless-checkout" and "linked-card
+single-use-card create".
 
 Options:
   --desc <text>           Natural language description (required)
@@ -960,7 +970,8 @@ CARD_USD options (linked card, VIC rail). Either the three merchant flags or --e
   --desc for CARD_USD is sent to CardVault as the purpose: max 255 bytes, no line breaks.
 
 After creation the user must open approvalUrl in the wallet to pick a linked
-card and approve; poll "linked-card subcard --mandate <id>" until isReady=true.
+card and approve. Check readiness with "mandate-status --id <id>". The mandate
+must be signed and cardvault.canTransact must be true.
 
 Examples:
   fluxa-wallet mandate-create --desc "Spend up to 0.1 USDC" --amount 100000
@@ -993,17 +1004,23 @@ Examples:
   fluxa-wallet linked-card mandates --card 550e8400-e29b-41d4-a716-446655440003
   fluxa-wallet linked-card mandates --host www.amazon.com --amount 3000`,
 
-  'linked-card subcard': `Usage: fluxa-wallet linked-card subcard --mandate <mandate_id>
+  'linked-card single-use-card': `Usage: fluxa-wallet linked-card single-use-card create [options]
 
-Show the credential (sub-card) issued under one CARD_USD mandate: the wallet
-mandate status, the linked source card it was approved on, when the credential
-was activated, and the live CardVault state (canTransact).
+Issue and redeem a single-use card. See "linked-card single-use-card create --help".`,
 
-Options:
-  --mandate <mandate_id>   CARD_USD mandate id (required)
+  'linked-card single-use-card create': `Usage: fluxa-wallet linked-card single-use-card create --mandate <mandate_id> --amount <cents> [--transaction-ref <ref>] [--output-file <path>]
+
+Issue and redeem a single-use card under a signed VIC CARD_USD mandate.
+Use the same transaction reference and amount to retry.
+
+  --mandate <mandate_id>    Signed VIC CARD_USD mandate (required)
+  --amount <cents>         Positive integer in cents (required)
+  --transaction-ref <ref>  Order identifier, generated when omitted
+  --output-file <path>     Create a private JSON file with the credential and print
+                          only card metadata and the file path to stdout
 
 Example:
-  fluxa-wallet linked-card subcard --mandate mand_xxxxxxxxxxxxx`,
+  fluxa-wallet linked-card single-use-card create --mandate mand_xxx --amount 1234 --output-file /tmp/linked-card.json`,
 
   'headless-checkout': `Usage: fluxa-wallet headless-checkout --mandate <mandate_id> --attempt <attempt_id> [--billing <json | @file>]
 
@@ -1332,9 +1349,9 @@ function cardErrorHint(code?: string): string | undefined {
     case 'agent_not_linked':
       return 'Run "fluxa-wallet link-wallet", complete wallet linking, then retry.';
     case 'cardholder_required':
-      return 'Run "fluxa-wallet card holder me" first; create a profile with "card holder create --profile @profile.json" only if absent.';
+      return 'Run "fluxa-wallet prepaid-card holder me" first; create a profile with "prepaid-card holder create --profile @profile.json" only if absent.';
     case 'cardholder_not_approved':
-      return 'Run "fluxa-wallet card holder me" to check the holder review status, then retry when approved.';
+      return 'Run "fluxa-wallet prepaid-card holder me" to check the holder review status, then retry when approved.';
     case 'card_waitlist_required':
       return 'Apply for Prepaid access in the Wallet Agent Cards page, then retry after approval and access synchronization. Visa approval does not grant Prepaid access.';
     case 'card_access_unavailable':
@@ -1344,9 +1361,9 @@ function cardErrorHint(code?: string): string | undefined {
     case 'card_type_ambiguous':
     case 'card_type_not_found':
     case 'card_type_unavailable':
-      return 'Run "fluxa-wallet card types" and select one available product with --card-type-id, --bin-id, or --bin.';
+      return 'Run "fluxa-wallet prepaid-card types" and select one available product with --card-type-id, --bin-id, or --bin.';
     case 'revision_conflict':
-      return 'Run "fluxa-wallet card holder me" and retry with the current revision.';
+      return 'Run "fluxa-wallet prepaid-card holder me" and retry with the current revision.';
     case 'recharge_in_progress':
       return 'A recharge is already active for this card; wait for it to finish before starting another.';
     case 'withdrawal_in_progress':
@@ -1632,15 +1649,19 @@ function cardWaitSeconds(options: Record<string, string>): number {
   return Number(value);
 }
 
-function cardPendingOutput(request: CardChargeInitiateResponse, command: 'create' | 'recharge') {
+function cardPendingOutput(
+  request: CardChargeInitiateResponse,
+  command: 'create' | 'recharge',
+  commandGroup: PrepaidCardCommandGroup,
+) {
   const { paymentRequest: _paymentRequest, ...state } = request;
   return {
     ...state,
-    continueCommand: `fluxa-wallet card ${command} --request-id ${request.pendingRequestId} --mandate <mandate_id>`,
+    continueCommand: `fluxa-wallet ${commandGroup} ${command} --request-id ${request.pendingRequestId} --mandate <mandate_id>`,
   };
 }
 
-async function cmdCardCreate(options: Record<string, string>): Promise<CommandResult> {
+async function cmdCardCreate(options: Record<string, string>, commandGroup: PrepaidCardCommandGroup): Promise<CommandResult> {
   const mandateId = options.mandate;
   try {
     if (!mandateId || mandateId === 'true') throw new Error('Missing required parameter: --mandate');
@@ -1660,7 +1681,7 @@ async function cmdCardCreate(options: Record<string, string>): Promise<CommandRe
       };
     }
 
-    const { request } = await runCardFlow({ requestId, requestType: 'issue', waitSeconds }, {
+    const { request } = await runCardFlow({ requestId, requestType: 'issue', waitSeconds, commandGroup }, {
       initiate: () => initiateCard({ amountUsd: amountUsd!, ...selector! }, auth.cardToken),
       getRequest: id => getCardRequest(id, auth.cardToken),
       sign: paymentRequest => signPaymentRequestWithMandate(paymentRequest, mandateId),
@@ -1677,7 +1698,7 @@ async function cmdCardCreate(options: Record<string, string>): Promise<CommandRe
       status: request.status,
     });
 
-    return rawJson(request.status === 'completed' && request.card ? request.card : cardPendingOutput(request, 'create'));
+    return rawJson(request.status === 'completed' && request.card ? request.card : cardPendingOutput(request, 'create', commandGroup));
   } catch (err: any) {
     return commandError(err, 'Card creation failed');
   }
@@ -1965,7 +1986,7 @@ async function cmdCardHolderMe(): Promise<CommandResult> {
   }
 }
 
-async function cmdCardRecharge(options: Record<string, string>): Promise<CommandResult> {
+async function cmdCardRecharge(options: Record<string, string>, commandGroup: PrepaidCardCommandGroup): Promise<CommandResult> {
   const cardId = options.id;
   const mandateId = options.mandate;
   try {
@@ -1985,7 +2006,7 @@ async function cmdCardRecharge(options: Record<string, string>): Promise<Command
       };
     }
 
-    const { request, completion } = await runCardFlow({ requestId, requestType: 'recharge', cardId, waitSeconds }, {
+    const { request, completion } = await runCardFlow({ requestId, requestType: 'recharge', cardId, waitSeconds, commandGroup }, {
       initiate: () => initiateCardRecharge(cardId!, { amountUsd: amountUsd! }, auth.cardToken),
       getRequest: id => getCardRequest(id, auth.cardToken),
       sign: paymentRequest => signPaymentRequestWithMandate(paymentRequest, mandateId),
@@ -2010,7 +2031,7 @@ async function cmdCardRecharge(options: Record<string, string>): Promise<Command
         ? completion.recharge : { amountUsd: request.amountUsd, feeUsd: request.feeUsd };
       return rawJson({ card: request.card, recharge });
     }
-    return rawJson(cardPendingOutput(request, 'recharge'));
+    return rawJson(cardPendingOutput(request, 'recharge', commandGroup));
   } catch (err: any) {
     return commandError(err, 'Card recharge failed');
   }
@@ -2302,7 +2323,7 @@ async function cmdMandateCreate(options: Record<string, string>): Promise<Comman
   const wait = parseWaitSeconds(options.wait);
   if (wait && typeof wait === 'object') return { success: false, error: wait.error };
   if (typeof wait === 'number' && currency === CARD_USD_CURRENCY) {
-    return { success: false, error: '--wait is not supported for CARD_USD mandates; poll "linked-card subcard --mandate <id>" until isReady=true' };
+    return { success: false, error: '--wait is not supported for CARD_USD mandates. Check readiness with "mandate-status --id <id>".' };
   }
 
   // CARD_USD (linked card) mandates need the merchant / VIC scope. Validate it
@@ -2511,6 +2532,7 @@ async function cmdLinkedCardMandates(options: Record<string, string>): Promise<C
   }
 }
 
+/** @deprecated Retained for existing scripts. Use mandate-status for mandate readiness. */
 async function cmdLinkedCardSubcard(options: Record<string, string>): Promise<CommandResult> {
   const mandateId = options.mandate;
   if (!mandateId) return { success: false, error: 'Missing required parameter: --mandate' };
@@ -2545,6 +2567,70 @@ async function cmdLinkedCardSubcard(options: Record<string, string>): Promise<Co
     });
   } catch (err: any) {
     return linkedCardError(err, 'Linked card subcard query failed');
+  }
+}
+
+async function cmdSingleUseCardCreate(options: Record<string, string>, positionals: string[]): Promise<CommandResult> {
+  const allowed = ['mandate', 'amount', 'transaction-ref', 'output-file'];
+  if (positionals.length || Object.keys(options).some(key => !allowed.includes(key))) {
+    return { success: false, error: 'Unexpected arguments. See "linked-card single-use-card create --help".' };
+  }
+  const mandateId = options.mandate?.trim();
+  const amount = options.amount?.replace(/^0+/, '');
+  if (!mandateId) return { success: false, error: 'Missing required parameter: --mandate' };
+  if (!amount || !/^[1-9][0-9]{0,19}$/.test(amount)) {
+    return { success: false, error: '--amount must be a positive integer in cents.' };
+  }
+  const transactionReference = options['transaction-ref'] ?? `sub-${Date.now()}-${randomBytes(8).toString('hex')}`;
+  if (!/^[A-Za-z0-9._:-]{1,50}$/.test(transactionReference)) {
+    return { success: false, error: '--transaction-ref must use 1–50 letters, digits, dots, underscores, colons or hyphens.' };
+  }
+  const outputOption = options['output-file'];
+  if (outputOption !== undefined && !outputOption.trim()) {
+    return { success: false, error: '--output-file requires a path.' };
+  }
+
+  const auth = await ensureValidJWT();
+  if (!auth) return { success: false, error: 'Wallet is not connected. Run "connect" first.' };
+
+  let destination: string | undefined;
+  let file: FileHandle | undefined;
+  if (outputOption !== undefined) {
+    try {
+      const requestedPath = path.resolve(outputOption);
+      destination = path.join(await realpath(path.dirname(requestedPath)), path.basename(requestedPath));
+      if (destination === path.join(await realpath(DATA_ROOT), 'audit.log')) {
+        return { success: false, error: '--output-file cannot be the wallet audit log.' };
+      }
+      file = await open(destination, 'wx', 0o600);
+    } catch {
+      return { success: false, error: 'Could not create --output-file. Choose a new file in a writable directory.' };
+    }
+  }
+
+  try {
+    const { card, credential } = await createSingleUseCard(auth.jwt, mandateId, amount, transactionReference);
+    if (file) {
+      await file.writeFile(JSON.stringify(credential, null, 2) + '\n');
+      await file.close();
+    }
+    await recordAudit({
+      event: 'linked_card_single_use_create',
+      mandate_id: card.mandateId,
+      virtual_card_id: card.virtualCardId,
+      transaction_reference: card.transactionReference,
+      amount: card.amount,
+    }).catch(() => console.error('Could not record the single-use card audit event.'));
+    return rawJson({ ...card, ...(destination ? { outputFile: destination } : { credential }) });
+  } catch (error) {
+    if (file && destination) {
+      await file.close().catch(() => {});
+      await unlink(destination).catch(() => {});
+    }
+    const context = { mandateId, transactionReference, amount };
+    return error instanceof SingleUseCardError
+      ? { success: false, code: error.code, error: error.message, details: { ...error.details, ...context } }
+      : { success: false, code: 'output_file_write_failed', error: 'Could not write the credential file. Retry with the same amount and reference.', details: context };
   }
 }
 
@@ -3454,6 +3540,7 @@ async function cmdRecentTransactions(options: Record<string, string>): Promise<C
 async function main() {
   const args = process.argv.slice(2);
   const { command, options, positionals, helpRequested } = parseArgs(args);
+  const prepaidCardGroup = args[0] === 'card' ? 'card' : 'prepaid-card';
 
   // Version: `fluxa-wallet --version` / `-v` / `version`
   if (command === '--version' || command === '-v' || command === 'version') {
@@ -3539,49 +3626,49 @@ async function main() {
     case 'refreshJWT':
       result = await cmdRefresh();
       break;
-    case 'card list':
+    case 'prepaid-card list':
       result = await cmdCardList(options);
       break;
-    case 'card types':
+    case 'prepaid-card types':
       result = await cmdCardTypes();
       break;
-    case 'card create':
-      result = await cmdCardCreate(options);
+    case 'prepaid-card create':
+      result = await cmdCardCreate(options, prepaidCardGroup);
       break;
-    case 'card details':
+    case 'prepaid-card details':
       result = await cmdCardDetails(options);
       break;
-    case 'card balance':
+    case 'prepaid-card balance':
       result = await cmdCardBalance(options);
       break;
-    case 'card transactions':
+    case 'prepaid-card transactions':
       result = await cmdCardTransactions(options);
       break;
-    case 'card 3ds latest':
+    case 'prepaid-card 3ds latest':
       result = await cmdCard3dsLatest(options);
       break;
-    case 'card 3ds latest_1h':
+    case 'prepaid-card 3ds latest_1h':
       result = await cmdCard3dsLatest1h(options);
       break;
-    case 'card holder create':
+    case 'prepaid-card holder create':
       result = await cmdCardHolderCreate(options);
       break;
-    case 'card holder update':
+    case 'prepaid-card holder update':
       result = await cmdCardHolderUpdate(options);
       break;
-    case 'card holder me':
+    case 'prepaid-card holder me':
       result = await cmdCardHolderMe();
       break;
-    case 'card recharge':
-      result = await cmdCardRecharge(options);
+    case 'prepaid-card recharge':
+      result = await cmdCardRecharge(options, prepaidCardGroup);
       break;
-    case 'card withdraw':
+    case 'prepaid-card withdraw':
       result = await cmdCardWithdraw(options);
       break;
-    case 'card withdrawals':
+    case 'prepaid-card withdrawals':
       result = await cmdCardWithdrawals(options);
       break;
-    case 'card withdrawal':
+    case 'prepaid-card withdrawal':
       result = await cmdCardWithdrawal(options);
       break;
     case 'payout':
@@ -3608,8 +3695,14 @@ async function main() {
     case 'linked-card subcard':
       result = await cmdLinkedCardSubcard(options);
       break;
+    case 'linked-card single-use-card create':
+      result = await cmdSingleUseCardCreate(options, positionals);
+      break;
+    case 'linked-card single-use-card':
+      result = { success: false, error: COMMAND_USAGE['linked-card single-use-card'] };
+      break;
     case 'linked-card':
-      result = { success: false, error: 'Usage: fluxa-wallet linked-card <list | mandates | subcard> [options]' };
+      result = { success: false, error: 'Usage: fluxa-wallet linked-card <list | mandates | single-use-card create> [options]' };
       break;
     case 'headless-checkout':
       result = await cmdHeadlessCheckout(options);

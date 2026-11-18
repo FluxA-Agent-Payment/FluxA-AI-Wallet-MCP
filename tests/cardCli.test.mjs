@@ -47,7 +47,7 @@ test('bundled CLI uses v2 contracts and keeps existing commands compatible', asy
     await new Promise(resolve => server.close(resolve));
     await rm(dir, { recursive: true, force: true });
   });
-  const run = async (...args) => {
+  const runCli = async (...args) => {
     calls = [];
     const child = spawn(process.execPath, [cli, ...args], {
       env: { ...process.env, AGENT_ID: 'agent_test', AGENT_TOKEN: 'test-token', AGENT_JWT: jwt, FLUXA_DATA_DIR: dir, CARD_SERVICE_API: url, AGENT_ID_API: url, WALLET_API: url },
@@ -57,9 +57,27 @@ test('bundled CLI uses v2 contracts and keeps existing commands compatible', asy
     child.stdout.on('data', chunk => { stdout += chunk; });
     child.stderr.on('data', chunk => { stderr += chunk; });
     const code = await new Promise((resolve, reject) => { child.once('error', reject); child.once('close', resolve); });
+    return { code, stdout, stderr };
+  };
+  const run = async (...args) => {
+    const { code, stdout, stderr } = await runCli(...args);
     return { code, data: JSON.parse(stdout), stderr };
   };
   const businessCalls = () => calls.filter(call => call.path !== '/api/v2/auth/challenge' && call.path !== '/agent/vc/issue');
+
+  await t.test('help advertises prepaid-card and shows its syntax even through the legacy alias', async () => {
+    const global = await runCli('--help');
+    assert.match(global.stdout, /^  prepaid-card create /m);
+    assert.doesNotMatch(global.stdout, /fluxa-wallet card\s|^  card |OPTIONS FOR 'card /m);
+    for (const command of [['create'], ['holder', 'me'], ['3ds', 'latest']]) {
+      const current = await runCli('prepaid-card', ...command, '--help');
+      const legacy = await runCli('card', ...command, '--help');
+      assert.equal(current.code, 0);
+      assert.ok(current.stdout.startsWith('Usage: fluxa-wallet prepaid-card ' + command.join(' ')));
+      assert.equal(legacy.stdout, current.stdout);
+    }
+    assert.equal(calls.length, 0);
+  });
 
   await t.test('catalog returns unknown fees without inventing a zero charge', async () => {
     const product = { cardTypeId: 'ct_one', fees: { monthly: { status: 'unknown' } }, availability: { canApply: true } };
@@ -84,11 +102,27 @@ test('bundled CLI uses v2 contracts and keeps existing commands compatible', asy
       assert.deepEqual(call.body, { binId: '00123', amountUsd: '25.00' });
       return { body: { pendingRequestId: 'req_1', requestType: 'issue', status: 'pending_cardholder' } };
     };
-    const result = await run('card', 'create', '--bin-id', '00123', '--amount', '25', '--mandate', 'mand_test', '--wait', '0');
-    assert.equal(result.code, 0);
-    assert.equal(result.data.pendingRequestId, 'req_1');
-    assert.match(result.data.continueCommand, /card create --request-id req_1/);
-    assert.equal(businessCalls().length, 1);
+    for (const group of ['prepaid-card', 'card']) {
+      const result = await run(group, 'create', '--bin-id', '00123', '--amount', '25', '--mandate', 'mand_test', '--wait', '0');
+      assert.equal(result.code, 0);
+      assert.equal(result.data.pendingRequestId, 'req_1');
+      assert.equal(result.data.continueCommand, `fluxa-wallet ${group} create --request-id req_1 --mandate <mandate_id>`);
+      assert.equal(businessCalls().length, 1);
+    }
+  });
+
+  await t.test('recharge continuation in an error keeps the command group used by the caller', async () => {
+    handler = call => {
+      assert.equal(call.path, '/api/v2/cards/requests/req_load');
+      return { body: { pendingRequestId: 'req_load', requestType: 'recharge', status: 'action_required' } };
+    };
+    for (const group of ['prepaid-card', 'card']) {
+      const result = await run(group, 'recharge', '--request-id', 'req_load', '--mandate', 'mand_test');
+      assert.equal(result.code, 1);
+      assert.equal(result.data.code, 'card_request_action_required');
+      assert.equal(result.data.details.continueCommand, `fluxa-wallet ${group} recharge --request-id req_load --mandate <mandate_id>`);
+      assert.equal(businessCalls().length, 1);
+    }
   });
 
   await t.test('waitlist rejection forwards the application URL and never requests payment', async () => {
@@ -177,10 +211,12 @@ test('bundled CLI uses v2 contracts and keeps existing commands compatible', asy
   await t.test('legacy holder GET does not trigger profile creation', async () => {
     const legacy = { source: 'legacy', revision: null, kycStatus: 'not_recorded', status: 'pass_audit' };
     handler = call => { assert.equal(call.path, '/api/v2/cardholders/get'); return { body: { cardholder: legacy } }; };
-    const result = await run('card', 'holder', 'me');
-    assert.equal(result.code, 0);
-    assert.deepEqual(result.data, legacy);
-    assert.equal(businessCalls().length, 1);
+    for (const group of ['prepaid-card', 'card']) {
+      const result = await run(group, 'holder', 'me');
+      assert.equal(result.code, 0);
+      assert.deepEqual(result.data, legacy);
+      assert.equal(businessCalls().length, 1);
+    }
   });
 
   await t.test('existing read/detail/withdraw commands call v2 paths', async () => {
@@ -201,7 +237,10 @@ test('bundled CLI uses v2 contracts and keeps existing commands compatible', asy
         if (target.endsWith('/withdraw')) assert.deepEqual(call.body, {});
         return { body };
       };
-      assert.equal((await run(...args)).code, 0, target);
+      const legacy = await run(...args);
+      const current = await run('prepaid-card', ...args.slice(1));
+      assert.equal(legacy.code, 0, target);
+      assert.deepEqual(current, legacy, target);
     }
   });
 

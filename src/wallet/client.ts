@@ -4,7 +4,7 @@
  */
 
 const AGENT_ID_API = process.env.AGENT_ID_API || 'https://agentid.fluxapay.xyz';
-const WALLET_API = process.env.WALLET_API || 'https://walletapi.fluxapay.xyz';
+export const WALLET_API = process.env.WALLET_API || 'https://walletapi.fluxapay.xyz';
 const WALLET_APP = process.env.WALLET_APP || 'https://wallet.fluxapay.xyz';
 const CARD_SERVICE_API = process.env.CARD_SERVICE_API || 'https://agentcard.fluxapay.xyz';
 const CARD_API_PREFIX = '/api/v2';
