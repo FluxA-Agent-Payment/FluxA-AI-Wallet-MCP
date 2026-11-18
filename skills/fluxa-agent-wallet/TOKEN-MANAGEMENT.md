@@ -12,18 +12,19 @@ Recommend checking twice daily in the user's timezone.
 
 - **FluxA AgentMarket:** Wallet CLI account access, API keys, $1 initial trial,
   balance/usage sync and authorized top-ups.
-- **All other providers, including OpenRouter:** Not supported yet. Use the
-  unsupported-provider reply in [TOKENGO.md](TOKENGO.md#supported-providers) and
-  stop. Do not offer signup, keys, manual tracking or payment workarounds.
+- **External providers:** See the [supported list](TOKENGO.md#supported-providers)
+  and [browser setup](TOKENGO.md#browser-setup-for-external-providers) for
+  account signup, billing activation and key setup. The recurring workflow below
+  applies to AgentMarket.
 
 Start with [TOKENGO.md](TOKENGO.md). Make GET /v1/onboarding the first service
 request. If firstVisit=true, run the progressive onboarding: introduce TokenGo,
-link the wallet, choose a provider, and complete a small trial and first key
+link the wallet and complete the AgentMarket trial and first key
 before offering monthly budgeting and scheduled top-ups. If firstVisit=false,
 respond directly to the user's request using their existing records; do not
 repeat onboarding.
 
-TokenGo stores all management records and encrypted provider/key credentials.
+TokenGo stores management records and encrypted AgentMarket credentials.
 Saving them is part of setup and needs no separate upload confirmation.
 Use settings records for preferences before a signed mandate exists. The first
 AgentMarket recharge defaults to $1. Recommend FluxA Card first using a
@@ -137,7 +138,7 @@ Stay quiet when there is no new usage or other meaningful change.
 TokenGo is the only persistent management store. Read /v1/onboarding and
 /v1/overview before continuing; write preferences, rules and nonsecret run state
 to records/settings. Store provider accounts and encrypted keys in their
-dedicated account/key fields, signed authorization references in budgets,
+dedicated account/key fields for AgentMarket, signed authorization references in budgets,
 verified payments in spending, and real runs in monitors/checkins.
 
 Include monthly spending estimates, threshold/top-up amounts, currency/timezone,
