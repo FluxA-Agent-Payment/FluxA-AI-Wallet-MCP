@@ -6,7 +6,7 @@ description: >-
 
 # FluxA Agent Wallet
 
-**Skill version: 0.6.4** | **CLI version: @fluxa-pay/fluxa-wallet@0.6.1 or newer**
+**Skill version: 0.6.5** | **CLI version: @fluxa-pay/fluxa-wallet@0.6.1 or newer**
 
 FluxA Agent Wallet is a co-wallet that allows AI agents to securely use a user’s wallet, enabling them to perform payment-related actions within the user’s approved scope. Capabilities include x402 payments, USDC transfers, agent-to-agent transfers, payment links for receiving payments, prepaid virtual cards, discovering and calling x402 resources (one-shot APIs), and using payment-related skills (one-shot skills). Use this tool when the user the user asks to perform any of these payment-related actions.
 
@@ -76,6 +76,8 @@ Use the wallet's USDC balance to issue and fund a new virtual prepaid card for o
 ### 4. Single-use Card
 
 With Visa AgentCard, link an existing Visa card to the wallet and authorize an AI agent to issue a single-use card for an approved purchase. The linked Visa card is charged, and the agent completes checkout using the single-use credential while the original card number stays private. This flow uses [Visa Intelligent Commerce](https://developer.visa.com/capabilities/visa-intelligent-commerce).
+
+If the user has no linked Visa card, send them the [Visa AgentCard page](https://agentwallet.fluxapay.xyz/?tab=cards&cardType=linked) so they can add one.
 
 Use `fluxa-wallet linked-card mandates` to find an eligible merchant mandate, `fluxa-wallet mandate-create --currency CARD_USD` to request one when needed, and `fluxa-wallet linked-card single-use-card create` to issue the credential. See the [single-use card flow](#common-flow-create-single-use-card) and [Visa AgentCard guide](LINKED-CARD.md).
 

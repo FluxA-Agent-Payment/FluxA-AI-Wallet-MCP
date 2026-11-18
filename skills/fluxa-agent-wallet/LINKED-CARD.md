@@ -85,8 +85,7 @@ Use `id` as `--card` below.
 ### `linked-card single-use-card create`
 
 ```bash
-fluxa-wallet linked-card single-use-card create --mandate mand_xxx --amount 1234 \
-  --transaction-ref order-1 --output-file /tmp/linked-card.json
+fluxa-wallet linked-card single-use-card create --mandate mand_xxx --amount 1234
 ```
 
 Pass a signed VIC `CARD_USD` mandate and the purchase amount in cents. Omit
@@ -98,7 +97,7 @@ with mode `0600` and prints the path and card metadata. Pass the file path to th
 authorized consumer and keep the credential out of chat and logs. Without a file
 path, stdout includes a `credential` object with `pan`, `exp_month`, `exp_year`,
 `dynamic_value`, `dynamic_data_type` and `credential_expires_at`. The current
-`dynamic_value` is an encrypted DAVV.
+`dynamic_value` is a DAVV.
 
 ### `headless-checkout --mandate <id> --attempt <wpa_...> [--billing <json | @file>]`
 

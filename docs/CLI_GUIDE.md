@@ -444,8 +444,8 @@ remaining mandate allowance. Pass `--output-file` to write the credential to a
 new file with mode `0600`. Stdout contains the file path and card metadata.
 Omit it to get the same fields in the `credential` object on stdout. The
 credential fields are `pan`, `exp_month`, `exp_year`, `dynamic_value`,
-`dynamic_data_type` and `credential_expires_at`. CardVault currently supplies an
-encrypted DAVV in `dynamic_value`.
+`dynamic_data_type` and `credential_expires_at`. CardVault currently supplies a
+DAVV in `dynamic_value`.
 
 When omitted, `--transaction-ref` is generated and returned. Retry with the
 same reference and amount to keep the same card and reservation. After the
