@@ -1,9 +1,9 @@
-# Linked Card (VIC) Payments
+# Linked Card (Visa AgentCard) Payments
 
 Pay a merchant checkout with the **user's own card**, linked once in the FluxA
-wallet UI. The agent never sees the card number. It creates a `CARD_USD` intent
-mandate scoped to one merchant, the user approves it on a linked card, and the
-agent pays a WPE payment attempt with `headless-checkout`.
+wallet UI. The user approves a `CARD_USD` mandate scoped to one merchant. The
+agent can pay a WPE attempt with `headless-checkout` or issue a single-use card
+under the mandate for a checkout that accepts CardVault credentials.
 
 ## When to use
 
@@ -12,8 +12,10 @@ agent pays a WPE payment attempt with `headless-checkout`.
   user has chosen another payment method.
 - You need to know which cards the user has linked, or which `CARD_USD`
   mandates you already hold.
+- The user authorized a card purchase and the merchant supports single-use
+  credentials, for example when entering card details in a browser checkout.
 
-Not for: prepaid agent cards (`fluxa-wallet card ...`), x402 API payments
+Not for: prepaid agent cards (`fluxa-wallet prepaid-card ...`), x402 API payments
 (`mandate-create` with USDC + `x402`).
 
 ## Hard rules
@@ -39,8 +41,8 @@ Not for: prepaid agent cards (`fluxa-wallet card ...`), x402 API payments
    → returns mandateId + approvalUrl
 4. Send approvalUrl to the user (see "Opening Authorization URLs" in SKILL.md).
    They pick a linked card and approve. Poll:
-   fluxa-wallet linked-card subcard --mandate <mandateId>
-   until isReady = true (status "signed" and cardvault.canTransact true)
+   fluxa-wallet mandate-status --id <mandateId>
+   until mandate.status is "signed" and mandate.cardvault.canTransact is true
 5. fluxa-wallet headless-checkout --mandate <mandateId> --attempt <wpa_...> --billing @billing.json
    → attempt.status + attempt.actionUrl
 6. If attempt.actionUrl is present: open it with the user to complete 3-D Secure.
@@ -80,28 +82,23 @@ Use `id` as `--card` below.
 - `--card`: only mandates approved on that linked card
 - `--host --amount`: only signed mandates that can pay that amount now
 
-### `linked-card subcard --mandate <id>`
+### `linked-card single-use-card create`
 
-Prints the credential issued under the mandate:
-
-```json
-{
-  "mandateId": "mand_...",
-  "status": "signed",
-  "isReady": true,
-  "approvalUrl": null,
-  "sourceCardId": "…",
-  "cardActivatedAt": "…",
-  "remainingAmount": "2000",
-  "validUntil": "…",
-  "merchant": { "name": "Amazon", "url": "https://www.amazon.com", "country_code": "US" },
-  "purpose": "Buy a USB-C cable on Amazon, up to $30",
-  "cardvault": { "status": "ACTIVE", "canTransact": true, "validUntil": "…" }
-}
+```bash
+fluxa-wallet linked-card single-use-card create --mandate mand_xxx --amount 1234 \
+  --transaction-ref order-1 --output-file /tmp/linked-card.json
 ```
 
-`isReady` is true when the wallet mandate is signed and CardVault can transact.
-`cardvault` is `null` when CardVault could not be reached; retry shortly.
+Pass a signed VIC `CARD_USD` mandate and the purchase amount in cents. Omit
+`--transaction-ref` to generate a reference. Keep the returned reference and
+original amount for retries. Each new reference reserves the amount again.
+
+Prefer `--output-file` with a new path. The CLI writes the credential as JSON
+with mode `0600` and prints the path and card metadata. Pass the file path to the
+authorized consumer and keep the credential out of chat and logs. Without a file
+path, stdout includes a `credential` object with `pan`, `exp_month`, `exp_year`,
+`dynamic_value`, `dynamic_data_type` and `credential_expires_at`. The current
+`dynamic_value` is an encrypted DAVV.
 
 ### `headless-checkout --mandate <id> --attempt <wpa_...> [--billing <json | @file>]`
 
