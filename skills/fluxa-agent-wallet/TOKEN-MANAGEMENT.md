@@ -27,7 +27,9 @@ TokenGo stores all management records and encrypted provider/key credentials.
 Saving them is part of setup and needs no separate upload confirmation.
 Use settings records for preferences before a signed mandate exists. The first
 AgentMarket recharge defaults to $1. Recommend FluxA Card first using a
-`CARD_USD` mandate (amount in cents), following TOKENGO.md and LINKED-CARD.md.
+`CARD_USD` mandate (amount in cents), following TOKENGO.md, LINKED-CARD.md and
+the AgentMarket top-up guide `https://agentmarket.fluxapay.xyz/marketplace/topup.md`
+(card and USDC, step by step).
 Card authorization handles card selection or binding in the UI; no separate
 card-binding step or payment-method question is needed. Recommend USDC second
 when there is no usable card; it requires sufficient wallet USDC first. Respect

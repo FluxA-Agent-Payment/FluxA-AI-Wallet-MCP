@@ -6,7 +6,7 @@ description: >-
 
 # FluxA Agent Wallet
 
-**Skill version: 0.6.2** | **CLI version: @fluxa-pay/fluxa-wallet@0.6.0 or newer**. Check the installed version; install/update only if missing or older than 0.6.0.
+**Skill version: 0.6.3** | **CLI version: @fluxa-pay/fluxa-wallet@0.6.0 or newer**. Check the installed version; install/update only if missing or older than 0.6.0.
 
 FluxA Agent Wallet is a co-wallet that allows AI agents to securely use a user’s wallet, enabling them to perform payment-related actions within the user’s approved scope. Capabilities include x402 payments, USDC transfers, agent-to-agent transfers, payment links for receiving payments, prepaid virtual cards, AI social gifting, discovering and calling x402 resources (one-shot APIs), and using payment-related skills (one-shot skills). Use this tool when the user the user asks to perform any of these payment-related actions.
 
@@ -105,7 +105,7 @@ Trial Scenarios: guide the user with wording such as: Let’s try what this wall
 | **Agent VC & Agent ID** | Issue a short-lived verifiable credential to prove agent identity to third parties (SSO, account binding) without handing over the login JWT | Use when a third-party service asks the agent to authenticate via a signed token | VC-ISSUE.md |
 | **Agent Market: discover & plan** | Search the marketplace for APIs, models, and skills, and get a recommended tool plan for a task | Use when you need to find paid resources, or plan which tools a task needs | `fluxa-wallet market search "<q>"` (add `--models` or `--vendors` to scope); `fluxa-wallet plan-tool-use "<task>"` |
 | **Prepaid AgentMarket Balance** | Call LLMs on one prepaid balance, spendable at any provider, and read it | Use when calling models via `/llm/{merchant}`, or checking what is left | `fluxa-wallet market model remainingUsage`; `fluxa-wallet market model usageHistory` |
-| **Top up the AgentMarket Balance** | Recommend Card checkout with a `CARD_USD` mandate first; recommend USDC if no usable card | Use when the balance is low or negative | Card: [LINKED-CARD.md](LINKED-CARD.md) and [TOKENGO.md](TOKENGO.md). USDC: `fluxa-wallet market model topup --bundle starter --mandate <id>`; omit `--mandate` to request USDC authorization |
+| **Top up the AgentMarket Balance** | Recommend Card checkout with a `CARD_USD` mandate first; recommend USDC if no usable card | Use when the balance is low or negative | Both, step by step (card first, then USDC): `https://agentmarket.fluxapay.xyz/marketplace/topup.md`. Card: [LINKED-CARD.md](LINKED-CARD.md) and [TOKENGO.md](TOKENGO.md). USDC: `fluxa-wallet market model topup --bundle starter --mandate <id>`; omit `--mandate` to request USDC authorization |
 
 
 ## Opening Authorization URLs (UX Pattern)

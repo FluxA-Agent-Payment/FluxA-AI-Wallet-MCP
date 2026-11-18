@@ -99,7 +99,10 @@ AgentMarket supports two top-up payment methods:
   authorization or send a new approval link, then execute the top-up.
 
 `fluxa-wallet market model topup --amount 1` uses the USDC route. Card payments
-use the linked-card checkout flow in [LINKED-CARD.md](LINKED-CARD.md). Reuse the
+use the linked-card checkout flow in [LINKED-CARD.md](LINKED-CARD.md); the
+AgentMarket order and its attempt id come from
+`https://agentmarket.fluxapay.xyz/marketplace/topup.md`, which covers both
+routes step by step (a package or any amount from $1 to $1,000). Reuse the
 user's chosen method; otherwise recommend Card without asking a payment-method
 question. Recommend USDC only when there is no usable card. Do not silently
 switch an approved Card workflow to USDC. Verify the resulting AgentMarket
