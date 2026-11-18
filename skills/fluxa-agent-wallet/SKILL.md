@@ -38,15 +38,13 @@ fluxa-wallet --version
 
 Wallet operations require an Agent ID linked to the user's FluxA AgentWallet account.
 
-**First, check the wallet.** Run `fluxa-wallet status`. If `configured` and `wallet_linked` are both `true`, the wallet is ready. If status returns a wallet authorization URL, share it using the [approval link format](#opening-authorization-urls-ux-pattern) and recheck status after approval. If status is unknown, retry the check.
+**First, check the wallet.** Run `fluxa-wallet status`. If `configured` and `wallet_linked` are both `true`, continue the user's task. If status returns a wallet authorization URL, share it using the [approval link format](#opening-authorization-urls-ux-pattern) and recheck status after approval. If status is unknown, retry the check.
 
 **Otherwise, connect.** Run `fluxa-wallet connect --client "<your client name>"` using your AI client’s name, for example `Claude Code`, `Codex`, or `Manus`.
 
 - If it returns `connected: true`, credentials are ready. Use `status` to confirm wallet access.
-- If it returns an `authorization_url`, use the [approval link format](#opening-authorization-urls-ux-pattern) to ask the user to approve the agent identity connection. Run `fluxa-wallet connect-status --wait 100` and repeat while pending.
+- If it returns an `authorization_url`, use the [approval link format](#opening-authorization-urls-ux-pattern) to ask the user to approve the agent identity connection. Run `fluxa-wallet connect-status --wait 100` and repeat while pending. Once connected, continue the task.
 - If the service is temporarily unavailable, retry the command.
-
-Once the wallet is ready, follow Step 3 for a first installation, then continue the user's task.
 
 ### Step 3 — Trial Scenarios
 
