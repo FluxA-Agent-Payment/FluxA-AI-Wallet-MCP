@@ -172,6 +172,8 @@ This skill is an execution and handoff product, not a recommendation report.
 
 ## References
 
+- Hosted Shopify integration:
+  See [Shopify checkout service](references/shopify-e2b-service.md) for the E2B test service, its provider interfaces, and test-order acceptance.
 - Current implementation scope:
   Read [references/current-capabilities.md](references/current-capabilities.md) before claiming support for a merchant or payment surface.
 - Planned expansion:

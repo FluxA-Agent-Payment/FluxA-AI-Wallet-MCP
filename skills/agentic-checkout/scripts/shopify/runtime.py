@@ -593,7 +593,10 @@ def resolve_proxy_settings(args: Any) -> tuple[str | None, str | None, str | Non
 def load_secrets(path: Path) -> dict[str, Any]:
     if not path.exists():
         raise ValueError(f"Secrets file not found: {path}")
-    data = json.loads(path.read_text(encoding="utf-8"))
+    return normalize_profile(json.loads(path.read_text(encoding="utf-8")))
+
+
+def normalize_profile(data: dict[str, Any], *, require_postal: bool = True) -> dict[str, Any]:
     payment = data.get("payment") or {}
     email = normalize_text(payment.get("email") or data.get("email"))
     card_number = normalize_text(payment.get("card_number"))
@@ -647,7 +650,7 @@ def load_secrets(path: Path) -> dict[str, Any]:
             ("payment.postal", postal),
             ("payment.country", country),
         ]
-        if not value
+        if not value and (name != "payment.postal" or require_postal)
     ]
     if missing:
         raise ValueError(f"Secrets file is missing required fields: {', '.join(missing)}")
