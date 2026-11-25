@@ -1,6 +1,7 @@
 """Build the E2B template for the hosted Shopify checkout worker."""
 
 import sys
+from hashlib import sha256
 from pathlib import Path
 
 from e2b import Template
@@ -14,27 +15,34 @@ WORKER_ENV = {
     "PYTHONNOUSERSITE": "1",
     "PYTHONDONTWRITEBYTECODE": "1",
 }
+SOURCE_MARKER = "/opt/checkout/checkout-source.sha256"
+SERVICE_MODULES = ("buyer", "contract", "observation", "one_page", "worker", "preview")
+SKILL = Path(__file__).resolve().parents[2]
+
+
+def source_digest() -> str:
+    digest = sha256(IMAGE.encode())
+    files = [SKILL / "requirements-browser.txt", *(SKILL / "scripts/shopify").rglob("*.py")]
+    files.extend(SKILL / "scripts/checkout_service" / f"{module}.py" for module in SERVICE_MODULES)
+    for file in sorted(files):
+        digest.update(str(file.relative_to(SKILL)).encode() + b"\0" + sha256(file.read_bytes()).digest())
+    return digest.hexdigest()
 
 
 def build(name: str) -> str:
-    skill = Path(__file__).resolve().parents[2]
     template = (
-        Template(file_context_path=skill)
+        Template(file_context_path=SKILL)
         .from_image(IMAGE)
         .set_user("root")
         .set_workdir("/opt/checkout")
         .copy("requirements-browser.txt", "/opt/checkout/")
         .run_cmd("/usr/bin/python3 -m pip install --no-cache-dir -r requirements-browser.txt")
         .copy("scripts/shopify", "/opt/checkout/shopify")
-        .copy("scripts/checkout_service/buyer.py", "/opt/checkout/checkout_service/")
-        .copy("scripts/checkout_service/contract.py", "/opt/checkout/checkout_service/")
-        .copy("scripts/checkout_service/observation.py", "/opt/checkout/checkout_service/")
-        .copy("scripts/checkout_service/one_page.py", "/opt/checkout/checkout_service/")
-        .copy("scripts/checkout_service/worker.py", "/opt/checkout/checkout_service/")
-        .copy("scripts/checkout_service/preview.py", "/opt/checkout/checkout_service/")
-        .set_envs(WORKER_ENV)
-        .set_user("pwuser")
     )
+    for module in SERVICE_MODULES:
+        template = template.copy(f"scripts/checkout_service/{module}.py", "/opt/checkout/checkout_service/")
+    template = (template.run_cmd(f"echo {source_digest()} > {SOURCE_MARKER}")
+                .set_envs(WORKER_ENV).set_user("pwuser"))
     info = Template.build(template, name, cpu_count=2, memory_mb=2048, on_build_logs=print)
     return f"{name.rsplit(':', 1)[0]}:{info.build_id}"
 

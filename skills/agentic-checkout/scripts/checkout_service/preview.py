@@ -1,17 +1,17 @@
-"""Anonymous Shopify checkout preview. This worker only navigates and reads."""
+"""Resolve Shopify cart links and read anonymous checkout quotes."""
 
 import asyncio
 import json
 import re
 import sys
 from decimal import Decimal
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 from playwright.async_api import Error, Page, async_playwright
 
 from shopify.security import looks_like_security_verification
 
-from .contract import checkout_identity
+from .contract import RESOLVED_STORAGE, checkout_entry_host, checkout_identity
 from .observation import QUOTE_STATES, current_route, read_quote, read_shopify_checkout
 
 UCP_VERSION = "2026-08-25"
@@ -106,12 +106,40 @@ async def run_preview(
     return result
 
 
+async def resolve_checkout(page: Page, checkout_url: str, checkout_host: str, storefront_password: str | None) -> dict:
+    entry_host = checkout_entry_host(checkout_url)
+    try:
+        response = await page.goto(checkout_url, wait_until="domcontentloaded", timeout=25_000)
+        current = urlsplit(page.url)
+        if (storefront_password and current.scheme == "https"
+                and current.netloc in {entry_host, checkout_host} and current.path == "/password"):
+            field = page.locator("input[name='password']:visible")
+            if not await field.count():
+                await page.get_by_text("Enter using password", exact=True).click(timeout=5_000)
+            await field.fill(storefront_password)
+            async with page.expect_navigation(wait_until="domcontentloaded", timeout=10_000):
+                await field.press("Enter")
+            response = await page.goto(checkout_url, wait_until="domcontentloaded", timeout=20_000)
+        text = await page.locator("body").inner_text(timeout=5_000)
+        if ((response and response.status in {403, 429}) or looks_like_security_verification(text)
+                or urlsplit(page.url).path == "/password"):
+            return {"status": "manual_verification"}
+        if checkout_identity(page.url)[0] == checkout_host:
+            await page.context.storage_state(path=RESOLVED_STORAGE)
+            return {"status": "resolved", "checkout_url": page.url}
+    except (Error, ValueError):
+        pass
+    return {"status": "checkout_unavailable"}
+
+
 async def main(payload: dict) -> dict:
     async with async_playwright() as playwright:
         browser = await playwright.chromium.launch(args=["--disable-quic", "--enable-features=WebMCP"])
         page = await browser.new_page(locale="en-US", service_workers="block", accept_downloads=False)
         page.set_default_timeout(5_000)
         try:
+            if "checkout_url" in payload:
+                return await resolve_checkout(page, **payload)
             return await run_preview(page, **payload)
         finally:
             try:

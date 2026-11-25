@@ -1,5 +1,6 @@
 """Exercise the public hosted worker with Chromium and synthetic checkout responses."""
 
+import asyncio
 import json
 import time
 import unittest
@@ -73,7 +74,15 @@ EXPECTED_FORM = {
     "address2": "Suite 2",
     "paymentMethod": "card",
 }
-REVIEW_CASES = {"review", "review_steps", "review_reprice", "review_identity", "review_address", "review_challenge"}
+REVIEW_CASES = {
+    "review", "review_steps", "review_reprice", "review_identity", "review_address", "review_challenge",
+    "review_escape", "review_expired",
+}
+BLOCKED_REDIRECTS = {
+    "redirect_forbidden": (403, "Forbidden"),
+    "redirect_throttled": (429, "Please try again later"),
+    "redirect_challenge": (200, "Verify you are human"),
+}
 
 
 def checkout_document(scenario):
@@ -99,6 +108,7 @@ def checkout_document(scenario):
         pay_label = "Review order&#10;$12.34"
     visible_label = "Pay now" if scenario == "review_label_mismatch" else pay_label
     form_action = "review" if reviewed else "complete"
+    stale_decline = '<p role="alert">Your card was declined</p>' if scenario == "stale_decline" else ""
     duplicate = '<button id="checkout-pay-button" type="submit">Pay now</button>' if scenario == "ambiguous_payment" else ""
     extra_required = '<label>Tax ID <input required name="taxId"></label>' if scenario == "required_field" else ""
     separate_billing = scenario in {"distinct_billing", "wrong_billing"}
@@ -135,6 +145,12 @@ def checkout_document(scenario):
               return {error: {code: "navigation_failed"}};
             if (destination === "shipping" && document.querySelector('#informationOptIn').checked)
               return {error: {code: "buyer_action_required"}};
+            if (destination === "shipping")
+              state.fulfillment.methods[0].groups = [{
+                id: "shipment_1", selected_option_id: "other", options: [{id: "standard"}, {id: "other"}],
+              }];
+            if (destination === "payment" && state.fulfillment.methods[0].groups[0]?.selected_option_id !== "standard")
+              return {error: {code: "buyer_action_required"}};
             state.webmcp.step.current = destination;
             history.replaceState(null, "", destination);
             document.querySelector("#checkout-payment-fixture").hidden = destination !== "payment";
@@ -158,6 +174,7 @@ def checkout_document(scenario):
         <title>Checkout</title>
         <main>
           {information}
+          {stale_decline}
           <form><input autocomplete="email" name="email" value="unrelated@example.com"></form>
           <form id="{payment_form}" method="post" action="{CHECKOUT_URL}/{form_action}" {form_visibility}>
             <h2>Contact</h2>
@@ -206,6 +223,7 @@ def checkout_document(scenario):
           state.fulfillment = {{methods: [{{type: "shipping", destinations: [], groups: [
             {{id: "shipment_1", selected_option_id: "standard"}}
           ]}}]}};
+          if ({str(three_steps).lower()}) delete state.fulfillment.methods[0].groups;
           state.declared_fields = [{{key: "shop_pay_sign_up", value: true, required: false}}];
           state.discounts = {{codes: ["SPRING"]}};
           {route_configuration}
@@ -238,7 +256,7 @@ def checkout_document(scenario):
                 form.elements.billing_address_selector.value = billing === address ? "same" : "different";
                 form.elements.billingPostal.value = billing.postal_code;
               }}
-              if (checkout.discounts?.codes[0] === "SPRING" && method.groups[0]?.selected_option_id === "standard")
+              if (checkout.discounts?.codes[0] === "SPRING" && method.groups?.[0]?.selected_option_id === "standard")
                 state.status = "ready_for_complete";
               {market_rewrite}
               const values = {{
@@ -249,6 +267,8 @@ def checkout_document(scenario):
                 postalCode: address.postal_code, phone: address.phone_number,
               }};
               for (const [key, value] of Object.entries(values)) form.elements[key].value = value;
+              if ({str(scenario == "applied_update_timeout").lower()})
+                return {{ucp: {{status: "error"}}, error: {{code: "update_failed"}}}};
               return state;
             }},
           }});
@@ -286,6 +306,7 @@ def review_document(scenario):
     if scenario == "review_address":
         state["fulfillment"]["methods"][0]["destinations"][0]["street_address"] = "23 Main Street"
     challenge = "<p>Authenticate your payment</p>" if scenario == "review_challenge" else ""
+    wait = "await new Promise(resolve => setTimeout(resolve, 4000));" if scenario == "review_expired" else ""
     return f"""
         <html lang="en-US">
         <h1>Review order</h1>
@@ -297,7 +318,7 @@ def review_document(scenario):
         <script>
           document.modelContext.registerTool({{
             name: "get_checkout", description: "Checkout review", inputSchema: {{type: "object"}},
-            execute: () => ({json.dumps(state)}),
+            execute: async () => {{ {wait} return {json.dumps(state)}; }},
           }});
         </script>
     """
@@ -308,8 +329,11 @@ class HostedBrowserTest(unittest.IsolatedAsyncioTestCase):
         """Drive the browser because parser or worker mocks cannot prove which form is dispatched."""
         cases = {
             "confirmation": {"status": "submitted", "order_id": ORDER_ID},
+            # Shopify reports a timed-out update that nevertheless applied. Submit only after readback.
+            "applied_update_timeout": {"status": "submitted", "order_id": ORDER_ID},
             "reprice": {"status": "total_mismatch"},
             "decline": {"status": "payment_failed"},
+            "stale_decline": {"status": "submitted", "order_id": ORDER_ID},
             "wrong_region": {"status": "identity_incomplete"},
             "ambiguous_payment": {"status": "unsupported_checkout"},
             "wrong_button": {"status": "unsupported_checkout"},
@@ -317,6 +341,7 @@ class HostedBrowserTest(unittest.IsolatedAsyncioTestCase):
             "card_rewritten": {"status": "payment_fields_incomplete"},
             "late_identity": {"status": "identity_incomplete"},
             "shipping_changed": {"status": "checkout_not_ready"},
+            "unapproved_shipping": {"status": "checkout_not_ready"},
             "required_field": {"status": "identity_incomplete"},
             "no_receipt": {"status": "reconciliation_required"},
             "distinct_billing": {"status": "submitted", "order_id": ORDER_ID},
@@ -330,9 +355,12 @@ class HostedBrowserTest(unittest.IsolatedAsyncioTestCase):
             "review_identity": {"status": "checkout_unavailable"},
             "review_address": {"status": "identity_incomplete"},
             "review_challenge": {"status": "manual_verification"},
+            "review_escape": {"status": "reconciliation_required"},
+            "review_expired": {"status": "approval_expired"},
             "review_state": {"status": "checkout_not_ready"},
             "review_label_mismatch": {"status": "unsupported_checkout"},
             "no_native_card": {"status": "payment_method_unavailable"},
+            **{scenario: {"status": "manual_verification"} for scenario in BLOCKED_REDIRECTS},
         }
         async with async_playwright() as playwright:
             browser = await playwright.chromium.launch(args=["--enable-features=WebMCP"])
@@ -352,6 +380,22 @@ class HostedBrowserTest(unittest.IsolatedAsyncioTestCase):
         merchant_posts = []
         card_at_submit = []
         card_inputs = {}
+        server = None
+        escape_url = None
+
+        async def off_route_response(reader, writer):
+            try:
+                await reader.readuntil(b"\r\n\r\n")
+                status, body = BLOCKED_REDIRECTS.get(scenario, (200, '<p role="alert">Your card was declined</p>'))
+                payload = body.encode()
+                writer.write(
+                    f"HTTP/1.1 {status} Fixture\r\nContent-Type: text/html\r\n"
+                    f"Content-Length: {len(payload)}\r\nConnection: close\r\n\r\n".encode() + payload
+                )
+                await writer.drain()
+            finally:
+                writer.close()
+                await writer.wait_closed()
 
         def record_card_input(source, value):
             frame_url = source["frame"].url
@@ -364,17 +408,29 @@ class HostedBrowserTest(unittest.IsolatedAsyncioTestCase):
                 merchant_posts.append(request.url)
             if request.method == "POST" and request.url == f"{CHECKOUT_URL}/review":
                 reviewed.append(dict(parse_qsl(request.post_data or "")))
-                await route.fulfill(content_type="text/html", body=review_document(scenario))
+                if scenario == "review_escape":
+                    await route.fulfill(status=303, headers={"location": escape_url})
+                else:
+                    await route.fulfill(content_type="text/html", body=review_document(scenario))
             elif request.method == "POST" and request.url == f"{CHECKOUT_URL}/complete":
                 submitted.append(dict(parse_qsl(request.post_data or "")))
                 card_at_submit.append(card_inputs.copy())
-                destination = f"{CHECKOUT_URL}?declined=1" if scenario == "decline" else f"{CHECKOUT_URL}/thank-you"
+                suffix = {"decline": "?declined=1", "stale_decline": "?processing=1"}.get(scenario, "/thank-you")
+                destination = f"{CHECKOUT_URL}{suffix}"
                 await route.fulfill(
                     content_type="text/html",
                     body=f"<script>location.replace('{destination}');</script>",
                 )
-            elif request.url.split("?")[0] in {CHECKOUT_URL, f"{CHECKOUT_URL}/information"} and "declined=1" not in request.url:
-                await route.fulfill(content_type="text/html", body=checkout_document(scenario))
+            elif request.url == f"{CHECKOUT_URL}?processing=1":
+                await route.fulfill(content_type="text/html", body=f"""
+                    <p role="alert">Your card was declined</p>
+                    <script>setTimeout(() => location.replace('{CHECKOUT_URL}/thank-you'), 1500);</script>
+                """)
+            elif request.url in {CHECKOUT_URL, f"{CHECKOUT_URL}/information"}:
+                if scenario in BLOCKED_REDIRECTS:
+                    await route.fulfill(status=302, headers={"location": escape_url})
+                else:
+                    await route.fulfill(content_type="text/html", body=checkout_document(scenario))
             elif request.url == f"{CHECKOUT_URL}/thank-you":
                 receipt = {**QUOTE, "status": "completed", "order": {"id": ORDER_ID}}
                 if scenario == "no_receipt":
@@ -415,12 +471,17 @@ class HostedBrowserTest(unittest.IsolatedAsyncioTestCase):
                 await route.abort("blockedbyclient")
 
         try:
+            if scenario in BLOCKED_REDIRECTS or scenario == "review_escape":
+                # A redirected navigation bypasses Playwright routing for the original request.
+                server = await asyncio.start_server(off_route_response, "127.0.0.1", 0)
+                escape_url = f"http://127.0.0.1:{server.sockets[0].getsockname()[1]}/checkout-elsewhere"
             await context.expose_binding("recordFixtureCardInput", record_card_input)
             await context.route("**/*", respond)
             grant = CheckoutGrant(
                 checkout_url=f"{CHECKOUT_URL}/information" if scenario in {"three_steps", "review_steps"} else CHECKOUT_URL,
                 items={VARIANT_ID: 1}, total_minor_units=1234,
-                currency="USD", expires_at=time.time() + 300,
+                currency="USD", expires_at=time.time() + (4 if scenario == "review_expired" else 300),
+                shipping_options={} if scenario == "unapproved_shipping" else {"shipment_1": {"selected_option_id": "standard"}},
             )
             card_number = "2" if scenario == "decline" else "1"
             profile = {**PROFILE, "payment": {**PROFILE["payment"], "card_number": card_number}}
@@ -445,9 +506,10 @@ class HostedBrowserTest(unittest.IsolatedAsyncioTestCase):
                 return
             if scenario in {
                 "wrong_region", "required_field", "wrong_billing", "no_native_card",
-                "ambiguous_payment", "wrong_button", "review_label_mismatch", "review_state",
+                "ambiguous_payment", "wrong_button", "review_label_mismatch", "review_state", "unapproved_shipping",
+                *BLOCKED_REDIRECTS,
             }:
-                self.assertEqual(submitted, [])
+                self.assertEqual(merchant_posts, [])
                 self.assertEqual(card_inputs, {})
             elif scenario == "card_rewritten":
                 self.assertEqual(submitted, [])
@@ -469,6 +531,9 @@ class HostedBrowserTest(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(card_at_submit, [expected_card])
         finally:
             await context.close()
+            if server:
+                server.close()
+                await server.wait_closed()
 
     async def test_preview_retries_only_documented_initialization(self):
         """Prove that one read can survive native tool replacement and preserve other errors."""

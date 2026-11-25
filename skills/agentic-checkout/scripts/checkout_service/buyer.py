@@ -51,11 +51,39 @@ def shipping_method(state: dict) -> dict:
     return methods[0]
 
 
-def selected_groups(method: dict) -> dict:
-    return {
-        group["id"]: {key: group[key] for key in ("id", "selected_option_id", "selected_option_details") if key in group}
-        for group in method.get("groups", []) if group.get("selected_option_id")
-    }
+def shipping_groups(method: dict) -> dict:
+    groups = {}
+    for group in method.get("groups", []):
+        identity = group["id"]
+        if not isinstance(identity, str) or not identity or identity in groups:
+            raise ValueError("Expected distinct Shopify shipping group IDs.")
+        groups[identity] = group
+    return groups
+
+
+def approved_groups(method: dict, approved: dict) -> list[dict] | None:
+    groups = shipping_groups(method)
+    if groups.keys() != approved.keys():
+        return None
+    for identity, option in approved.items():
+        current = groups[identity]
+        available = current.get("options")
+        option_id = option["selected_option_id"]
+        if available is None:
+            if current.get("selected_option_id") != option_id:
+                return None
+        elif not any(candidate.get("id") == option_id for candidate in available):
+            return None
+    return [{"id": identity, **option} for identity, option in approved.items()]
+
+
+def shipping_matches(method: dict, approved: dict) -> bool:
+    groups = shipping_groups(method)
+    return groups.keys() == approved.keys() and all(
+        groups[identity].get("selected_option_id") == option["selected_option_id"]
+        and (groups[identity].get("selected_option_details") or {}) == option.get("selected_option_details", {})
+        for identity, option in approved.items()
+    )
 
 
 @dataclass(frozen=True, repr=False)
@@ -71,15 +99,13 @@ class Guest:
         same = data["billing_same_as_delivery"] == "true"
         return cls(data["guest_email"], delivery, delivery if same else address(data, "billing", profile), same)
 
-    def update(self, state: dict, method: dict) -> dict:
-        if bool(method) != bool(self.delivery):
-            raise ValueError("The approved delivery does not match the checkout.")
+    def update(self, state: dict, groups: list[dict] | None) -> dict:
         update = {"buyer": {"email": self.email}}
         if self.delivery:
-            update["fulfillment"] = {"methods": [{
-                "type": "shipping", "destinations": [self.delivery],
-                "groups": list(selected_groups(method).values()),
-            }]}
+            method = {"type": "shipping", "destinations": [self.delivery]}
+            if groups is not None:
+                method["groups"] = groups
+            update["fulfillment"] = {"methods": [method]}
         if not self.same_as_delivery:
             update["payment"] = {"instruments": [{"billing_address": self.billing}]}
         discounts = state.get("discounts", {}).get("codes")
@@ -93,13 +119,16 @@ class Guest:
             update["declared_fields"] = declared
         return update
 
-    def matches(self, state: dict, method: dict) -> bool:
+    def contact_matches(self, state: dict, method: dict) -> bool:
         if state.get("buyer", {}).get("email", "").casefold() != self.email.casefold():
             return False
         destinations = method.get("destinations", [])
         if self.delivery and (len(destinations) != 1 or not address_matches(destinations[0], self.delivery)):
             return False
-        if not self.delivery and method:
+        return bool(self.delivery) == bool(method)
+
+    def matches(self, state: dict, method: dict) -> bool:
+        if not self.contact_matches(state, method):
             return False
         instruments = state.get("payment", {}).get("instruments", [])
         if len(instruments) != 1 or not address_matches(instruments[0].get("billing_address"), self.billing):

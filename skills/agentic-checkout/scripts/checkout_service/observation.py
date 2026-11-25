@@ -120,27 +120,29 @@ async def read_shopify_checkout(page: Page) -> tuple[dict | None, str]:
     return None, status if current_route(page) == route else "checkout_changed"
 
 
-async def change_shopify_checkout(page: Page, name: str, args: dict, timeout: int) -> bool:
+async def change_shopify_checkout(page: Page, name: str, args: dict, timeout: int) -> dict | None:
     route = current_route(page)
     if route is None or route[2] == "thank-you":
-        return False
+        return None
     try:
         async with asyncio.timeout(timeout):
             document = await page.evaluate_handle("document")
             state = await document.evaluate(TOOL_CALL, {"name": name, "args": args})
-    except (Error, TimeoutError):
-        return False
+    except (Error, TimeoutError, ValueError):
+        return None
     current = current_route(page)
-    return (
+    if (
         current is not None and current[:2] == route[:2] and current[2] != "thank-you"
         and isinstance(state, dict) and isinstance(state.get("ucp"), dict)
         and state["ucp"].get("status") == "success"
-    )
+    ):
+        return state
+    return None
 
 
-async def update_shopify_checkout(page: Page, checkout: dict) -> bool:
+async def update_shopify_checkout(page: Page, checkout: dict) -> dict | None:
     return await change_shopify_checkout(page, "update_checkout", {"checkout": checkout}, 32)
 
 
-async def navigate_shopify_checkout(page: Page, destination: str) -> bool:
-    return await change_shopify_checkout(page, "navigate_checkout", {"destination": destination}, 16)
+async def navigate_shopify_checkout(page: Page, destination: str) -> None:
+    await change_shopify_checkout(page, "navigate_checkout", {"destination": destination}, 16)

@@ -6,7 +6,7 @@ from pathlib import Path
 from uuid import UUID
 
 from .api import create_app
-from .contract import CheckoutGrant, PreviewStore, TestStore, checkout_identity
+from .contract import CheckoutGrant, PreviewStore, TestStore, checkout_entry_host
 
 
 def app():
@@ -36,8 +36,14 @@ def app():
         total_minor_units=int(os.environ["CHECKOUT_TEST_TOTAL_MINOR_UNITS"]),
         currency=os.environ["CHECKOUT_TEST_CURRENCY"],
         expires_at=float(os.environ["CHECKOUT_TEST_EXPIRES_AT"]),
+        shipping_options=json.loads(os.environ.get("CHECKOUT_TEST_SHIPPING_OPTIONS", "{}")),
     )
-    host, _ = checkout_identity(grant.checkout_url)
+    host = checkout_entry_host(grant.checkout_url)
+    checkout_host = os.environ.get("CHECKOUT_TEST_CHECKOUT_HOST", host)
+    webhook_shop = os.environ.get("CHECKOUT_TEST_WEBHOOK_SHOP")
+    webhook_secret = os.environ.get("CHECKOUT_TEST_WEBHOOK_SECRET")
+    if bool(webhook_shop) != bool(webhook_secret):
+        raise ValueError("Configure both the Shopify webhook shop and app client secret.")
     profile = {
         "email": "checkout@example.com",
         "delivery": json.loads(os.environ["CHECKOUT_TEST_DELIVERY"]),
@@ -54,11 +60,13 @@ def app():
     store = TestStore(
         gateway=gateway,
         network_hosts=tuple(os.environ.get("CHECKOUT_TEST_NETWORK_HOSTS", "cdn.shopify.com").split()),
+        checkout_host=checkout_host,
     )
     return create_app(
         authorize=lambda attempt: grant if attempt == approval_id else None,
         credentials=lambda _: profile,
         card=lambda _: test_card,
         test_stores={host: store},
+        order_webhooks={webhook_shop: (checkout_host, webhook_secret)} if webhook_shop else None,
         **service,
     )

@@ -21,15 +21,21 @@ export type PreviewResult =
       total?: { currency: string; display_amount: string };
     }
   | {
-      status: "navigation_failed" | "manual_verification" | "checkout_unavailable" | "cart_mismatch";
+      status: "navigation_failed" | "manual_verification" | "checkout_unavailable";
       merchant: string;
     }
+  | { status: "cart_mismatch"; merchant: string; source?: "shopify_webmcp" }
   | { status: "browser_unavailable" | "worker_unavailable" | "preview_failed" };
 
-export interface AttemptResult {
-  status: string;
-  order_id?: string;
-}
+export type AttemptResult =
+  | { status: "submitted"; order_id: string }
+  | {
+      status: "processing" | "test_data_required" | "approval_expired" | "manual_verification"
+        | "unsupported_checkout" | "identity_incomplete" | "total_mismatch" | "payment_fields_incomplete"
+        | "checkout_unavailable" | "checkout_not_ready" | "cart_mismatch" | "payment_method_unavailable"
+        | "payment_failed" | "reconciliation_required" | "browser_unavailable" | "credentials_unavailable";
+      order_id?: never;
+    };
 
 export class ShopifyCheckoutClient {
   constructor(options: { baseUrl: string; token: string; timeoutMs?: number });

@@ -2,10 +2,12 @@
 
 import asyncio
 import json
+import os
 import re
 import sys
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from urllib.parse import urlsplit
 
 from playwright.async_api import Error, Locator, Page, async_playwright
@@ -13,8 +15,11 @@ from playwright.async_api import Error, Locator, Page, async_playwright
 from shopify.runtime import build_sensitive_data, normalize_profile
 from shopify.security import looks_like_security_verification
 
-from .buyer import Guest, selected_groups, shipping_method
-from .contract import ORDER_ID, CheckoutGrant, checkout_identity, checkout_route, uses_test_data, validate_approval
+from .buyer import Guest, approved_groups, shipping_matches, shipping_method
+from .contract import (
+    ORDER_ID, RECEIPT_PATH, RECEIPT_TIMEOUT, RESOLVED_STORAGE,
+    CheckoutGrant, checkout_identity, checkout_route, uses_test_data, validate_approval,
+)
 from .observation import (
     Quote, checkout_step, current_route, navigate_shopify_checkout, read_quote, read_shopify_checkout, read_total,
     update_shopify_checkout,
@@ -32,9 +37,16 @@ def at_checkout(page: Page, identity: tuple[str, str]) -> bool:
         return False
 
 
-async def post_submit(page: Page, identity: tuple[str, str], checkout_id: str, approved: Quote) -> dict:
+async def shows_decline(page: Page) -> bool:
+    alerts = await page.get_by_role("alert").filter(visible=True).all_inner_texts()
+    return any(DECLINED.search(alert) for alert in alerts)
+
+
+async def post_submit(
+    page: Page, identity: tuple[str, str], checkout_id: str, approved: Quote, *, watch_for_decline: bool = False,
+) -> dict:
     try:
-        async with asyncio.timeout(25):
+        async with asyncio.timeout(RECEIPT_TIMEOUT):
             while True:
                 if current_route(page) == (*identity, "thank-you"):
                     state, _ = await read_shopify_checkout(page)
@@ -48,9 +60,8 @@ async def post_submit(page: Page, identity: tuple[str, str], checkout_id: str, a
                         ):
                             return {"status": "submitted", "order_id": order_id}
                         return {"status": "reconciliation_required"}
-                elif at_checkout(page, identity):
-                    alerts = await page.get_by_role("alert").filter(visible=True).all_inner_texts()
-                    if any(DECLINED.search(alert) for alert in alerts):
+                elif watch_for_decline and at_checkout(page, identity) and await shows_decline(page):
+                    if at_checkout(page, identity):
                         return {"status": "payment_failed"}
                 await asyncio.sleep(0.3)
     except (Error, TimeoutError):
@@ -67,11 +78,14 @@ class PreparedCheckout:
     kind: str
     checkout_id: str
     guest: Guest
-    groups: dict
+    route: tuple[str, str, str | None]
 
 
-async def approved_checkout(page: Page, grant: CheckoutGrant, identity: tuple[str, str], checkout_id: str | None = None):
-    state, _ = await read_shopify_checkout(page)
+def check_snapshot(
+    page: Page, grant: CheckoutGrant, identity: tuple[str, str], state: dict | None, checkout_id: str | None = None,
+) -> Quote:
+    if time.time() >= grant.expires_at:
+        raise CheckoutStopped("approval_expired")
     quote = read_quote(state) if state else None
     found_id = state.get("id") if state else None
     if not at_checkout(page, identity) or not quote or not isinstance(found_id, str) or not found_id:
@@ -80,29 +94,65 @@ async def approved_checkout(page: Page, grant: CheckoutGrant, identity: tuple[st
         raise CheckoutStopped("checkout_unavailable")
     if quote.items != grant.items:
         raise CheckoutStopped("cart_mismatch")
-    if time.time() >= grant.expires_at:
-        raise CheckoutStopped("approval_expired")
-    return state, quote
+    return quote
 
 
-def approved_details(state: dict, guest: Guest, groups: dict) -> dict:
+async def approved_checkout(page: Page, grant: CheckoutGrant, identity: tuple[str, str], checkout_id: str | None = None):
+    state, _ = await read_shopify_checkout(page)
+    return state, check_snapshot(page, grant, identity, state, checkout_id)
+
+
+def approved_details(state: dict, guest: Guest, groups: dict) -> None:
     method = shipping_method(state)
     if not guest.matches(state, method):
         raise CheckoutStopped("identity_incomplete")
-    current_groups = selected_groups(method)
-    if any(current_groups.get(key) != group for key, group in groups.items()):
+    if not shipping_matches(method, groups):
         raise CheckoutStopped("checkout_not_ready")
-    return current_groups
 
 
-async def advance_to_payment(page: Page, grant: CheckoutGrant, identity: tuple[str, str], checkout_id: str):
-    state, _ = await approved_checkout(page, grant, identity, checkout_id)
+async def update_guest(
+    page: Page, grant: CheckoutGrant, identity: tuple[str, str], state: dict, guest: Guest, groups: list[dict] | None,
+) -> dict:
+    route = current_route(page)
+    updated = await update_shopify_checkout(page, guest.update(state, groups))
+    if updated is None and current_route(page) == route:
+        # Shopify can apply an update even when its WebMCP response fails.
+        updated, _ = await read_shopify_checkout(page)
+    if not updated or current_route(page) != route or checkout_step(updated) != checkout_step(state):
+        raise CheckoutStopped("checkout_not_ready")
+    check_snapshot(page, grant, identity, updated, state["id"])
+    method = shipping_method(updated)
+    if not guest.contact_matches(updated, method):
+        raise CheckoutStopped("identity_incomplete")
+    if groups is not None and not shipping_matches(method, grant.shipping_options):
+        raise CheckoutStopped("checkout_not_ready")
+    return updated
+
+
+async def advance_to_payment(page: Page, grant: CheckoutGrant, identity: tuple[str, str], state: dict, guest: Guest):
+    checkout_id = state["id"]
+    method = shipping_method(state)
+    if bool(method) != bool(guest.delivery):
+        raise CheckoutStopped("identity_incomplete")
+    if bool(method) != bool(grant.shipping_options):
+        raise CheckoutStopped("checkout_not_ready")
     step = checkout_step(state)
+    current = step[0] if step else None
+    if current_route(page) != (*identity, current):
+        raise CheckoutStopped("checkout_unavailable")
+
+    groups = approved_groups(method, grant.shipping_options) if current != "information" else None
+    if current in {"shipping", "payment"} and groups is None:
+        raise CheckoutStopped("checkout_not_ready")
+    state = await update_guest(page, grant, identity, state, guest, groups)
+    if current is None and groups is None:
+        groups = approved_groups(shipping_method(state), grant.shipping_options)
+        if groups is None:
+            raise CheckoutStopped("checkout_not_ready")
+        await update_guest(page, grant, identity, state, guest, groups)
     while step and step[0] in {"information", "shipping"}:
         current, steps = step
         destination = steps[steps.index(current) + 1]
-        if current_route(page) != (*identity, current):
-            raise CheckoutStopped("checkout_unavailable")
         if current == "information" and not await opt_out(page, fill=True):
             raise CheckoutStopped("identity_incomplete")
         await navigate_shopify_checkout(page, destination)
@@ -110,6 +160,11 @@ async def advance_to_payment(page: Page, grant: CheckoutGrant, identity: tuple[s
         step = checkout_step(state)
         if step != (destination, steps) or current_route(page) != (*identity, destination):
             raise CheckoutStopped("checkout_not_ready")
+        if destination == "shipping":
+            groups = approved_groups(shipping_method(state), grant.shipping_options)
+            if groups is None:
+                raise CheckoutStopped("checkout_not_ready")
+            await update_guest(page, grant, identity, state, guest, groups)
     if current_route(page) != (*identity, "payment" if step else None):
         raise CheckoutStopped("checkout_unavailable")
 
@@ -128,7 +183,9 @@ async def prepare_checkout(page: Page, grant: CheckoutGrant, profile: dict, gate
         return "approval_expired", None
 
     try:
-        await page.goto(grant.checkout_url, wait_until="domcontentloaded", timeout=25_000)
+        response = await page.goto(grant.checkout_url, wait_until="domcontentloaded", timeout=25_000)
+        if response and response.status in {403, 429}:
+            return "manual_verification", None
         current = urlsplit(page.url)
         if current.scheme == "https" and current.netloc == identity[0] and current.path.rstrip("/") == "/password":
             password = profile.get("storefront_password")
@@ -138,14 +195,19 @@ async def prepare_checkout(page: Page, grant: CheckoutGrant, profile: dict, gate
             if not await field.count():
                 await page.get_by_text("Enter using password", exact=True).click(timeout=5_000)
             await field.fill(password, timeout=5_000)
-            async with page.expect_navigation(wait_until="domcontentloaded", timeout=15_000):
+            async with page.expect_navigation(wait_until="domcontentloaded", timeout=15_000) as navigation:
                 await field.press("Enter", timeout=5_000)
-            await page.goto(grant.checkout_url, wait_until="domcontentloaded", timeout=25_000)
-        if not at_checkout(page, identity):
-            return "checkout_unavailable", None
+            response = await navigation.value
+            if response and response.status in {403, 429}:
+                return "manual_verification", None
+            response = await page.goto(grant.checkout_url, wait_until="domcontentloaded", timeout=25_000)
+            if response and response.status in {403, 429}:
+                return "manual_verification", None
         text = await page.locator("body").inner_text(timeout=5_000)
         if looks_like_security_verification(text) or MANUAL.search(text):
             return "manual_verification", None
+        if not at_checkout(page, identity):
+            return "checkout_unavailable", None
     except Error:
         return "checkout_unavailable", None
 
@@ -157,12 +219,9 @@ async def prepare_checkout(page: Page, grant: CheckoutGrant, profile: dict, gate
         checkout_id = initial["id"]
         step = checkout_step(initial)
         guest = Guest.from_profile(profile, data)
-        method = shipping_method(initial)
-        groups = selected_groups(method)
-        update = guest.update(initial, method)
-        if initial["status"] == "requires_escalation" or not await update_shopify_checkout(page, update):
+        if initial["status"] == "requires_escalation":
             return "checkout_not_ready", None
-        await advance_to_payment(page, grant, identity, checkout_id)
+        await advance_to_payment(page, grant, identity, initial, guest)
     except CheckoutStopped as exc:
         return str(exc), None
     except (AttributeError, Error, KeyError, TypeError, ValueError):
@@ -184,9 +243,11 @@ async def prepare_checkout(page: Page, grant: CheckoutGrant, profile: dict, gate
             if fill and step and quote == approved:
                 method = shipping_method(state)
                 if not guest.matches(state, method):
-                    if not await update_shopify_checkout(page, guest.update(state, method)):
+                    groups = approved_groups(method, grant.shipping_options)
+                    if groups is None or not shipping_matches(method, grant.shipping_options):
                         return "checkout_not_ready", None
-                    state, quote = await approved_checkout(page, grant, identity, checkout_id)
+                    state = await update_guest(page, grant, identity, state, guest, groups)
+                    quote = read_quote(state)
         except CheckoutStopped as exc:
             return str(exc), None
         except (AttributeError, KeyError, TypeError, ValueError):
@@ -198,7 +259,7 @@ async def prepare_checkout(page: Page, grant: CheckoutGrant, profile: dict, gate
         if quote != approved:
             return "total_mismatch", None
         try:
-            groups = approved_details(state, guest, groups)
+            approved_details(state, guest, grant.shipping_options)
         except CheckoutStopped as exc:
             return str(exc), None
         except (AttributeError, KeyError, TypeError, ValueError):
@@ -238,27 +299,17 @@ async def prepare_checkout(page: Page, grant: CheckoutGrant, profile: dict, gate
     if time.time() >= grant.expires_at:
         return "approval_expired", None
     return ("review_ready" if kind == "review" else "ready",
-            PreparedCheckout(button, kind, checkout_id, guest, groups))
+            PreparedCheckout(button, kind, checkout_id, guest, payment_route))
 
 
-def review_or_receipt(url: str, identity: tuple[str, str]) -> bool:
+def left_payment(url: str, route: tuple[str, str, str | None]) -> bool:
     try:
-        route = checkout_route(url)
+        return checkout_route(url) != route
     except ValueError:
-        return False
-    return route[:2] == identity and route[2] in {"review", "thank-you"}
+        return True
 
 
-async def reviewed_payment(
-    page: Page, grant: CheckoutGrant, identity: tuple[str, str], prepared: PreparedCheckout,
-) -> Locator:
-    state, quote = await approved_checkout(page, grant, identity, prepared.checkout_id)
-    if quote != Quote(grant.items, grant.currency, grant.total_minor_units):
-        raise CheckoutStopped("total_mismatch")
-    approved_details(state, prepared.guest, prepared.groups)
-    step = checkout_step(state)
-    if current_route(page) != (*identity, "review") or (step and step[0] != "review"):
-        raise CheckoutStopped("checkout_not_ready")
+def check_review(state: dict) -> None:
     interactive = [message for message in state.get("messages", [])
                    if isinstance(message, dict) and str(message.get("severity", "")).startswith("requires_buyer_")]
     if any(message.get("severity") != "requires_buyer_review"
@@ -266,6 +317,9 @@ async def reviewed_payment(
         raise CheckoutStopped("manual_verification")
     if state["status"] != "ready_for_complete" and not (state["status"] == "requires_escalation" and interactive):
         raise CheckoutStopped("checkout_not_ready")
+
+
+async def reviewed_payment(page: Page, quote: Quote) -> Locator:
     text = await page.locator("body").inner_text(timeout=5_000)
     if looks_like_security_verification(text) or MANUAL.search(text):
         raise CheckoutStopped("manual_verification")
@@ -278,43 +332,97 @@ async def reviewed_payment(
     return action[1]
 
 
+async def check_payment_snapshot(
+    page: Page, grant: CheckoutGrant, identity: tuple[str, str], approved: Quote,
+    prepared: PreparedCheckout, *, review: bool,
+) -> None:
+    route = (*identity, "review") if review else prepared.route
+    state, quote = await approved_checkout(page, grant, identity, prepared.checkout_id)
+    if quote != approved:
+        raise CheckoutStopped("total_mismatch")
+    approved_details(state, prepared.guest, grant.shipping_options)
+    step = checkout_step(state)
+    if current_route(page) != route or (step and step[0] != route[2]):
+        raise CheckoutStopped("checkout_not_ready")
+    if review:
+        check_review(state)
+    elif (state["status"] != "ready_for_complete"
+          or step and (("review" in step[1]) != (prepared.kind == "review"))):
+        raise CheckoutStopped("checkout_not_ready")
+
+
+async def click_approved(
+    page: Page, grant: CheckoutGrant, identity: tuple[str, str], approved: Quote,
+    prepared: PreparedCheckout, button: Locator, *, review: bool,
+) -> bool:
+    try:
+        handle = await button.element_handle(timeout=1_000)
+        watch_for_decline = (review or prepared.kind == "pay") and not await shows_decline(page)
+    except Error as exc:
+        raise CheckoutStopped("unsupported_checkout") from exc
+    await check_payment_snapshot(page, grant, identity, approved, prepared, review=review)
+    timeout = min(1_000, int((grant.expires_at - time.time()) * 1_000))
+    if timeout <= 0:
+        raise CheckoutStopped("approval_expired")
+    # A pinned handle avoids resolving the submit control again in a replacement document.
+    await handle.click(timeout=timeout, no_wait_after=True)
+    return watch_for_decline
+
+
 async def run_checkout(page: Page, grant: CheckoutGrant, profile: dict, gateway: str) -> dict:
     status, prepared = await prepare_checkout(page, grant, profile, gateway)
     if prepared is None:
         return {"status": status}
     identity = checkout_identity(grant.checkout_url)
     approved = Quote(grant.items, grant.currency, grant.total_minor_units)
-    button = prepared.button
+    try:
+        watch_for_decline = await click_approved(page, grant, identity, approved, prepared, prepared.button, review=False)
+    except CheckoutStopped as exc:
+        return {"status": str(exc)}
+    except Error:
+        return await post_submit(page, identity, prepared.checkout_id, approved)
+    except (AttributeError, KeyError, TypeError, ValueError):
+        return {"status": "checkout_not_ready"}
+
     if prepared.kind == "review":
         try:
-            await button.click(timeout=5_000)
-            await page.wait_for_url(lambda url: review_or_receipt(url, identity), timeout=10_000)
+            await page.wait_for_url(lambda url: left_payment(url, prepared.route), timeout=10_000)
         except Error:
             return await post_submit(page, identity, prepared.checkout_id, approved)
-        if current_route(page) == (*identity, "thank-you"):
-            return await post_submit(page, identity, prepared.checkout_id, approved)
+        route = current_route(page)
+        if route != (*identity, "review"):
+            if route == (*identity, "thank-you"):
+                return await post_submit(page, identity, prepared.checkout_id, approved)
+            return {"status": "reconciliation_required"}
         try:
-            button = await reviewed_payment(page, grant, identity, prepared)
+            await check_payment_snapshot(page, grant, identity, approved, prepared, review=True)
+            button = await reviewed_payment(page, approved)
         except CheckoutStopped as exc:
             return {"status": str(exc)}
         except (AttributeError, Error, KeyError, TypeError, ValueError):
             return {"status": "checkout_not_ready"}
-    if time.time() >= grant.expires_at:
-        return {"status": "approval_expired"}
-    try:
-        await button.click(timeout=5_000)
-        return await post_submit(page, identity, prepared.checkout_id, approved)
-    except Exception:
-        # A lost browser response may follow a successful click.
-        return {"status": "reconciliation_required"}
+        try:
+            watch_for_decline = await click_approved(page, grant, identity, approved, prepared, button, review=True)
+        except CheckoutStopped as exc:
+            return {"status": str(exc)}
+        except Error:
+            return await post_submit(page, identity, prepared.checkout_id, approved)
+        except (AttributeError, KeyError, TypeError, ValueError):
+            return {"status": "checkout_not_ready"}
+    return await post_submit(page, identity, prepared.checkout_id, approved, watch_for_decline=watch_for_decline)
 
 
 async def main(payload: dict) -> dict:
     async with async_playwright() as playwright:
         browser = await playwright.chromium.launch(args=["--disable-quic", "--enable-features=WebMCP"])
-        page = await browser.new_page(locale="en-US", service_workers="block", accept_downloads=False)
-        page.set_default_timeout(5_000)
+        storage = Path(RESOLVED_STORAGE)
         try:
+            page = await browser.new_page(
+                locale="en-US", service_workers="block", accept_downloads=False,
+                storage_state=storage if storage.is_file() else None,
+            )
+            storage.unlink(missing_ok=True)
+            page.set_default_timeout(5_000)
             return await run_checkout(page, CheckoutGrant(**payload["grant"]), payload["profile"], payload["gateway"])
         finally:
             try:
@@ -328,4 +436,12 @@ if __name__ == "__main__":
         outcome = asyncio.run(main(json.loads(sys.stdin.readline(64 * 1024))))
     except Exception:
         outcome = {"status": "reconciliation_required"}
-    print(json.dumps(outcome), flush=True)
+    serialized = json.dumps(outcome)
+    receipt = Path(RECEIPT_PATH)
+    pending = receipt.with_name(f".{receipt.name}.{os.getpid()}")
+    try:
+        pending.write_text(serialized, encoding="utf-8")
+        pending.replace(receipt)
+    except OSError:
+        pass
+    print(serialized, flush=True)
