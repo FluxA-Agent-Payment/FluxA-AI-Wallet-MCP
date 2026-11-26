@@ -17,46 +17,36 @@
   </header>
 
   <main class="shell">
-    <section class="hero" aria-labelledby="page-title">
-      <span class="eyebrow">SHOPIFY CHECKOUT DEMO</span>
-      <h1 id="page-title">From product search<br class="wide"> to checkout.</h1>
-      <p>Find a product by name or link, then review your cart and continue to checkout.</p>
-    </section>
+    <h1>Shopping demo</h1>
 
     <div class="workspace">
-      <div class="column">
-        <section class="panel" aria-labelledby="search-title">
-          <h2 id="search-title">Find products</h2>
-          <form id="search" class="stack">
-            <label class="visually-hidden" for="query">Your shopping search</label>
-            <div class="search-box">
-              <input id="query" placeholder="Describe what you’re looking for or paste a product URL" maxlength="2048" required>
-              <button id="search-button" class="button primary" type="submit">Search <span aria-hidden="true">↗</span></button>
-            </div>
-            <div class="market">
-              <label for="country">Ship to</label>
-              <input id="country" aria-label="Ship to country code" value="US" minlength="2" maxlength="2" pattern="[a-zA-Z]{2}" size="2" required spellcheck="false" autocapitalize="characters">
-              <label for="currency">Search currency</label>
-              <input id="currency" value="USD" minlength="3" maxlength="3" pattern="[a-zA-Z]{3}" size="3" required spellcheck="false" autocapitalize="characters">
-            </div>
-          </form>
-          <div id="search-response" class="search-response" hidden>
-            <p id="query-message" class="query-message"></p>
-            <p id="search-note" class="muted" role="status"></p>
-            <div id="results" class="results"></div>
+      <section class="panel" aria-labelledby="search-title">
+        <h2 id="search-title">Find a product</h2>
+        <form id="search" class="stack">
+          <label class="visually-hidden" for="query">Product name or URL</label>
+          <div class="search-box">
+            <input id="query" placeholder="Product name or URL" maxlength="2048" required>
+            <button id="search-button" class="button primary" type="submit">Search</button>
           </div>
-        </section>
+          <div class="market">
+            <label for="country">Ship to</label>
+            <input id="country" aria-label="Ship to country code" value="US" minlength="2" maxlength="2" pattern="[a-zA-Z]{2}" size="2" required spellcheck="false" autocapitalize="characters">
+            <label for="currency">Currency</label>
+            <input id="currency" value="USD" minlength="3" maxlength="3" pattern="[a-zA-Z]{3}" size="3" required spellcheck="false" autocapitalize="characters">
+          </div>
+        </form>
+        <p id="search-note" class="muted" role="status" hidden></p>
+        <div id="results" class="results"></div>
 
-        <section class="panel test-panel" aria-labelledby="test-title">
-          <h2 id="test-title">Test products</h2>
-          <p id="test-note" class="muted">Connect to see products from configured test stores.</p>
+        <details>
+          <summary>Test products</summary>
           <form id="fixtures" class="fixture-row" hidden>
             <label class="visually-hidden" for="fixture">Test product</label>
             <select id="fixture" required></select>
             <button id="fixture-add" class="button secondary" type="submit">Add to cart</button>
           </form>
-          <details>
-            <summary>Enter a test variant manually</summary>
+          <details class="manual-entry">
+            <summary>Enter a variant ID</summary>
             <form id="manual" class="stack">
               <div class="field-row">
                 <label>Merchant domain<input id="merchant" list="merchant-list" placeholder="store.myshopify.com" required autocomplete="off" spellcheck="false"></label>
@@ -66,48 +56,40 @@
               <button id="manual-add" class="button secondary start" type="submit">Add variant</button>
             </form>
           </details>
-        </section>
-      </div>
+        </details>
+      </section>
 
-      <div class="column checkout-column">
-        <section class="panel" aria-labelledby="cart-title">
-          <div class="section-heading">
-            <h2 id="cart-title">Your cart</h2>
-            <span id="cart-count" class="count" aria-label="Cart item quantity">0</span>
-          </div>
-          <p id="cart-empty" class="empty">Products you add will appear here.</p>
-          <p id="cart-merchant" class="muted" hidden></p>
-          <ul id="cart-items" class="cart-items"></ul>
-          <p id="selection-note" class="notice" role="status" hidden></p>
-          <div id="delivery" class="stack"></div>
-          <button id="quote-button" class="button primary full" type="button" disabled>Get checkout quote</button>
-        </section>
-
-        <section class="panel" aria-labelledby="checkout-title">
-          <div class="section-heading">
-            <h2 id="checkout-title">Checkout</h2>
-            <span id="purchase-status" class="status" role="status">Awaiting cart</span>
-          </div>
-          <p id="checkout-note" class="muted" role="status">Get a quote to review the merchant’s total and delivery terms.</p>
-          <dl id="quote-totals" class="totals" hidden></dl>
-          <ul id="quote-messages" class="quote-details muted" aria-label="Merchant checkout messages" hidden></ul>
-          <ul id="quote-links" class="quote-details muted" aria-label="Merchant policies" hidden></ul>
-          <p id="quote-expiry" class="muted expiry" hidden></p>
-          <dl id="receipt" class="receipt" hidden></dl>
-          <a id="merchant-checkout" class="button primary full" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer" hidden>Continue to Shopify checkout</a>
-          <button id="review-button" class="button primary full" type="button" hidden>Review and approve</button>
-          <p id="purchase-error" class="notice" role="alert" hidden></p>
-          <div class="actions">
-            <button id="refresh-button" class="text-button" type="button" hidden>Refresh status</button>
-            <button id="new-cart" class="text-button" type="button" hidden>Start a new cart</button>
-          </div>
-          <details id="activity" hidden>
-            <summary>Purchase activity</summary>
-            <ol id="events" class="events"></ol>
-            <p id="event-note" class="muted">No events received yet.</p>
-          </details>
-        </section>
-      </div>
+      <section class="panel" aria-labelledby="cart-title">
+        <div class="section-heading">
+          <h2 id="cart-title">Cart</h2>
+          <span id="cart-count" class="count" role="status" hidden></span>
+        </div>
+        <p id="cart-empty" class="muted">Your cart is empty.</p>
+        <ul id="cart-items" class="cart-items"></ul>
+        <p id="cart-merchant" class="muted" hidden></p>
+        <p id="selection-note" class="notice" role="status" hidden></p>
+        <div id="delivery" class="stack"></div>
+        <p id="purchase-status" class="status" role="status" hidden></p>
+        <p id="checkout-note" class="muted" role="status" hidden></p>
+        <dl id="quote-totals" class="totals" hidden></dl>
+        <ul id="quote-messages" class="quote-details muted" aria-label="Merchant checkout messages" hidden></ul>
+        <ul id="quote-links" class="quote-details muted" aria-label="Merchant policies" hidden></ul>
+        <p id="quote-expiry" class="muted" hidden></p>
+        <dl id="receipt" class="receipt" hidden></dl>
+        <button id="quote-button" class="button primary full" type="button" hidden disabled>Get quote</button>
+        <a id="merchant-checkout" class="button primary full" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer" hidden>Continue to Shopify checkout</a>
+        <button id="review-button" class="button primary full" type="button" hidden>Review order</button>
+        <p id="purchase-error" class="notice" role="alert" hidden></p>
+        <div class="actions">
+          <button id="refresh-button" class="text-button" type="button" hidden>Refresh status</button>
+          <button id="new-cart" class="text-button" type="button" hidden>Start a new cart</button>
+        </div>
+        <details id="activity" hidden>
+          <summary>Purchase activity</summary>
+          <p id="purchase-reference" class="muted"></p>
+          <ol id="events" class="events"></ol>
+        </details>
+      </section>
     </div>
   </main>
 

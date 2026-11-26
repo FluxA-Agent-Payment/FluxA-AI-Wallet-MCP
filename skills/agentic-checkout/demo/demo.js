@@ -113,7 +113,7 @@ async function request(path, method = 'GET', body, access = token) {
 }
 
 function updateConnection() {
-  $('connection').textContent = token ? 'Service connected' : 'Connect service';
+  $('connection').textContent = token ? 'Connected' : 'Connect service';
   $('connection').classList.toggle('connected', Boolean(token));
 }
 
@@ -159,9 +159,6 @@ function fixturesFromMerchants() {
   }
   $('fixture').replaceChildren(...options.map((item) => element('option', `${item.title} · ${item.merchant} · ${item.country}`)));
   $('fixtures').hidden = !options.length;
-  $('test-note').textContent = options.length
-    ? 'Choose a product from a configured test store.'
-    : 'Enter a variant ID from one of your configured merchants.';
   return options;
 }
 
@@ -178,12 +175,14 @@ function renderProducts(products, country, currency, testLink = false) {
   const cards = [];
   const catalogChannel = cardCheckout ? E2B_CARD : SHOP_CATALOG;
   for (const product of products) {
-    for (const variant of product.variants ?? []) {
+    const variants = [...(product.variants ?? [])].sort((a, b) => Number(Boolean(b.selected)) - Number(Boolean(a.selected)));
+    for (const variant of variants) {
       const merchant = variant.seller?.domain;
       const channel = testLink || (!cardCheckout && merchantCanQuote(merchant)) ? undefined : catalogChannel;
       const id = variantId(variant.id, channel);
       const title = product.title || 'Shopify product';
-      const options = variant.options?.map((option) => option.label).filter(Boolean).join(' · ') || variant.title;
+      const variantTitle = variant.title === 'Default Title' ? '' : variant.title;
+      const options = variant.options?.map((option) => option.label).filter(Boolean).join(' · ') || variantTitle;
       const card = element('article', '', 'product');
       const imageUrl = [...(variant.media ?? []), ...(product.media ?? [])]
         .map((media) => httpsUrl(media.url ?? media.image?.url)).find(Boolean);
@@ -198,12 +197,15 @@ function renderProducts(products, country, currency, testLink = false) {
       const heading = element('h3', title);
       const productLink = externalLink(title, variant.url);
       if (productLink) heading.replaceChildren(productLink);
-      const description = [variant.seller?.name || merchant, options, variant.selected ? 'Linked variant' : ''];
-      card.append(heading, element('p', description.filter(Boolean).join(' · '), 'muted'));
+      const info = element('div', '', 'product-info');
+      info.append(heading);
+      const description = [testLink ? '' : variant.seller?.name || merchant, options].filter(Boolean).join(' · ');
+      if (description) info.append(element('p', description, 'muted'));
       const { price } = variant;
       if (price && /^[A-Z]{3}$/.test(price.currency) && Number.isFinite(Number(price.amount))) {
-        card.append(element('p', money(price.amount, price.currency, !testLink), 'product-price'));
+        info.append(element('p', money(price.amount, price.currency, !testLink), 'product-price'));
       }
+      card.append(info);
       const item = { id, merchant, title, options, country, channel, currency: channel ? currency : undefined };
       if (id && canCheckout(item) && variant.availability?.available !== false) {
         const button = element('button', 'Add to cart', 'button secondary product-add');
@@ -270,12 +272,11 @@ function add(item) {
   if (!existing && item.currency) $('currency').value = item.currency;
   previousCountry = item.country;
   cart.set(item.id, { ...item, quantity: quantity + 1 });
-  selectionNotice(`Added ${item.title} to your cart.`, '');
+  selectionNotice('');
   cartChanged();
 }
 
-function selectionNotice(text, className = 'notice') {
-  $('selection-note').className = className || 'muted';
+function selectionNotice(text) {
   message('selection-note', text);
 }
 
@@ -326,11 +327,12 @@ function renderControls() {
   const quoteRetry = purchase?.channel === SHOP_CATALOG && purchase.status === 'failed'
     && purchase.result?.status === 'checkout_unavailable';
   $('quote-button').disabled = !token || editing || refreshing || !cart.size || choiceNeeded || (!editable && !quoteRetry);
-  $('quote-button').hidden = (purchase?.channel === SHOP_CATALOG && !editable && !quoteRetry)
+  $('quote-button').hidden = !cart.size || (!editable && !quoteRetry)
     || (purchase?.status === 'quoted' && currentQuote()?.expires_at > Date.now() / 1000);
-  $('quote-button').textContent = quoteRetry ? 'Retry checkout quote' : 'Get checkout quote';
+  $('quote-button').textContent = quoteRetry ? 'Retry quote' : 'Get quote';
   const approvable = canApprove();
   $('review-button').hidden = !approvable;
+  $('review-button').textContent = purchase?.channel ? 'Review order' : 'Review test order';
   $('approve-submit').disabled = !approvable || (purchase.channel === SHOP_CATALOG && !selectedPaymentMethod());
   if (!approvable && $('approve-dialog').open) $('approve-dialog').close();
   $('refresh-button').disabled = !token || editing || refreshing;
@@ -338,7 +340,8 @@ function renderControls() {
 }
 
 function renderCount() {
-  $('cart-count').textContent = Array.from(cart.values()).reduce((count, item) => count + item.quantity, 0);
+  const count = Array.from(cart.values()).reduce((total, item) => total + item.quantity, 0);
+  message('cart-count', count ? `${count} ${count === 1 ? 'item' : 'items'}` : '');
 }
 
 function renderCart() {
@@ -346,12 +349,12 @@ function renderCart() {
   renderCount();
   $('cart-empty').hidden = Boolean(cart.size);
   const market = firstItem();
-  message('cart-merchant', market ? [market.merchant, `Ships to ${market.country}`,
-    market.channel ? market.currency : 'Test checkout'].filter(Boolean).join(' · ') : '');
+  message('cart-merchant', market ? `${market.channel ? market.merchant : 'Test order'} · ${market.country}` : '');
   $('cart-items').replaceChildren(...Array.from(cart.values(), (item) => {
     const row = element('li', '', 'cart-item');
     const title = element('div');
-    title.append(element('p', item.title), element('p', item.options || `Variant ${variantId(item.id)}`, 'muted'));
+    title.append(element('p', item.title));
+    if (item.options) title.append(element('p', item.options, 'muted'));
     const controls = element('div');
     if (editable) {
       const quantity = element('input');
@@ -452,40 +455,32 @@ function renderCheckout() {
   const native = purchase?.channel === SHOP_CATALOG;
   const merchantCheckout = native && phase === 'requires_action' && purchase.result?.reason === 'merchant_checkout';
   const continueUrl = merchantCheckout && httpsUrl(purchase.continue_url);
-  let status = statusLabels[phase] ?? (cart.size ? 'Ready for quote' : 'Awaiting cart');
-  let note = 'Get a quote to review the merchant’s total and delivery terms.';
-  if (phase === 'preparing') note = 'The merchant is preparing your quote.';
-  if (phase === 'submitting') note = 'Your approval was received. Waiting for the merchant’s response.';
-  if (phase === 'submitted') note = 'The merchant returned an order receipt.';
-  if (phase === 'failed') note = label(purchase.result?.reason ?? purchase.result?.status) || 'Checkout failed.';
-  if (phase === 'reconciliation_required') note = 'The order is awaiting merchant confirmation. Check this purchase for updates.';
+  let status = ['preparing', 'submitting', 'submitted', 'failed', 'reconciliation_required'].includes(phase) ? statusLabels[phase] : '';
+  let note = '';
+  if (phase === 'submitted' && !purchase.channel) status = 'Test order submitted';
+  if (phase === 'failed') note = label(purchase.result?.reason ?? purchase.result?.status);
+  if (phase === 'reconciliation_required') note = 'Awaiting merchant confirmation.';
   if (phase === 'requires_action') {
-    note = label(purchase.result?.reason ?? purchase.result?.status) || 'The merchant requires another action.';
+    status = 'Action needed';
+    note = label(purchase.result?.reason ?? purchase.result?.status);
     if (needsDelivery()) note = sameItems()
-      ? 'Choose a delivery option and request an updated quote.'
+      ? 'Choose a delivery option to update the quote.'
       : 'Request a quote for the updated cart.';
   }
   if (merchantCheckout) {
-    status = 'Shopify checkout';
-    note = continueUrl ? 'Complete checkout on Shopify, then return here to refresh your order status.'
-      : 'Refresh the purchase status to check for a Shopify checkout link.';
-    if (quote?.amount_provisional) note += ' Shopify will confirm the final total during checkout.';
+    status = continueUrl ? '' : 'Shopify checkout';
+    note = continueUrl ? '' : 'Refresh for the checkout link.';
+    if (quote?.amount_provisional) note = [note, 'Shopify confirms the final total at checkout.'].filter(Boolean).join(' ');
   }
   if (phase === 'expired' || (phase === 'quoted' && quote?.expires_at <= Date.now() / 1000)) {
     status = 'Quote expired';
-    note = native ? 'Start a new cart for a fresh checkout quote.' : 'Request a fresh checkout quote to continue.';
-  } else if (phase === 'quoted') {
-    if (quote) {
-      note = native ? 'Review the total and select a payment method to approve the order.'
-        : `Review the total before approving this ${purchase.channel ? 'order' : 'test order'}.`;
-    } else {
-      status = 'Quote needs updating';
-      note = 'Request an updated quote for your cart and delivery terms.';
-    }
+    note = native ? 'Start a new cart to get a fresh quote.' : '';
+  } else if (phase === 'quoted' && !quote) {
+    status = 'Quote needs updating';
   }
-  $('purchase-status').textContent = editing || status;
+  message('purchase-status', editing || status);
   $('purchase-status').dataset.state = phase ?? '';
-  $('checkout-note').textContent = note;
+  message('checkout-note', note);
   const continueLink = $('merchant-checkout');
   continueLink.hidden = !continueUrl;
   if (continueUrl) continueLink.href = continueUrl;
@@ -507,13 +502,13 @@ function renderCheckout() {
   receipt.hidden = phase !== 'submitted';
   if (phase === 'submitted') {
     definition(receipt, 'Merchant order', orderId);
-    definition(receipt, 'Purchase ID', purchase.id);
     if (purchase.order_status) definition(receipt, 'Order status', label(purchase.order_status));
     for (const tracking of purchase.tracking ?? []) definition(receipt, 'Tracking', trackingLabel(tracking));
   }
   $('refresh-button').hidden = !purchase;
   $('new-cart').hidden = !purchase || ['preparing', 'submitting', 'reconciliation_required'].includes(phase);
   $('activity').hidden = !purchase;
+  message('purchase-reference', purchase ? `Purchase ID ${purchase.id}` : '');
   clearTimeout(expiryTimer);
   if (phase === 'quoted' && quote?.expires_at > Date.now() / 1000) {
     expiryTimer = setTimeout(() => { renderCheckout(); renderControls(); }, quote.expires_at * 1000 - Date.now());
@@ -544,7 +539,6 @@ async function readEvents() {
     $('events').prepend(row);
     lastEvent = event.id;
   }
-  $('event-note').hidden = $('events').childElementCount > 0;
 }
 
 function scheduleRefresh() {
@@ -656,9 +650,7 @@ $('search').addEventListener('submit', async (event) => {
   const country = countryCode();
   const currency = $('currency').value.trim().toUpperCase();
   searching = true;
-  $('query-message').textContent = query;
-  $('search-response').hidden = false;
-  $('search-note').textContent = 'Searching the Shopify catalog…';
+  message('search-note', 'Searching…');
   $('results').replaceChildren();
   renderControls();
   try {
@@ -685,12 +677,10 @@ $('search').addEventListener('submit', async (event) => {
       data = await request('/catalog/search', 'POST', { query, country, currency, limit: 8 });
     }
     const count = renderProducts(data.products, country, currency, testLink);
-    $('search-note').textContent = count ? `${count} ${count === 1 ? 'result' : 'results'}` : 'No matching products found.';
-    for (const item of data.messages ?? []) {
-      if (item.type === 'warning' && item.content) $('search-note').append(element('span', ` · ${item.content}`));
-    }
+    const warnings = (data.messages ?? []).filter((item) => item.type === 'warning' && item.content).map((item) => item.content);
+    message('search-note', [count ? '' : 'No matching products found.', ...warnings].filter(Boolean).join(' '));
   } catch (error) {
-    $('search-note').textContent = error.message;
+    message('search-note', error.message);
   } finally {
     searching = false;
     renderControls();
@@ -734,8 +724,10 @@ $('review-button').addEventListener('click', () => {
   if (!canApprove()) return;
   const quote = currentQuote();
   selectedQuote = quote.id;
-  const quantity = $('cart-count').textContent;
-  $('approve-summary').textContent = [`${quantity} ${quantity === '1' ? 'item' : 'items'} from ${purchase.merchant}`, `Ships to ${purchase.country}`, deliverySummary(quote)].filter(Boolean).join(' · ');
+  const summary = Array.from(cart.values(), ({ title, options, quantity }) =>
+    [quantity === 1 ? title : `${quantity} × ${title}`, options].filter(Boolean).join(' · '));
+  if (purchase.channel) summary.push(purchase.merchant);
+  $('approve-summary').textContent = summary.join(' · ');
   $('approve-amount').textContent = money(quote.minor_units, quote.currency);
   const native = purchase.channel === SHOP_CATALOG;
   $('approve-title').textContent = purchase.channel ? 'Approve this order' : 'Approve this test order';
@@ -775,7 +767,7 @@ $('new-cart').addEventListener('click', () => {
   lastEvent = 0;
   cart.clear();
   $('events').replaceChildren();
-  $('event-note').hidden = false;
+  $('activity').open = false;
   selectionNotice('');
   cartChanged();
 });
