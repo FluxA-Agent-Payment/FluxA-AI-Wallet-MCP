@@ -81,9 +81,11 @@ console.log(preview);
 
 Preview totals are snapshots. Shipping, tax, market or buyer details can change them. `preview_ready` includes a WebMCP quote, while `checkout_reached` reports what the browser could read on the page. Use `submitApprovedTest(approvalId)` with a separately approved test-store checkout URL. If its HTTP response is lost, use `getAttempt(approvalId)` with the same UUID. If the service has no record yet, reuse the same UUID on POST so a concurrent request and retry share the same claim. For `processing` or `reconciliation_required`, keep checking the existing attempt. [Shopify Checkout WebMCP](https://shopify.dev/docs/agents/carts-and-checkout/checkout-webmcp)
 
-## Build and run the hosted acceptance case
+## Run the pre-approved test checkout demo
 
-Run from the skill directory with Python 3.12. Supply the E2B project key through the service environment.
+Use a dedicated instance of the smoke app and a fresh checkout at an owned Shopify development store or a Shopify Payments store with test mode enabled. Prepare the checkout with the approved items, delivery terms, and final total. Use the Storefront Cart API checkout URL or an open Shopify checkout URL. The server loads one approval and supplies a synthetic profile and test card before the SDK caller runs. The browser fills Shopify's native card fields. `create_app(card=...)` is the integration point for Card Vault. [Shopify development stores](https://shopify.dev/docs/apps/build/stores/development-stores) · [Shopify Payments test mode](https://help.shopify.com/en/manual/payments/shopify-payments/testing-shopify-payments)
+
+Run from the skill directory with Python 3.12. Supply the E2B project key through the service environment. Reuse a pinned template for this checkout worker source or build it if needed.
 
 ```bash
 python3.12 -m venv .venv
@@ -93,18 +95,19 @@ export PYTHONPATH="$PWD/scripts"
 python -m checkout_service.template TEAM/fluxa-shopify-checkout
 ```
 
-Use the returned template build reference as `CHECKOUT_E2B_TEMPLATE`. The API checks the template's browser source digest before starting a worker. For the smoke app, configure an owned Shopify development store or a dedicated Shopify Payments test store. Prepare a test product and obtain a checkout URL after fixing the cart, delivery terms, and final quote. [Shopify development stores](https://shopify.dev/docs/apps/build/stores/development-stores) · [Shopify Payments test mode](https://help.shopify.com/en/manual/payments/shopify-payments/testing-shopify-payments)
+Set the service environment using the table below. The API checks the pinned template's browser source digest before starting a worker.
 
 | Environment variable | Value |
 | --- | --- |
+| `E2B_API_KEY` | Private key for the E2B project that owns the template |
 | `CHECKOUT_E2B_TEMPLATE` | Exact `TEAM/fluxa-shopify-checkout:<build-UUID>` reference from the build |
 | `CHECKOUT_SERVICE_TOKEN` | Private bearer token, 32 or more characters |
 | `CHECKOUT_ATTEMPTS_DB` | Absolute path on persistent storage |
-| `CHECKOUT_PREVIEW_STORES` | JSON object of configured preview stores, with their Shopify permalink endpoints and supplemental hosts |
+| `CHECKOUT_PREVIEW_STORES` | Optional JSON object of configured preview stores, with their Shopify permalink endpoints and supplemental hosts |
 | `CHECKOUT_APPROVAL_ID` | Stable UUID for this approved attempt |
-| `CHECKOUT_TEST_URL`, `CHECKOUT_TEST_ITEMS`, `CHECKOUT_TEST_TOTAL_MINOR_UNITS`, `CHECKOUT_TEST_CURRENCY`, `CHECKOUT_TEST_EXPIRES_AT` | Checkout link, variant-to-quantity JSON map, exact amount in minor units, currency and expiry authorized for this attempt |
+| `CHECKOUT_TEST_URL`, `CHECKOUT_TEST_ITEMS`, `CHECKOUT_TEST_TOTAL_MINOR_UNITS`, `CHECKOUT_TEST_CURRENCY`, `CHECKOUT_TEST_EXPIRES_AT` | Checkout link, variant-to-quantity JSON map, exact amount in minor units, currency and approval expiry in Unix seconds |
 | `CHECKOUT_TEST_DELIVERY` | Synthetic address JSON with names, street, and an ISO country code in `country`. Supply `city`, `state`, `postal`, and an E.164 `phone` as required by the checkout. |
-| `CHECKOUT_TEST_SHIPPING_OPTIONS` | JSON mapping of approved shipping group IDs to selected option IDs and details. Defaults to `{}` for digital orders. Use `{}` for delivery on digital orders as well. |
+| `CHECKOUT_TEST_SHIPPING_OPTIONS` | JSON mapping of approved shipping group IDs to selected option IDs and details. Defaults to `{}` for digital orders. |
 | `CHECKOUT_TEST_BILLING` | Optional synthetic address JSON with `same_as_delivery: false` and the approved billing address fields. The default is `{"same_as_delivery": true}`. |
 | `CHECKOUT_TEST_GATEWAY`, `CHECKOUT_TEST_CARD` | `shopify_test_gateway` with `1` for success or `2` for decline, or `shopify_payments` with the documented success or generic decline test number |
 | `CHECKOUT_TEST_STOREFRONT_PASSWORD` | Storefront password for a protected test store |
@@ -114,9 +117,15 @@ Use the returned template build reference as `CHECKOUT_E2B_TEMPLATE`. The API ch
 
 ```bash
 uvicorn checkout_service.smoke:app --factory --host 127.0.0.1 --port 8080
-curl -fsS -X POST -H "Authorization: Bearer $CHECKOUT_SERVICE_TOKEN" \
-  "http://127.0.0.1:8080/checkouts/$CHECKOUT_APPROVAL_ID"
 ```
+
+From the repository root, run the SDK example in a second shell with Node.js 18 or newer. Set `CHECKOUT_SERVICE_TOKEN` and `CHECKOUT_APPROVAL_ID` to the service's values. Set `CHECKOUT_SERVICE_URL` if the service uses a different address.
+
+```bash
+node packages/fluxa-shopify-checkout/examples/approved-test.mjs
+```
+
+The SDK submits the approval UUID once. If the response is interrupted or the receipt is pending, it reads that same attempt for up to three minutes. It prints the status and, once submitted, the Shopify order ID. A result other than `submitted` exits with code 1. Use the same approval UUID to inspect or repeat the same checkout. The demo runs over loopback. An unresolved attempt requires a signed order webhook once its sandbox expires.
 
 | Acceptance check | Evidence |
 | --- | --- |
