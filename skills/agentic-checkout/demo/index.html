@@ -20,7 +20,7 @@
     <section class="hero" aria-labelledby="page-title">
       <span class="eyebrow">SHOPIFY CHECKOUT DEMO</span>
       <h1 id="page-title">From product search<br class="wide"> to checkout.</h1>
-      <p>Find an item, build your cart, and approve the quoted total to place a test order.</p>
+      <p>Find a product by name or link, then review your cart and continue to checkout.</p>
     </section>
 
     <div class="workspace">
@@ -56,7 +56,7 @@
             <button id="fixture-add" class="button secondary" type="submit">Add to cart</button>
           </form>
           <details>
-            <summary>Enter a Shopify variant manually</summary>
+            <summary>Enter a test variant manually</summary>
             <form id="manual" class="stack">
               <div class="field-row">
                 <label>Merchant domain<input id="merchant" list="merchant-list" placeholder="store.myshopify.com" required autocomplete="off" spellcheck="false"></label>
@@ -90,8 +90,11 @@
           </div>
           <p id="checkout-note" class="muted" role="status">Get a quote to review the merchant’s total and delivery terms.</p>
           <dl id="quote-totals" class="totals" hidden></dl>
+          <ul id="quote-messages" class="quote-details muted" aria-label="Merchant checkout messages" hidden></ul>
+          <ul id="quote-links" class="quote-details muted" aria-label="Merchant policies" hidden></ul>
           <p id="quote-expiry" class="muted expiry" hidden></p>
           <dl id="receipt" class="receipt" hidden></dl>
+          <a id="merchant-checkout" class="button primary full" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer" hidden>Continue to Shopify checkout</a>
           <button id="review-button" class="button primary full" type="button" hidden>Review and approve</button>
           <p id="purchase-error" class="notice" role="alert" hidden></p>
           <div class="actions">
@@ -121,15 +124,16 @@
   </dialog>
 
   <dialog id="approve-dialog" aria-labelledby="approve-title">
-    <section class="stack">
+    <form id="approve-form" class="stack">
       <h2 id="approve-title">Approve this test order</h2>
       <p id="approve-summary" class="muted"></p>
       <div id="approve-amount" class="approve-amount"></div>
+      <label id="payment-method-field" hidden>Payment method<select id="payment-method"></select></label>
       <div class="dialog-actions">
         <button id="approve-cancel" class="button secondary" type="button" autofocus>Back</button>
-        <button id="approve-submit" class="button primary" type="button">Approve &amp; place test order</button>
+        <button id="approve-submit" class="button primary" type="submit">Approve &amp; place test order</button>
       </div>
-    </section>
+    </form>
   </dialog>
 </body>
 </html>

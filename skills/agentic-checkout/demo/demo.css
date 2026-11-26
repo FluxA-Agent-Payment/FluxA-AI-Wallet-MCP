@@ -64,9 +64,10 @@ h2 { font-size: 1.22rem; line-height: 1.3; letter-spacing: -.025em; }
   min-height: 41px; border-radius: 9px; font-size: .88rem; font-weight: 680; padding: 8px 13px;
 }
 .primary { background: var(--accent); color: #fff; }
-.primary:hover:enabled { background: #084f3d; }
+.primary:hover:enabled, a.primary:hover { background: #084f3d; }
 .secondary { background: #fff; color: var(--ink); border-color: #ccddd4; }
 .secondary:hover:enabled { background: #eaf7f0; }
+a.button { text-decoration: none; }
 .full { width: 100%; }
 .start { justify-self: start; }
 .text-button { border: 0; background: transparent; color: var(--accent); padding: 5px 0; font-size: .84rem; font-weight: 700; }
@@ -109,6 +110,8 @@ label:has(input, select) { display: grid; gap: 4px; font-size: .84rem; font-weig
 .totals dt, .totals dd, .receipt dt, .receipt dd { padding-block: 4px; }
 .totals dd, .receipt dd { margin: 0; text-align: right; }
 .totals .grand-total { font-size: .98rem; font-weight: 750; }
+.quote-details { margin-bottom: 0; padding-inline-start: 1.2em; }
+.quote-details a { color: var(--accent); }
 .expiry { font-size: .78rem; }
 details { border-top: 1px solid var(--line); padding-top: 11px; }
 details > :not(summary) { margin-top: 10px; }
