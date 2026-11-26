@@ -22,7 +22,7 @@ from .contract import (
 )
 from .observation import (
     Quote, checkout_step, current_route, navigate_shopify_checkout, read_quote, read_shopify_checkout, read_total,
-    update_shopify_checkout,
+    total_rows, totals_binding, update_shopify_checkout,
 )
 from .one_page import FORM, card_matches, form_matches, opt_out, payment_action, select_card
 
@@ -79,12 +79,14 @@ class PreparedCheckout:
     checkout_id: str
     guest: Guest
     route: tuple[str, str, str | None]
+    totals: tuple[tuple[str, int], ...] | None = None
 
 
 def check_snapshot(
-    page: Page, grant: CheckoutGrant, identity: tuple[str, str], state: dict | None, checkout_id: str | None = None,
+    page: Page, identity: tuple[str, str], state: dict | None, checkout_id: str | None = None,
+    *, items: dict, expires_at: float,
 ) -> Quote:
-    if time.time() >= grant.expires_at:
+    if time.time() >= expires_at:
         raise CheckoutStopped("approval_expired")
     quote = read_quote(state) if state else None
     found_id = state.get("id") if state else None
@@ -92,14 +94,14 @@ def check_snapshot(
         raise CheckoutStopped("checkout_unavailable")
     if checkout_id is not None and found_id != checkout_id:
         raise CheckoutStopped("checkout_unavailable")
-    if quote.items != grant.items:
+    if quote.items != items:
         raise CheckoutStopped("cart_mismatch")
     return quote
 
 
 async def approved_checkout(page: Page, grant: CheckoutGrant, identity: tuple[str, str], checkout_id: str | None = None):
     state, _ = await read_shopify_checkout(page)
-    return state, check_snapshot(page, grant, identity, state, checkout_id)
+    return state, check_snapshot(page, identity, state, checkout_id, items=grant.items, expires_at=grant.expires_at)
 
 
 def approved_details(state: dict, guest: Guest, groups: dict) -> None:
@@ -111,7 +113,8 @@ def approved_details(state: dict, guest: Guest, groups: dict) -> None:
 
 
 async def update_guest(
-    page: Page, grant: CheckoutGrant, identity: tuple[str, str], state: dict, guest: Guest, groups: list[dict] | None,
+    page: Page, identity: tuple[str, str], state: dict, guest: Guest, groups: list[dict] | None,
+    *, items: dict, expires_at: float,
 ) -> dict:
     route = current_route(page)
     updated = await update_shopify_checkout(page, guest.update(state, groups))
@@ -120,12 +123,14 @@ async def update_guest(
         updated, _ = await read_shopify_checkout(page)
     if not updated or current_route(page) != route or checkout_step(updated) != checkout_step(state):
         raise CheckoutStopped("checkout_not_ready")
-    check_snapshot(page, grant, identity, updated, state["id"])
+    check_snapshot(page, identity, updated, state["id"], items=items, expires_at=expires_at)
     method = shipping_method(updated)
     if not guest.contact_matches(updated, method):
         raise CheckoutStopped("identity_incomplete")
-    if groups is not None and not shipping_matches(method, grant.shipping_options):
-        raise CheckoutStopped("checkout_not_ready")
+    if groups is not None:
+        selections = {group["id"]: {key: value for key, value in group.items() if key != "id"} for group in groups}
+        if not shipping_matches(method, selections):
+            raise CheckoutStopped("checkout_not_ready")
     return updated
 
 
@@ -144,12 +149,12 @@ async def advance_to_payment(page: Page, grant: CheckoutGrant, identity: tuple[s
     groups = approved_groups(method, grant.shipping_options) if current != "information" else None
     if current in {"shipping", "payment"} and groups is None:
         raise CheckoutStopped("checkout_not_ready")
-    state = await update_guest(page, grant, identity, state, guest, groups)
+    state = await update_guest(page, identity, state, guest, groups, items=grant.items, expires_at=grant.expires_at)
     if current is None and groups is None:
         groups = approved_groups(shipping_method(state), grant.shipping_options)
         if groups is None:
             raise CheckoutStopped("checkout_not_ready")
-        await update_guest(page, grant, identity, state, guest, groups)
+        await update_guest(page, identity, state, guest, groups, items=grant.items, expires_at=grant.expires_at)
     while step and step[0] in {"information", "shipping"}:
         current, steps = step
         destination = steps[steps.index(current) + 1]
@@ -164,7 +169,7 @@ async def advance_to_payment(page: Page, grant: CheckoutGrant, identity: tuple[s
             groups = approved_groups(shipping_method(state), grant.shipping_options)
             if groups is None:
                 raise CheckoutStopped("checkout_not_ready")
-            await update_guest(page, grant, identity, state, guest, groups)
+            await update_guest(page, identity, state, guest, groups, items=grant.items, expires_at=grant.expires_at)
     if current_route(page) != (*identity, "payment" if step else None):
         raise CheckoutStopped("checkout_unavailable")
 
@@ -174,7 +179,8 @@ async def prepare_checkout(page: Page, grant: CheckoutGrant, profile: dict, gate
     try:
         validate_approval(grant)
         identity = checkout_identity(grant.checkout_url)
-        data = build_sensitive_data(normalize_profile(profile, require_postal=False))
+        normalized = normalize_profile(profile, require_postal=False)
+        data = build_sensitive_data(normalized)
     except (KeyError, TypeError, ValueError):
         return "checkout_unavailable", None
     if not uses_test_data(gateway, data["guest_email"], data["card_number"]):
@@ -211,14 +217,13 @@ async def prepare_checkout(page: Page, grant: CheckoutGrant, profile: dict, gate
     except Error:
         return "checkout_unavailable", None
 
-    approved = Quote(grant.items, grant.currency, grant.total_minor_units)
     try:
         if current_route(page) == (*identity, "review"):
             return "checkout_not_ready", None
         initial, _ = await approved_checkout(page, grant, identity)
         checkout_id = initial["id"]
         step = checkout_step(initial)
-        guest = Guest.from_profile(profile, data)
+        guest = Guest.from_profile(profile, normalized)
         if initial["status"] == "requires_escalation":
             return "checkout_not_ready", None
         await advance_to_payment(page, grant, identity, initial, guest)
@@ -236,6 +241,17 @@ async def prepare_checkout(page: Page, grant: CheckoutGrant, profile: dict, gate
     except Error:
         return "unsupported_checkout", None
 
+    return await fill_payment(page, grant, identity, guest, checkout_id, form, data, payment_route, step=step)
+
+
+async def fill_payment(
+    page: Page, grant: CheckoutGrant, identity: tuple[str, str], guest: Guest, checkout_id: str,
+    form: Locator, data: dict, payment_route: tuple[str, str, str | None] | None,
+    *, step=None, quoted: PreparedCheckout | None = None,
+):
+    approved = Quote(grant.items, grant.currency, grant.total_minor_units)
+    first_kind = quoted.kind if quoted else None
+    totals = quoted.totals if quoted else None
     for fill in (True, False):
         try:
             state, quote = await approved_checkout(page, grant, identity, checkout_id)
@@ -246,15 +262,19 @@ async def prepare_checkout(page: Page, grant: CheckoutGrant, profile: dict, gate
                     groups = approved_groups(method, grant.shipping_options)
                     if groups is None or not shipping_matches(method, grant.shipping_options):
                         return "checkout_not_ready", None
-                    state = await update_guest(page, grant, identity, state, guest, groups)
+                    state = await update_guest(
+                        page, identity, state, guest, groups, items=grant.items, expires_at=grant.expires_at,
+                    )
                     quote = read_quote(state)
+            if totals is not None and totals_binding(total_rows(state)) != totals:
+                return "total_mismatch", None
         except CheckoutStopped as exc:
             return str(exc), None
         except (AttributeError, KeyError, TypeError, ValueError):
             return "identity_incomplete", None
         if current_route(page) != payment_route:
             return "checkout_unavailable", None
-        if state["status"] != "ready_for_complete":
+        if state["status"] != "ready_for_complete" and not (fill and quoted and state["status"] == "incomplete"):
             return "checkout_not_ready", None
         if quote != approved:
             return "total_mismatch", None
@@ -277,7 +297,7 @@ async def prepare_checkout(page: Page, grant: CheckoutGrant, profile: dict, gate
             payment_step = checkout_step(state)
             if payment_step and (("review" in payment_step[1]) != (kind == "review")):
                 return "checkout_not_ready", None
-            if not fill and kind != first_kind:
+            if first_kind is not None and kind != first_kind:
                 return "checkout_not_ready", None
             first_kind = kind
         except Error:
@@ -299,7 +319,7 @@ async def prepare_checkout(page: Page, grant: CheckoutGrant, profile: dict, gate
     if time.time() >= grant.expires_at:
         return "approval_expired", None
     return ("review_ready" if kind == "review" else "ready",
-            PreparedCheckout(button, kind, checkout_id, guest, payment_route))
+            PreparedCheckout(button, kind, checkout_id, guest, payment_route, totals))
 
 
 def left_payment(url: str, route: tuple[str, str, str | None]) -> bool:
@@ -338,7 +358,7 @@ async def check_payment_snapshot(
 ) -> None:
     route = (*identity, "review") if review else prepared.route
     state, quote = await approved_checkout(page, grant, identity, prepared.checkout_id)
-    if quote != approved:
+    if quote != approved or (prepared.totals is not None and totals_binding(total_rows(state)) != prepared.totals):
         raise CheckoutStopped("total_mismatch")
     approved_details(state, prepared.guest, grant.shipping_options)
     step = checkout_step(state)
@@ -373,6 +393,10 @@ async def run_checkout(page: Page, grant: CheckoutGrant, profile: dict, gateway:
     status, prepared = await prepare_checkout(page, grant, profile, gateway)
     if prepared is None:
         return {"status": status}
+    return await submit_prepared(page, grant, prepared)
+
+
+async def submit_prepared(page: Page, grant: CheckoutGrant, prepared: PreparedCheckout) -> dict:
     identity = checkout_identity(grant.checkout_url)
     approved = Quote(grant.items, grant.currency, grant.total_minor_units)
     try:
@@ -431,17 +455,20 @@ async def main(payload: dict) -> dict:
                 pass
 
 
+def write_result(path: str, outcome: dict) -> None:
+    receipt = Path(path)
+    pending = receipt.with_name(f".{receipt.name}.{os.getpid()}")
+    pending.write_text(json.dumps(outcome), encoding="utf-8")
+    pending.replace(receipt)
+
+
 if __name__ == "__main__":
     try:
         outcome = asyncio.run(main(json.loads(sys.stdin.readline(64 * 1024))))
     except Exception:
         outcome = {"status": "reconciliation_required"}
-    serialized = json.dumps(outcome)
-    receipt = Path(RECEIPT_PATH)
-    pending = receipt.with_name(f".{receipt.name}.{os.getpid()}")
     try:
-        pending.write_text(serialized, encoding="utf-8")
-        pending.replace(receipt)
+        write_result(RECEIPT_PATH, outcome)
     except OSError:
         pass
-    print(serialized, flush=True)
+    print(json.dumps(outcome), flush=True)

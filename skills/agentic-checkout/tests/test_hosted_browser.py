@@ -11,11 +11,13 @@ from playwright.async_api import async_playwright
 
 from checkout_service.contract import CheckoutGrant
 from checkout_service.preview import run_preview
+from checkout_service.purchase_worker import run_purchase
 from checkout_service.worker import run_checkout
 
 
 SHOP_ORIGIN = "https://fixture.myshopify.com"
 CHECKOUT_URL = f"{SHOP_ORIGIN}/checkouts/cn/fixture/en-us"
+CART_LINK = f"{SHOP_ORIGIN}/cart/c/fixture-cart"
 VARIANT_ID = "123456789"
 QUOTE = {
     "ucp": {"status": "success"},
@@ -83,9 +85,14 @@ BLOCKED_REDIRECTS = {
     "redirect_throttled": (429, "Please try again later"),
     "redirect_challenge": (200, "Verify you are human"),
 }
+PURCHASE_CASES = {
+    "purchase_approved", "purchase_repriced", "purchase_delivery_required", "purchase_delivery_selected",
+    "purchase_review_steps",
+}
 
 
 def checkout_document(scenario):
+    checkout_flow = "review_steps" if scenario == "purchase_review_steps" else scenario
     frames = "".join(
         f'<iframe title="{escape(title)}" name="card-fields-{field}-fixture" '
         f'src="{PAYMENT_ORIGIN}/{field}"></iframe>'
@@ -103,7 +110,7 @@ def checkout_document(scenario):
         "decline": "Pay now", "wrong_button": "Pay now&#10;$13.34",
         "review_label_mismatch": "Review order&#10;$12.34", "localized_pay": "PAGAR AHORA&#10;$12.34",
     }.get(scenario, "Pay now&#10;$12.34")
-    reviewed = scenario in REVIEW_CASES
+    reviewed = checkout_flow in REVIEW_CASES
     if reviewed:
         pay_label = "Review order&#10;$12.34"
     visible_label = "Pay now" if scenario == "review_label_mismatch" else pay_label
@@ -112,7 +119,7 @@ def checkout_document(scenario):
     duplicate = '<button id="checkout-pay-button" type="submit">Pay now</button>' if scenario == "ambiguous_payment" else ""
     extra_required = '<label>Tax ID <input required name="taxId"></label>' if scenario == "required_field" else ""
     separate_billing = scenario in {"distinct_billing", "wrong_billing"}
-    three_steps = scenario in {"three_steps", "review_steps"}
+    three_steps = checkout_flow in {"three_steps", "review_steps"}
     payment_form = "checkout-payment-fixture" if three_steps else "checkout-one-page-form"
     form_visibility = "hidden" if three_steps else ""
     billing_field = '<input id="billingAddressCheckbox" type="checkbox" name="billingAddress" value="shipping" checked>'
@@ -163,9 +170,21 @@ def checkout_document(scenario):
         state.status = "requires_escalation";
         state.messages = [{code: "buyer_review_required", severity: "requires_buyer_review"}];
     """ if scenario == "review_state" else ""
-    if scenario == "review_steps":
+    if checkout_flow == "review_steps":
         route_configuration = route_configuration.replace('"shipping", "payment"', '"shipping", "payment", "review"')
     billing_rewrite = "billing.street_address = address.street_address;" if scenario == "wrong_billing" else ""
+    delivery_choices = """
+        state.fulfillment.methods[0].groups[0].options = [
+          {id: "standard", title: "Standard", totals: [{type: "total", amount: 234}]},
+          {id: "express", title: "Express", totals: [{type: "total", amount: 734}]},
+        ];
+        delete state.fulfillment.methods[0].groups[0].selected_option_id;
+    """ if scenario in {"purchase_delivery_required", "purchase_delivery_selected"} else ""
+    preserve_rates = """
+        const currentRates = state.fulfillment.methods[0].groups;
+        if (!checkout.fulfillment.methods[0].groups && currentRates)
+          checkout.fulfillment.methods[0].groups = currentRates;
+    """ if scenario in PURCHASE_CASES else ""
     language = "es-US" if scenario == "localized_pay" else "en-US"
     information = '<input id="informationOptIn" type="checkbox" name="marketing_opt_in" checked>' if three_steps else ""
     return f"""
@@ -223,6 +242,7 @@ def checkout_document(scenario):
           state.fulfillment = {{methods: [{{type: "shipping", destinations: [], groups: [
             {{id: "shipment_1", selected_option_id: "standard"}}
           ]}}]}};
+          {delivery_choices}
           if ({str(three_steps).lower()}) delete state.fulfillment.methods[0].groups;
           state.declared_fields = [{{key: "shop_pay_sign_up", value: true, required: false}}];
           state.discounts = {{codes: ["SPRING"]}};
@@ -244,6 +264,7 @@ def checkout_document(scenario):
             inputSchema: {{type: "object", properties: {{checkout: {{type: "object"}}}}, required: ["checkout"]}},
             execute: ({{checkout}}) => {{
               state.buyer = checkout.buyer;
+              {preserve_rates}
               state.fulfillment = checkout.fulfillment;
               state.declared_fields = checkout.declared_fields;
               const method = checkout.fulfillment.methods[0];
@@ -325,6 +346,24 @@ def review_document(scenario):
 
 
 class HostedBrowserTest(unittest.IsolatedAsyncioTestCase):
+    async def test_purchase_quote_waits_for_approval_on_the_same_page(self):
+        """The real card form must stay untouched until approval and reject a subsequent merchant price change."""
+        cases = {
+            "purchase_approved": {"status": "submitted", "order_id": ORDER_ID},
+            "purchase_repriced": {"status": "total_mismatch"},
+            "purchase_delivery_required": None,
+            "purchase_delivery_selected": {"status": "submitted", "order_id": ORDER_ID},
+            "purchase_review_steps": {"status": "submitted", "order_id": ORDER_ID},
+        }
+        async with async_playwright() as playwright:
+            browser = await playwright.chromium.launch(args=["--enable-features=WebMCP"])
+            try:
+                for scenario, expected_result in cases.items():
+                    with self.subTest(scenario=scenario):
+                        await self.run_scenario(browser, scenario, expected_result)
+            finally:
+                await browser.close()
+
     async def test_checkout_authorization_and_merchant_outcome(self):
         """Drive the browser because parser or worker mocks cannot prove which form is dispatched."""
         cases = {
@@ -411,7 +450,10 @@ class HostedBrowserTest(unittest.IsolatedAsyncioTestCase):
                 if scenario == "review_escape":
                     await route.fulfill(status=303, headers={"location": escape_url})
                 else:
-                    await route.fulfill(content_type="text/html", body=review_document(scenario))
+                    await route.fulfill(
+                        content_type="text/html",
+                        body=review_document("review_steps" if scenario == "purchase_review_steps" else scenario),
+                    )
             elif request.method == "POST" and request.url == f"{CHECKOUT_URL}/complete":
                 submitted.append(dict(parse_qsl(request.post_data or "")))
                 card_at_submit.append(card_inputs.copy())
@@ -426,6 +468,14 @@ class HostedBrowserTest(unittest.IsolatedAsyncioTestCase):
                     <p role="alert">Your card was declined</p>
                     <script>setTimeout(() => location.replace('{CHECKOUT_URL}/thank-you'), 1500);</script>
                 """)
+            elif request.url == CART_LINK and scenario in PURCHASE_CASES:
+                destination = f"{CHECKOUT_URL}/information" if scenario == "purchase_review_steps" else CHECKOUT_URL
+                await route.fulfill(
+                    content_type="text/html",
+                    body=checkout_document(scenario).replace(
+                        "const state =", f"history.replaceState(null, '', '{destination}'); const state =", 1,
+                    ),
+                )
             elif request.url in {CHECKOUT_URL, f"{CHECKOUT_URL}/information"}:
                 if scenario in BLOCKED_REDIRECTS:
                     await route.fulfill(status=302, headers={"location": escape_url})
@@ -477,6 +527,53 @@ class HostedBrowserTest(unittest.IsolatedAsyncioTestCase):
                 escape_url = f"http://127.0.0.1:{server.sockets[0].getsockname()[1]}/checkout-elsewhere"
             await context.expose_binding("recordFixtureCardInput", record_card_input)
             await context.route("**/*", respond)
+            if scenario in PURCHASE_CASES:
+                quotes = []
+                profile = {key: value for key, value in PROFILE.items() if key != "payment"}
+                profile["email"] = PROFILE["payment"]["email"]
+                payload = {
+                    "checkout_url": CART_LINK, "checkout_host": urlsplit(SHOP_ORIGIN).netloc,
+                    "items": {VARIANT_ID: 1}, "profile": profile, "expires_at": time.time() + 160,
+                }
+                if scenario in {"purchase_delivery_selected", "purchase_review_steps"}:
+                    payload["shipping_options"] = {"shipment_1": {"selected_option_id": "standard"}}
+
+                async def approve():
+                    self.assertEqual(len(quotes), 1)
+                    self.assertEqual(quotes[0]["status"], "quoted")
+                    self.assertEqual(quotes[0]["quote"]["minor_units"], 1234)
+                    self.assertEqual(quotes[0]["quote"]["shipping_options"], {
+                        "shipment_1": {"selected_option_id": "standard"},
+                    })
+                    self.assertEqual(card_inputs, {})
+                    self.assertEqual(merchant_posts, [])
+                    if scenario == "purchase_repriced":
+                        await page.evaluate("state.totals[0].amount = 1235")
+                    return {"gateway": "shopify_test_gateway", "payment": PROFILE["payment"]}
+
+                result = await run_purchase(page, payload, quotes.append, approve)
+                self.assertEqual(result, expected_result)
+                if scenario == "purchase_delivery_required":
+                    self.assertEqual(quotes, [{
+                        "status": "requires_action", "reason": "shipping_option_required",
+                        "delivery_options": {"shipment_1": [
+                            {"id": "standard", "title": "Standard", "amount": 234},
+                            {"id": "express", "title": "Express", "amount": 734},
+                        ]},
+                    }])
+                if expected_result and expected_result["status"] == "submitted":
+                    if scenario == "purchase_review_steps":
+                        self.assertEqual(merchant_posts, [f"{CHECKOUT_URL}/review", f"{CHECKOUT_URL}/complete"])
+                        self.assertEqual(submitted, [{"reviewedOrder": "fixture", "paymentMethod": "card"}])
+                    else:
+                        self.assertEqual(merchant_posts, [f"{CHECKOUT_URL}/complete"])
+                        self.assertEqual(submitted, [EXPECTED_FORM])
+                    self.assertEqual(card_at_submit, [{field: expected for field, (_, _, expected) in PAYMENT_FIELDS.items()}])
+                else:
+                    self.assertEqual(merchant_posts, [])
+                    self.assertEqual(card_inputs, {})
+                return
+
             grant = CheckoutGrant(
                 checkout_url=f"{CHECKOUT_URL}/information" if scenario in {"three_steps", "review_steps"} else CHECKOUT_URL,
                 items={VARIANT_ID: 1}, total_minor_units=1234,

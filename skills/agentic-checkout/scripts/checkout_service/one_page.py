@@ -2,7 +2,7 @@
 
 import re
 
-from playwright.async_api import Error, Locator, Page
+from playwright.async_api import ElementHandle, Error, Locator, Page
 
 from shopify.security import digits, normalize_text
 
@@ -82,25 +82,40 @@ async def select_card(form: Locator) -> bool:
     return await method.is_checked()
 
 
+async def card_control(form: Locator, field: str, *, wait: bool) -> ElementHandle | None:
+    owner = form.locator(
+        f'iframe[name^="card-fields-{field}-"][src^="https://{PCI_HOST}/"]'
+    ).filter(visible=True)
+    if wait:
+        await owner.wait_for(timeout=5_000)
+    if await owner.count() != 1:
+        return None
+    frame = await (await owner.element_handle()).content_frame()
+    if frame is None or not frame.url.startswith(f"https://{PCI_HOST}/"):
+        return None
+    inputs = frame.locator("input:visible:not([data-honeypot-field])")
+    if wait:
+        await inputs.wait_for(timeout=5_000)
+    if await inputs.count() != 1:
+        return None
+    control = await inputs.element_handle()
+    if await control.is_editable() and frame.url.startswith(f"https://{PCI_HOST}/"):
+        return control
+    return None
+
+
+async def blank_card_form(form: Locator) -> bool:
+    for field in CARD_FIELDS:
+        control = await card_control(form, field, wait=True)
+        if not control or (field != "name" and digits(await control.input_value())):
+            return False
+    return True
+
+
 async def card_matches(form: Locator, data: dict, *, fill: bool) -> bool:
     for field, name in CARD_FIELDS.items():
-        owner = form.locator(
-            f'iframe[name^="card-fields-{field}-"][src^="https://{PCI_HOST}/"]'
-        ).filter(visible=True)
-        if fill:
-            await owner.wait_for(timeout=5_000)
-        if await owner.count() != 1:
-            return False
-        frame = await (await owner.element_handle()).content_frame()
-        if frame is None or not frame.url.startswith(f"https://{PCI_HOST}/"):
-            return False
-        inputs = frame.locator("input:visible:not([data-honeypot-field])")
-        if fill:
-            await inputs.wait_for(timeout=5_000)
-        if await inputs.count() != 1:
-            return False
-        control = await inputs.element_handle()
-        if not await control.is_editable() or not frame.url.startswith(f"https://{PCI_HOST}/"):
+        control = await card_control(form, field, wait=fill)
+        if not control:
             return False
         normalize = normalize_text if field == "name" else digits
         expected = normalize(data[name])

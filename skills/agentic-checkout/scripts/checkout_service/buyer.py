@@ -13,9 +13,9 @@ ADDRESS_FIELDS = {
 }
 
 
-def address(data: dict, section: str, profile: dict) -> dict:
-    result = {field: data[f"{section}_{name}"] for name, field in ADDRESS_FIELDS.items()}
-    result["company"] = normalize_text(profile.get(section, {}).get("company"))
+def address(data: dict, section: dict) -> dict:
+    result = {field: data[name] for name, field in ADDRESS_FIELDS.items()}
+    result["company"] = normalize_text(section.get("company"))
     if not re.fullmatch(r"[A-Z]{2}", result["address_country"]):
         raise ValueError("Use the two-letter country code for a checkout address.")
     phone = result["phone_number"]
@@ -86,6 +86,49 @@ def shipping_matches(method: dict, approved: dict) -> bool:
     )
 
 
+def delivery_options(method: dict) -> dict:
+    options = {}
+    for group_id, group in shipping_groups(method).items():
+        choices = []
+        for option in group.get("options") or []:
+            option_id = option.get("id")
+            if not isinstance(option_id, str) or not option_id:
+                raise ValueError("Expected a Shopify delivery option ID.")
+            result = {"id": option_id}
+            for field in ("title", "display_text"):
+                label = option.get(field)
+                if isinstance(label, str) and label.strip():
+                    result[field] = " ".join(label.split())[:250]
+            prices = [row.get("amount") for row in option.get("totals", []) if row.get("type") == "total"]
+            if len(prices) == 1 and type(prices[0]) is int:
+                result["amount"] = prices[0]
+            choices.append(result)
+        if len({choice["id"] for choice in choices}) != len(choices):
+            raise ValueError("Expected distinct Shopify delivery option IDs.")
+        options[group_id] = choices
+    return options
+
+
+def select_shipping(method: dict, requested: dict | None, options: dict) -> dict | None:
+    groups = shipping_groups(method)
+    if method and not groups:
+        return None
+    if requested is not None:
+        return requested if approved_groups(method, requested) is not None else None
+    selected = {}
+    for group_id, group in groups.items():
+        choice = group.get("selected_option_id")
+        available = [option["id"] for option in options[group_id]]
+        if available and choice not in available:
+            choice = available[0] if len(available) == 1 else None
+        if not isinstance(choice, str) or not choice:
+            return None
+        selected[group_id] = {"selected_option_id": choice}
+        if choice == group.get("selected_option_id") and group.get("selected_option_details"):
+            selected[group_id]["selected_option_details"] = group["selected_option_details"]
+    return selected
+
+
 @dataclass(frozen=True, repr=False)
 class Guest:
     email: str
@@ -95,9 +138,10 @@ class Guest:
 
     @classmethod
     def from_profile(cls, profile: dict, data: dict):
-        delivery = address(data, "delivery", profile) if profile.get("delivery") else {}
-        same = data["billing_same_as_delivery"] == "true"
-        return cls(data["guest_email"], delivery, delivery if same else address(data, "billing", profile), same)
+        delivery = address(data["delivery"], profile["delivery"]) if profile.get("delivery") else {}
+        same = data["billing_same_as_delivery"]
+        billing = delivery if same else address(data["billing"], profile.get("billing") or {})
+        return cls(data["email"], delivery, billing, same)
 
     def update(self, state: dict, groups: list[dict] | None) -> dict:
         update = {"buyer": {"email": self.email}}

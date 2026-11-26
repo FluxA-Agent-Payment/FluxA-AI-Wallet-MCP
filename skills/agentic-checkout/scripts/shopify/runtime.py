@@ -596,12 +596,9 @@ def load_secrets(path: Path) -> dict[str, Any]:
     return normalize_profile(json.loads(path.read_text(encoding="utf-8")))
 
 
-def normalize_profile(data: dict[str, Any], *, require_postal: bool = True) -> dict[str, Any]:
+def normalize_guest_profile(data: dict[str, Any]) -> dict[str, Any]:
     payment = data.get("payment") or {}
     email = normalize_text(payment.get("email") or data.get("email"))
-    card_number = normalize_text(payment.get("card_number"))
-    exp = normalize_text(payment.get("exp"))
-    cvc = normalize_text(payment.get("cvc"))
     delivery = _normalize_profile_section(data.get("delivery") or data.get("shipping"))
     legacy_billing = {
         "name": payment.get("name"),
@@ -619,6 +616,21 @@ def normalize_profile(data: dict[str, Any], *, require_postal: bool = True) -> d
         billing_same_as_delivery = True
     billing_source = delivery if billing_same_as_delivery else (billing_raw or legacy_billing)
     billing = _normalize_profile_section(billing_source)
+    return {
+        "email": email,
+        "delivery": delivery,
+        "billing": billing,
+        "billing_same_as_delivery": billing_same_as_delivery,
+    }
+
+
+def normalize_profile(data: dict[str, Any], *, require_postal: bool = True) -> dict[str, Any]:
+    guest = normalize_guest_profile(data)
+    delivery, billing = guest["delivery"], guest["billing"]
+    payment = data.get("payment") or {}
+    card_number = normalize_text(payment.get("card_number"))
+    exp = normalize_text(payment.get("exp"))
+    cvc = normalize_text(payment.get("cvc"))
     postal = normalize_text(payment.get("postal") or billing.get("postal") or delivery.get("postal"))
     country = normalize_text(payment.get("country") or billing.get("country") or delivery.get("country") or "United States")
     cardholder_name = normalize_text(payment.get("name") or billing.get("name"))
@@ -643,7 +655,7 @@ def normalize_profile(data: dict[str, Any], *, require_postal: bool = True) -> d
     missing = [
         name
         for name, value in [
-            ("payment.email", email),
+            ("payment.email", guest["email"]),
             ("payment.card_number", card_number),
             ("payment.exp", exp),
             ("payment.cvc", cvc),
@@ -655,7 +667,7 @@ def normalize_profile(data: dict[str, Any], *, require_postal: bool = True) -> d
     if missing:
         raise ValueError(f"Secrets file is missing required fields: {', '.join(missing)}")
     return {
-        "email": email,
+        **guest,
         "card_number": card_number,
         "card_exp": exp,
         "card_cvc": cvc,
@@ -663,9 +675,6 @@ def normalize_profile(data: dict[str, Any], *, require_postal: bool = True) -> d
         "card_country": country,
         "card_name": cardholder_name,
         "resident_id_number": resident_id_number,
-        "delivery": delivery,
-        "billing": billing,
-        "billing_same_as_delivery": billing_same_as_delivery,
     }
 
 

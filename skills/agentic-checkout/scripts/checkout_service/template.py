@@ -16,7 +16,7 @@ WORKER_ENV = {
     "PYTHONDONTWRITEBYTECODE": "1",
 }
 SOURCE_MARKER = "/opt/checkout/checkout-source.sha256"
-SERVICE_MODULES = ("buyer", "contract", "observation", "one_page", "worker", "preview")
+SERVICE_MODULES = ("buyer", "contract", "observation", "one_page", "worker", "preview", "purchase_worker")
 SKILL = Path(__file__).resolve().parents[2]
 
 

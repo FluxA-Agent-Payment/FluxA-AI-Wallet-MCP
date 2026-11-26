@@ -106,7 +106,9 @@ async def run_preview(
     return result
 
 
-async def resolve_checkout(page: Page, checkout_url: str, checkout_host: str, storefront_password: str | None) -> dict:
+async def resolve_checkout(
+    page: Page, checkout_url: str, checkout_host: str, storefront_password: str | None, *, export_storage: bool = True,
+) -> dict:
     entry_host = checkout_entry_host(checkout_url)
     try:
         response = await page.goto(checkout_url, wait_until="domcontentloaded", timeout=25_000)
@@ -125,7 +127,8 @@ async def resolve_checkout(page: Page, checkout_url: str, checkout_host: str, st
                 or urlsplit(page.url).path == "/password"):
             return {"status": "manual_verification"}
         if checkout_identity(page.url)[0] == checkout_host:
-            await page.context.storage_state(path=RESOLVED_STORAGE)
+            if export_storage:
+                await page.context.storage_state(path=RESOLVED_STORAGE)
             return {"status": "resolved", "checkout_url": page.url}
     except (Error, ValueError):
         pass

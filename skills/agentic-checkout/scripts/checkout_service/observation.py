@@ -38,6 +38,25 @@ def read_total(checkout: dict) -> tuple[str, int] | None:
     return None
 
 
+def total_rows(checkout: dict) -> list[dict]:
+    rows = []
+    for row in checkout["totals"]:
+        kind, amount = row["type"], row["amount"]
+        if (not isinstance(kind, str) or not re.fullmatch(r"[a-z][a-z0-9_.-]{0,47}", kind)
+                or type(amount) is not int or abs(amount) > 10**12):
+            raise ValueError("Invalid Shopify checkout total.")
+        result = {"type": kind, "amount": amount}
+        display = row.get("display_text")
+        if isinstance(display, str) and display.strip():
+            result["display_text"] = " ".join(display.split())[:250]
+        rows.append(result)
+    return rows
+
+
+def totals_binding(rows: list[dict]) -> tuple[tuple[str, int], ...]:
+    return tuple(sorted((row["type"], row["amount"]) for row in rows))
+
+
 def read_quote(checkout: dict) -> Quote | None:
     if not isinstance(checkout.get("status"), str) or checkout["status"] not in QUOTE_STATES:
         return None

@@ -17,6 +17,7 @@ SANDBOX_TIMEOUT = 180
 ATTEMPT_TIMEOUT = 165
 RECEIPT_TIMEOUT = 25
 RECEIPT_PATH = "/tmp/fluxa-checkout-result.json"
+PURCHASE_QUOTE_PATH = "/tmp/fluxa-purchase-quote.json"
 RESOLVED_STORAGE = "/tmp/fluxa-checkout-session.json"
 
 
@@ -88,13 +89,20 @@ def validate_approval(grant: CheckoutGrant) -> None:
     if (
         type(grant.total_minor_units) is not int or not 0 < grant.total_minor_units <= 10**12
         or not re.fullmatch(r"[A-Z]{3}", grant.currency)
-        or not isinstance(grant.items, dict) or not grant.items
-        or any(not VARIANT_ID.fullmatch(variant) or type(quantity) is not int or not 1 <= quantity <= 100
-               for variant, quantity in grant.items.items())
-        or not isinstance(grant.shipping_options, dict)
     ):
-        raise ValueError("Expected approved Shopify variants, quantities, total in minor units, and currency.")
-    for group, option in grant.shipping_options.items():
+        raise ValueError("Expected the approved Shopify total in minor units and currency.")
+    validate_selections(grant.items, grant.shipping_options)
+
+
+def validate_selections(items: dict, shipping_options: dict) -> None:
+    if not isinstance(items, dict) or not items or any(
+        not isinstance(variant, str) or not VARIANT_ID.fullmatch(variant)
+        or type(quantity) is not int or not 1 <= quantity <= 100 for variant, quantity in items.items()
+    ):
+        raise ValueError("Expected approved Shopify variants and quantities.")
+    if not isinstance(shipping_options, dict):
+        raise ValueError("Expected Shopify delivery selections by group.")
+    for group, option in shipping_options.items():
         if (not isinstance(group, str) or not group or not isinstance(option, dict)
                 or option.keys() - {"selected_option_id", "selected_option_details"}
                 or not isinstance(option.get("selected_option_id"), str) or not option["selected_option_id"]):
