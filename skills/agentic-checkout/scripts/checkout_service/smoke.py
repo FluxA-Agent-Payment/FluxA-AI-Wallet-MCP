@@ -1,4 +1,4 @@
-"""Wire one approved synthetic checkout into the real API for hosted acceptance."""
+"""Configure the hosted checkout service from its environment."""
 
 import json
 import os
@@ -6,6 +6,7 @@ from pathlib import Path
 from uuid import UUID
 
 from .api import create_app
+from .card_provider import CardProvider
 from .contract import CheckoutGrant, PreviewStore, TestStore, checkout_entry_host
 from .purchase import PurchaseMerchant
 
@@ -30,6 +31,10 @@ def app():
     event_url, event_secret = os.environ.get("CHECKOUT_PURCHASE_EVENT_URL"), os.environ.get("CHECKOUT_PURCHASE_EVENT_SECRET")
     if bool(event_url) != bool(event_secret):
         raise ValueError("Configure both the purchase callback URL and signing secret.")
+    card_origin = os.environ.get("CHECKOUT_CARD_PROVIDER_ORIGIN")
+    card_token = os.environ.get("CHECKOUT_CARD_PROVIDER_TOKEN")
+    if bool(card_origin) != bool(card_token):
+        raise ValueError("Configure both the checkout card provider origin and bearer token.")
 
     def purchase_credentials(_, host, country):
         settings = configured[host]
@@ -42,6 +47,7 @@ def app():
         "purchase_merchants": purchase_merchants,
         "purchase_credentials": purchase_credentials,
         "purchase_card": purchase_card,
+        "purchase_card_provider": CardProvider(card_origin, card_token) if card_origin else None,
         "purchase_events": (event_url, event_secret) if event_url else None,
         "order_webhooks": order_webhooks,
         "preview_stores": previews,
