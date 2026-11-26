@@ -17,12 +17,12 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
-from .api import CARD_FIELDS, close_sandbox, open_sandbox, recover_result, start_worker
+from .api import ADDRESS_FIELDS, CARD_FIELDS, close_sandbox, open_sandbox, recover_result, start_worker
 from .attempts import UNKNOWN
 from .contract import (
     PCI_HOST, PURCHASE_QUOTE_PATH, PURCHASE_SELECTION_PATH, RECEIPT_TIMEOUT, SANDBOX_TIMEOUT, TEST_CARDS,
     VARIANT_ID, TestStore,
-    checkout_entry_host, is_hostname, uses_test_data,
+    checkout_entry_host, is_hostname,
 )
 from .purchase_store import PurchaseConflict, PurchaseNotFound, Purchases
 
@@ -68,7 +68,7 @@ Items = Annotated[dict[Variant, Quantity], Field(min_length=1, max_length=50)]
 @dataclass(frozen=True)
 class PurchaseMerchant:
     store: TestStore
-    profile: dict = field(repr=False)
+    profile: dict = field(default_factory=dict, repr=False)
     products: tuple[dict, ...] = ()
     storefront_token: str | None = field(default=None, repr=False)
 
@@ -89,6 +89,10 @@ class Create(Cart):
 
 class ShippingOption(Input):
     selected_option_id: Text
+
+
+class ObservedShippingOption(ShippingOption):
+    selected_option_details: dict[str, str] | None = Field(default=None, exclude=True)
 
 
 class QuoteRequest(Input):
@@ -121,20 +125,33 @@ class NativeQuote(Input):
     currency: str = Field(pattern=r"^[A-Z]{3}$")
     minor_units: int = Field(gt=0, le=10**12)
     totals: list[QuoteTotal] = Field(min_length=1, max_length=50)
-    shipping_options: dict[Text, ShippingOption] = Field(max_length=50)
+    shipping_options: dict[Text, ObservedShippingOption] = Field(max_length=50)
     expires_at: int | float
     delivery_options: dict[Text, list[DeliveryOption]] | None = None
 
 
-def validate_merchants(merchants):
+def validate_merchants(merchants, credentials):
     for host, merchant in merchants.items():
         store = merchant.store
         if (
             not host.endswith(".myshopify.com") or store.gateway not in TEST_CARDS
             or not all(map(is_hostname, (host, store.checkout_host or host, *store.network_hosts)))
-            or not merchant.profile.get("email", "").lower().endswith("@example.com")
+            or (credentials is None and not merchant.profile.get("email", "").lower().endswith("@example.com"))
         ):
             raise ValueError("Configure exact Shopify test hosts, a supported test gateway and a synthetic buyer.")
+
+
+def guest_profile(contact):
+    email = contact["email"]
+    if not isinstance(email, str) or not email.lower().endswith("@example.com"):
+        raise ValueError("Configure a synthetic checkout buyer.")
+    return {
+        "email": email,
+        "delivery": {key: value for key, value in contact.get("delivery", {}).items() if key in ADDRESS_FIELDS},
+        "billing": {key: value for key, value in contact.get("billing", {}).items()
+                    if key in ADDRESS_FIELDS or key == "same_as_delivery"},
+        "storefront_password": contact.get("storefront_password"),
+    }
 
 
 def storefront(host, merchant, query, variables):
@@ -192,10 +209,11 @@ def read_quote(sandbox, receipt_path, deadline):
 
 
 class PurchaseFlow:
-    def __init__(self, attempts, merchants, card, template, digest, read_provider):
+    def __init__(self, attempts, merchants, credentials, card, template, digest, read_provider):
         self.purchases = Purchases(attempts)
         self.attempts = attempts
         self.merchants = merchants
+        self.credentials = credentials
         self.card = card
         self.template = template
         self.digest = digest
@@ -228,8 +246,15 @@ class PurchaseFlow:
                 path = PURCHASE_SELECTION_PATH
             else:
                 close_previous(row["sandbox_id"])
-                profile = merchant.profile
-                delivery_country = profile.get("delivery", {}).get("country")
+                try:
+                    contact = self.read_provider(
+                        lambda identifier: self.credentials(identifier, row["merchant"], row["country"]), UUID(purchase_id),
+                    ) if self.credentials else merchant.profile
+                    profile = guest_profile(contact)
+                except Exception:
+                    return self.purchases.finish_prepare(purchase_id, lease, "requires_action",
+                        result={"status": "identity_incomplete", "reason": "credentials_unavailable"})[0]
+                delivery_country = profile["delivery"].get("country")
                 if delivery_country and delivery_country != row["country"]:
                     return self.purchases.finish_prepare(purchase_id, lease, "requires_action",
                         result={"status": "identity_incomplete", "reason": "delivery_country_mismatch"})[0]
@@ -333,7 +358,7 @@ class PurchaseFlow:
         try:
             payment = self.read_provider(lambda approval: self.card(approval, merchant_id), UUID(purchase_id))
             payment = {key: value for key, value in payment.items() if key in CARD_FIELDS}
-            if not uses_test_data(store.gateway, merchant.profile["email"], payment["card_number"]):
+            if payment.get("card_number") not in TEST_CARDS[store.gateway]:
                 raise ValueError("Only synthetic credentials are allowed.")
             payload = json.dumps({"gateway": store.gateway, "payment": payment}, allow_nan=False) + "\n"
             if len(payload) > 8192 or time.time() >= row["expires_at"]:

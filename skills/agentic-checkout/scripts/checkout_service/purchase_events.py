@@ -15,10 +15,11 @@ from .purchase_store import PurchaseNotFound, encode
 from .reconciliation import read_order_receipt
 
 LOGGER = logging.getLogger(__name__)
+ORDER_TOPICS = {"orders/create": "placed", "orders/paid": "paid", "orders/fulfilled": "fulfilled"}
 
 
 def apply_shopify_event(purchases, attempts, shop, host, topic, raw):
-    if topic.startswith("orders/"):
+    if topic in ORDER_TOPICS:
         receipt = read_order_receipt(raw)
         if receipt is None:
             return
@@ -29,7 +30,7 @@ def apply_shopify_event(purchases, attempts, shop, host, topic, raw):
                 purchases.synchronize(approval_id)
             except PurchaseNotFound:
                 pass
-        purchases.order_update(shop, receipt.order_id, "paid" if topic == "orders/paid" else "placed")
+        purchases.order_update(shop, receipt.order_id, ORDER_TOPICS[topic])
         return
 
     try:
@@ -59,7 +60,8 @@ def apply_shopify_event(purchases, attempts, shop, host, topic, raw):
                 pass
         if "number" in entry or "url" in entry:
             tracking.append(entry)
-    purchases.order_update(shop, f"gid://shopify/Order/{order_id}", "shipped", tracking)
+    if tracking:
+        purchases.order_update(shop, f"gid://shopify/Order/{order_id}", tracking=tracking)
 
 
 class EventDelivery:

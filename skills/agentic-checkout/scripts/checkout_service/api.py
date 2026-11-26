@@ -193,6 +193,7 @@ def create_app(
     preview_stores: dict[str, PreviewStore] | None = None,
     order_webhooks: dict[str, tuple[str, str]] | None = None,
     purchase_merchants: dict | None = None,
+    purchase_credentials: Callable[[UUID, str, str], dict] | None = None,
     purchase_card: Callable[[UUID, str], dict] | None = None,
     purchase_events: tuple[str, str] | None = None,
 ) -> FastAPI:
@@ -207,7 +208,7 @@ def create_app(
     test_stores = dict(test_stores)
     order_webhooks = dict(order_webhooks or {})
     purchase_merchants = dict(purchase_merchants or {})
-    validate_merchants(purchase_merchants)
+    validate_merchants(purchase_merchants, purchase_credentials)
     if purchase_merchants and purchase_card is None:
         raise ValueError("Configure a test card provider for purchase merchants.")
     if len(bearer_token) < 32 or not (test_stores or preview_stores or purchase_merchants):
@@ -244,7 +245,7 @@ def create_app(
         finally:
             future.cancel()
 
-    flow = PurchaseFlow(attempts, purchase_merchants, purchase_card, template, digest, read_provider)
+    flow = PurchaseFlow(attempts, purchase_merchants, purchase_credentials, purchase_card, template, digest, read_provider)
     delivery = EventDelivery(flow.purchases, *purchase_events) if purchase_events else None
 
     @asynccontextmanager
@@ -488,7 +489,9 @@ def create_app(
     async def shopify_order(request: Request):
         shop = request.headers.get("x-shopify-shop-domain")
         topic = request.headers.get("x-shopify-topic")
-        if shop not in order_webhooks or topic not in {"orders/create", "orders/paid", "fulfillments/create", "fulfillments/update"}:
+        if shop not in order_webhooks or topic not in {
+            "orders/create", "orders/paid", "orders/fulfilled", "fulfillments/create", "fulfillments/update",
+        }:
             raise HTTPException(status_code=404)
         host, secret = order_webhooks[shop]
         body = bytearray()

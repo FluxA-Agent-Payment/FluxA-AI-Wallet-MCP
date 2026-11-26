@@ -221,8 +221,8 @@ class Purchases:
                           ON CONFLICT(sink) DO UPDATE SET delivered_through=MAX(delivered_through,excluded.delivered_through)""",
                        (sink, event_id))
 
-    def order_update(self, merchant, order_id, order_status, tracking=None):
-        priority = ("placed", "paid", "shipped")
+    def order_update(self, merchant, order_id, order_status="placed", tracking=None):
+        priority = ("placed", "paid", "fulfilled")
         with self.connection() as db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute("""SELECT purchases.* FROM purchases JOIN attempts

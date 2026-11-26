@@ -19,7 +19,7 @@ def app():
     purchase_merchants = {
         host: PurchaseMerchant(
             TestStore(settings["gateway"], tuple(settings.get("network_hosts", ())), settings.get("checkout_host")),
-            settings["profile"], tuple(settings.get("products", ())), settings.get("storefront_token"),
+            settings.get("profile", {}), tuple(settings.get("products", ())), settings.get("storefront_token"),
         )
         for host, settings in configured.items()
     }
@@ -31,11 +31,16 @@ def app():
     if bool(event_url) != bool(event_secret):
         raise ValueError("Configure both the purchase callback URL and signing secret.")
 
+    def purchase_credentials(_, host, country):
+        settings = configured[host]
+        return settings.get("profiles", {}).get(country, settings.get("profile", {}))
+
     def purchase_card(_, host):
         return configured[host]["card"]
 
     service = {
         "purchase_merchants": purchase_merchants,
+        "purchase_credentials": purchase_credentials,
         "purchase_card": purchase_card,
         "purchase_events": (event_url, event_secret) if event_url else None,
         "order_webhooks": order_webhooks,

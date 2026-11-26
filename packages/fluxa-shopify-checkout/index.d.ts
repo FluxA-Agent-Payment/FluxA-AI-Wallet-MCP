@@ -113,7 +113,7 @@ export type Purchase = {
     reason?: string;
     delivery_options?: PurchaseDeliveryOptions;
   };
-  order_status?: "placed" | "paid" | "shipped";
+  order_status?: "placed" | "paid" | "fulfilled";
   tracking?: Array<{ company?: string; number?: string; url?: string }>;
 };
 
