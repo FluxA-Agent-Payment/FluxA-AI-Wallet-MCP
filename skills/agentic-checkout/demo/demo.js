@@ -3,6 +3,7 @@ const merchants = new Map();
 const cart = new Map();
 const shipping = new Map();
 const SHOP_CATALOG = 'shop_catalog';
+const E2B_CARD = 'e2b_card';
 const supportedMarkets = { AU: 'AUD', CA: 'CAD', CH: 'CHF', CN: 'CNY', DE: 'EUR', FR: 'EUR', GB: 'GBP', HK: 'HKD', JP: 'JPY', SG: 'SGD', US: 'USD' };
 const statusLabels = {
   draft: 'Cart ready', preparing: 'Preparing quote', quoted: 'Quote ready',
@@ -11,6 +12,7 @@ const statusLabels = {
 };
 
 let token = '';
+let cardCheckout = false;
 let purchase;
 let pendingCreate;
 let selectedQuote;
@@ -54,8 +56,13 @@ function countryCode() {
 function variantId(value, channel) {
   const id = String(value ?? '').trim();
   const match = /^(gid:\/\/shopify\/ProductVariant\/)?([1-9][0-9]{0,19})(?:\?[^\s#]+)?$/.exec(id);
-  if (channel !== SHOP_CATALOG) return match?.[2];
+  if (!channel) return match?.[2];
   if (match?.[1] && id === value && id.length <= 512) return id;
+}
+
+function receiptOrderId(result) {
+  if (result?.status === 'submitted' && typeof result.order_id === 'string'
+    && /^gid:\/\/shopify\/Order\/[1-9][0-9]*$/.test(result.order_id)) return result.order_id;
 }
 
 function httpsUrl(value) {
@@ -86,12 +93,16 @@ async function request(path, method = 'GET', body, access = token) {
   } catch {
     throw new Error('The checkout service did not respond. Try again or refresh the purchase status.');
   }
-  if (response.status === 401 || response.status === 403) {
+  if (response.status === 401) {
     if (token === access) {
       token = '';
       updateConnection();
     }
     throw new Error('Connect with a valid checkout service token.');
+  }
+  if (response.status === 403) {
+    const error = await response.json().catch(() => null);
+    if (typeof error?.detail === 'string') throw new Error(error.detail);
   }
   if (!response.ok) {
     throw new Error(response.status === 409
@@ -125,7 +136,7 @@ async function resumePurchase() {
   $('country').value = purchase.country;
   $('country').dispatchEvent(new Event('change'));
   const { merchant, country, channel, currency } = purchase;
-  if (channel === SHOP_CATALOG) $('currency').value = currency;
+  if (currency) $('currency').value = currency;
   for (const [id, quantity] of Object.entries(purchase.items)) {
     const fixture = fixtures.find((item) => item.id === id && item.merchant === merchant);
     cart.set(id, { id, merchant, country, channel, currency, title: fixture?.title ?? `Variant ${variantId(id)}`, quantity });
@@ -159,16 +170,17 @@ function merchantCanQuote(domain) {
 }
 
 function canCheckout({ merchant, channel }) {
-  if (channel === SHOP_CATALOG) return /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.myshopify\.com$/.test(merchant);
+  if (channel) return /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.myshopify\.com$/.test(merchant);
   return merchantCanQuote(merchant);
 }
 
 function renderProducts(products, country, currency, testLink = false) {
   const cards = [];
+  const catalogChannel = cardCheckout ? E2B_CARD : SHOP_CATALOG;
   for (const product of products) {
     for (const variant of product.variants ?? []) {
       const merchant = variant.seller?.domain;
-      const channel = merchantCanQuote(merchant) ? undefined : SHOP_CATALOG;
+      const channel = testLink || (!cardCheckout && merchantCanQuote(merchant)) ? undefined : catalogChannel;
       const id = variantId(variant.id, channel);
       const title = product.title || 'Shopify product';
       const options = variant.options?.map((option) => option.label).filter(Boolean).join(' · ') || variant.title;
@@ -238,15 +250,17 @@ function add(item) {
   if (!token) return openConnection();
   if (!canEdit()) return selectionNotice('Wait for the current purchase or start a new cart.');
   if (!canCheckout(item)) return selectionNotice('Choose a Shopify catalog product or a configured test store.');
-  if (item.channel === SHOP_CATALOG && !/^[A-Z]{3}$/.test(item.currency)) return selectionNotice('Enter a three-letter currency code.');
+  if (item.channel && (item.channel === SHOP_CATALOG || item.currency !== undefined) && !/^[A-Z]{3}$/.test(item.currency)) {
+    return selectionNotice('Enter a three-letter currency code.');
+  }
   if (!/^[A-Z]{2}$/.test(item.country)) return selectionNotice('Enter a two-letter country code to add this product.');
   const existing = firstItem();
   const market = existing ?? purchase;
   if (market && (market.merchant !== item.merchant || market.country !== item.country
-    || (market.channel === SHOP_CATALOG) !== (item.channel === SHOP_CATALOG))) {
-    return selectionNotice('A cart can contain products from one merchant and shipping country.');
+    || market.channel !== item.channel)) {
+    return selectionNotice('Choose products from the same merchant, shipping country, and checkout type.');
   }
-  if (market && item.channel === SHOP_CATALOG && market.currency !== item.currency) {
+  if (market?.currency && item.channel && market.currency !== item.currency) {
     return selectionNotice('Choose products in the cart’s currency.');
   }
   const quantity = cart.get(item.id)?.quantity ?? 0;
@@ -302,7 +316,7 @@ function selectedPaymentMethod() {
 function renderControls() {
   const editable = canEdit();
   $('country').disabled = Boolean(cart.size || purchase || searching);
-  $('currency').disabled = searching || (firstItem() ?? purchase)?.channel === SHOP_CATALOG;
+  $('currency').disabled = searching || Boolean((firstItem() ?? purchase)?.channel);
   $('search-button').disabled = searching;
   $('connection').disabled = editing || refreshing || searching;
   $('fixture-add').disabled = !editable;
@@ -333,7 +347,7 @@ function renderCart() {
   $('cart-empty').hidden = Boolean(cart.size);
   const market = firstItem();
   message('cart-merchant', market ? [market.merchant, `Ships to ${market.country}`,
-    market.channel === SHOP_CATALOG ? market.currency : 'Test checkout'].filter(Boolean).join(' · ') : '');
+    market.channel ? market.currency : 'Test checkout'].filter(Boolean).join(' · ') : '');
   $('cart-items').replaceChildren(...Array.from(cart.values(), (item) => {
     const row = element('li', '', 'cart-item');
     const title = element('div');
@@ -433,7 +447,8 @@ function renderQuoteDetails(quote) {
 
 function renderCheckout() {
   const quote = currentQuote();
-  const phase = purchase?.status;
+  const orderId = receiptOrderId(purchase?.result);
+  const phase = purchase?.status === 'submitted' && !orderId ? 'reconciliation_required' : purchase?.status;
   const native = purchase?.channel === SHOP_CATALOG;
   const merchantCheckout = native && phase === 'requires_action' && purchase.result?.reason === 'merchant_checkout';
   const continueUrl = merchantCheckout && httpsUrl(purchase.continue_url);
@@ -462,7 +477,7 @@ function renderCheckout() {
   } else if (phase === 'quoted') {
     if (quote) {
       note = native ? 'Review the total and select a payment method to approve the order.'
-        : 'Review the total before approving this test order.';
+        : `Review the total before approving this ${purchase.channel ? 'order' : 'test order'}.`;
     } else {
       status = 'Quote needs updating';
       note = 'Request an updated quote for your cart and delivery terms.';
@@ -491,7 +506,7 @@ function renderCheckout() {
   receipt.replaceChildren();
   receipt.hidden = phase !== 'submitted';
   if (phase === 'submitted') {
-    if (purchase.result?.order_id) definition(receipt, 'Merchant order', purchase.result.order_id);
+    definition(receipt, 'Merchant order', orderId);
     definition(receipt, 'Purchase ID', purchase.id);
     if (purchase.order_status) definition(receipt, 'Order status', label(purchase.order_status));
     for (const tracking of purchase.tracking ?? []) definition(receipt, 'Tracking', trackingLabel(tracking));
@@ -521,8 +536,10 @@ async function readEvents() {
   for (const event of events) {
     if (event.id <= lastEvent) continue;
     const row = element('li');
-    const detail = label(event.data?.result?.reason ?? event.data?.order_status);
-    const title = statusLabels[event.type] ?? label(event.type);
+    const orderId = receiptOrderId(event.data?.result);
+    const detail = label(event.data?.result?.reason ?? (orderId ? event.data?.order_status : ''));
+    const type = event.type === 'submitted' && !orderId ? 'reconciliation_required' : event.type;
+    const title = statusLabels[type] ?? label(type);
     row.append(element('span', [title, detail].filter(Boolean).join(' · ')), element('time', timestamp(event.created_at)));
     $('events').prepend(row);
     lastEvent = event.id;
@@ -600,6 +617,7 @@ $('connect-form').addEventListener('submit', async (event) => {
     const response = await request('/purchase-merchants', 'GET', undefined, candidate);
     merchants.clear();
     for (const merchant of response.merchants) merchants.set(merchant.merchant, merchant);
+    cardCheckout = response.card_checkout === true;
     token = candidate;
     fixtures = fixturesFromMerchants();
     $('connect-dialog').close();
@@ -698,7 +716,7 @@ $('quote-button').addEventListener('click', () => updatePurchase('Preparing quot
   if (!purchase) {
     const { merchant, country, channel, currency } = firstItem();
     const body = { merchant, country, items: cartItems };
-    if (channel === SHOP_CATALOG) Object.assign(body, { channel, currency });
+    if (channel) Object.assign(body, { channel, currency });
     const signature = JSON.stringify(body);
     if (pendingCreate?.signature !== signature) pendingCreate = { signature, id: crypto.randomUUID() };
     purchase = await request('/purchases', 'POST', { request_id: pendingCreate.id, ...body });
@@ -720,8 +738,8 @@ $('review-button').addEventListener('click', () => {
   $('approve-summary').textContent = [`${quantity} ${quantity === '1' ? 'item' : 'items'} from ${purchase.merchant}`, `Ships to ${purchase.country}`, deliverySummary(quote)].filter(Boolean).join(' · ');
   $('approve-amount').textContent = money(quote.minor_units, quote.currency);
   const native = purchase.channel === SHOP_CATALOG;
-  $('approve-title').textContent = native ? 'Approve this order' : 'Approve this test order';
-  $('approve-submit').textContent = native ? 'Approve & place order' : 'Approve & place test order';
+  $('approve-title').textContent = purchase.channel ? 'Approve this order' : 'Approve this test order';
+  $('approve-submit').textContent = purchase.channel ? 'Approve & place order' : 'Approve & place test order';
   $('payment-method-field').hidden = !native;
   const paymentMethod = $('payment-method');
   const prompt = new Option('Choose a payment method', '');

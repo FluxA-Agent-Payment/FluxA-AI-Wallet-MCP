@@ -20,6 +20,11 @@ const createFields = {
   request_id: z.string().uuid().describe("Generate once for a new purchase and reuse on retry."),
   country,
 };
+const catalogCreateFields = {
+  ...createFields,
+  merchant: merchant.describe("Exact seller.domain of the selected catalog variants."),
+  items: catalogItems,
+};
 const confirmFields = {
   purchase_id: purchaseId,
   quote_id: z.string().uuid(),
@@ -55,12 +60,15 @@ const requestSchema = z.union([
     items: testItems,
   }).strict().describe("Start a purchase for a configured test merchant."),
   z.object({
-    ...createFields,
+    ...catalogCreateFields,
     channel: z.literal("shop_catalog"),
-    merchant: merchant.describe("Exact seller.domain of the selected catalog variants."),
-    items: catalogItems,
     currency,
-  }).strict().describe("Start a purchase for variants selected from the Shopify catalog."),
+  }).strict().describe("Start a hosted checkout for variants selected from the Shopify catalog."),
+  z.object({
+    ...catalogCreateFields,
+    channel: z.literal("e2b_card"),
+    currency: currency.optional(),
+  }).strict().describe("Start card checkout for variants selected from the Shopify catalog when list_merchants returns card_checkout as true."),
   z.object({
     action: z.literal("get_purchase"),
     purchase_id: purchaseId,
@@ -82,7 +90,7 @@ const requestSchema = z.union([
   z.object({
     action: z.literal("confirm_purchase"),
     ...confirmFields,
-    payment_method_id: z.string().min(1).optional().describe("Payment method the buyer selected from the current quote."),
+    payment_method_id: z.string().min(1).optional().describe("Payment method the buyer selected from the current quote, if offered. Omit for e2b_card."),
   }).strict().describe("Submit a catalog purchase against its approved final quote."),
   z.object({
     action: z.literal("list_events"),
@@ -124,7 +132,9 @@ export function registerBuyTool(server, client) {
   server.registerTool("buy", {
     title: "Shopify purchase",
     description: "Find Shopify products by search or URL and manage purchases. For a catalog purchase, use "
-      + "the exact variant IDs and seller.domain from the catalog. Use list_merchants for configured test stores. "
+      + "the exact variant IDs and seller.domain from the catalog. Use list_merchants to check card checkout "
+      + "availability and find configured test stores. Select e2b_card when card_checkout is true, or shop_catalog "
+      + "for hosted checkout. "
       + "If required, share the merchant checkout link with the buyer and use get_purchase to check for the receipt. "
       + "Before confirming, show the exact final quote, including merchant, items, delivery, total, currency, and "
       + "any selected payment method. Confirm only after the buyer explicitly approves that quote. Use get_purchase "

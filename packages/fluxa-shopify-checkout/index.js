@@ -48,13 +48,14 @@ function isPurchaseQuote(quote) {
 function isPurchase(purchase) {
   return isUuid(purchase?.id) && typeof purchase.merchant === "string" && typeof purchase.country === "string"
     && isRecord(purchase.items) && PURCHASE_STATUSES.has(purchase.status)
-    && (purchase.channel === undefined || (purchase.channel === "shop_catalog" && isCurrency(purchase.currency)))
+    && (purchase.channel === undefined
+      || (purchase.channel === "shop_catalog" && isCurrency(purchase.currency))
+      || (purchase.channel === "e2b_card" && (purchase.currency === undefined || isCurrency(purchase.currency))))
     && (purchase.continue_url === undefined || typeof purchase.continue_url === "string")
     && (purchase.quote === undefined ? purchase.status !== "quoted" : isPurchaseQuote(purchase.quote))
-    && (purchase.result === undefined
-      ? purchase.status !== "submitted"
-      : typeof purchase.result?.status === "string"
-        && (purchase.status !== "submitted" || isAttemptResult(purchase.result, 200)));
+    && (purchase.status === "submitted"
+      ? purchase.result?.status === "submitted" && isAttemptResult(purchase.result, 200)
+      : purchase.order_status === undefined && (purchase.result === undefined || typeof purchase.result?.status === "string"));
 }
 
 function purchasePath(purchaseId) {
@@ -171,8 +172,9 @@ export class ShopifyCheckoutClient {
 
   async listPurchaseMerchants() {
     return this.#request("purchase-merchants", "GET", undefined,
-      result => Array.isArray(result?.merchants) && result.merchants.every(merchant =>
-        typeof merchant?.merchant === "string" && PURCHASE_MERCHANT_STATUSES.has(merchant.status)));
+      result => (result?.card_checkout === undefined || typeof result.card_checkout === "boolean")
+        && Array.isArray(result?.merchants) && result.merchants.every(merchant =>
+          typeof merchant?.merchant === "string" && PURCHASE_MERCHANT_STATUSES.has(merchant.status)));
   }
 
   async createPurchase({ requestId, merchant, items, country, channel, currency }) {

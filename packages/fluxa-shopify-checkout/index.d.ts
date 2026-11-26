@@ -108,7 +108,7 @@ export type Purchase = {
   merchant: string;
   items: PurchaseItems;
   country: string;
-  channel?: "shop_catalog";
+  channel?: "shop_catalog" | "e2b_card";
   currency?: string;
   status: PurchaseStatus;
   quote?: PurchaseQuote;
@@ -155,10 +155,12 @@ export class ShopifyCheckoutClient {
   searchCatalog(input: { query: string; country: string; currency: string; limit?: number; cursor?: string }): Promise<CatalogSearchResult>;
   lookupCatalog(input: { url: string; country: string; currency: string }): Promise<CatalogSearchResult>;
   resolvePurchaseProduct(input: { url: string; country: string }): Promise<PurchaseProduct>;
-  listPurchaseMerchants(): Promise<{ merchants: PurchaseMerchant[] }>;
+  listPurchaseMerchants(): Promise<{ merchants: PurchaseMerchant[]; card_checkout?: boolean }>;
   createPurchase(input: {
     requestId: string; merchant: string; items: PurchaseItems; country: string;
-  } & ({ channel?: never; currency?: never } | { channel: "shop_catalog"; currency: string })): Promise<Purchase>;
+  } & ({ channel?: never; currency?: never }
+    | { channel: "shop_catalog"; currency: string }
+    | { channel: "e2b_card"; currency?: string })): Promise<Purchase>;
   getPurchase(purchaseId: string): Promise<Purchase>;
   updatePurchaseCart(purchaseId: string, input: { items: PurchaseItems }): Promise<Purchase>;
   quotePurchase(purchaseId: string, input?: { shippingOptions?: PurchaseShippingOptions }): Promise<Purchase>;
