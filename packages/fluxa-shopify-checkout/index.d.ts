@@ -78,13 +78,12 @@ export type PurchaseItems = Record<string, number>;
 
 export type PurchaseShippingOptions = Record<string, {
   selected_option_id: string;
-  selected_option_details?: { phone_number?: string; instructions?: string };
 }>;
 
 export type PurchaseDeliveryOptions = Record<string, Array<{
   id: string;
   title?: string;
-  amount?: number;
+  amount?: string | number;
   display_text?: string;
 }>>;
 
@@ -92,7 +91,7 @@ export type PurchaseQuote = {
   id: string;
   currency: string;
   minor_units: number;
-  totals: NativeCartSummary["totals"];
+  totals: { type: string; amount: string | number; display_text?: string }[];
   shipping_options: PurchaseShippingOptions;
   expires_at: number;
   delivery_options?: PurchaseDeliveryOptions;

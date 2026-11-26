@@ -9,10 +9,6 @@ const items = z.record(z.string().regex(/^[1-9][0-9]{0,19}$/), z.number().int().
   .describe("Map of numeric Shopify variant IDs to quantities.");
 const shippingOptions = z.record(z.string().min(1), z.object({
   selected_option_id: z.string().min(1),
-  selected_option_details: z.object({
-    phone_number: z.string().optional(),
-    instructions: z.string().optional(),
-  }).strict().optional(),
 }).strict()).describe("Map of delivery group IDs to selected options from the purchase.");
 
 const requestSchema = z.discriminatedUnion("action", [
