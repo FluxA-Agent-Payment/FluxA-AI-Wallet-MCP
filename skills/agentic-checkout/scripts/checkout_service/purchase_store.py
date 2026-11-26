@@ -55,11 +55,25 @@ class Purchases:
                         unixepoch());
                 END;
             """)
+            db.execute("BEGIN IMMEDIATE")
+            columns = {column["name"] for column in db.execute("PRAGMA table_info(purchases)")}
+            for name, contract in {
+                "channel": "TEXT NOT NULL DEFAULT 'e2b_test'", "currency": "TEXT",
+                "native_ref": "TEXT", "native_url": "TEXT", "native_key": "TEXT",
+                "native_subject": "TEXT", "native_terms": "TEXT",
+            }.items():
+                if name not in columns:
+                    db.execute(f"ALTER TABLE purchases ADD COLUMN {name} {contract}")
+            db.execute("CREATE UNIQUE INDEX IF NOT EXISTS purchase_shop_checkout ON purchases(native_ref)")
 
     @staticmethod
     def view(row):
         result = {key: row[key] for key in ("id", "merchant", "country", "status")}
         result["items"] = json.loads(row["items"])
+        if row["channel"] == "shop_catalog":
+            result.update(channel=row["channel"], currency=row["currency"])
+            if row["native_url"] and row["status"] in ("quoted", "requires_action"):
+                result["continue_url"] = row["native_url"]
         for key in ("quote", "result", "tracking"):
             if row[key] is not None:
                 result[key] = json.loads(row[key])
@@ -74,11 +88,15 @@ class Purchases:
             raise PurchaseNotFound(purchase_id)
         return row
 
-    def create(self, purchase_id, merchant, items, country):
-        request = encode([merchant, items, country])
+    def create(self, purchase_id, merchant, items, country, channel="e2b_test", currency=None):
+        intent = [merchant, items, country]
+        if channel == "shop_catalog":
+            intent.extend((channel, currency))
+        request = encode(intent)
         with self.connection() as db:
-            db.execute("""INSERT INTO purchases(id, request, merchant, items, country) VALUES (?, ?, ?, ?, ?)
-                          ON CONFLICT(id) DO NOTHING""", (purchase_id, request, merchant, encode(items), country))
+            db.execute("""INSERT INTO purchases(id, request, merchant, items, country, channel, currency)
+                          VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO NOTHING""",
+                       (purchase_id, request, merchant, encode(items), country, channel, currency))
             row = self.row(db, purchase_id)
             if row["request"] != request:
                 raise PurchaseConflict("This request ID belongs to different purchase terms.")
@@ -89,7 +107,7 @@ class Purchases:
             db.execute("BEGIN IMMEDIATE")
             row = self.row(db, purchase_id)
             timed_state = row["status"] in ("preparing", "quoted") or (
-                row["status"] == "requires_action" and row["sandbox_id"]
+                row["status"] == "requires_action" and (row["sandbox_id"] or row["native_ref"])
             )
             if timed_state and row["expires_at"] <= time.time():
                 db.execute("UPDATE purchases SET status = 'expired' WHERE id = ?", (purchase_id,))
@@ -100,12 +118,15 @@ class Purchases:
         with self.connection() as db:
             db.execute("BEGIN IMMEDIATE")
             row = self.row(db, purchase_id)
-            if row["approved_at"] or (row["status"] == "preparing" and row["expires_at"] > time.time()):
+            if row["approved_at"] or row["native_ref"] or (
+                row["status"] == "preparing" and row["expires_at"] > time.time()
+            ):
                 raise PurchaseConflict("This purchase is already being prepared or submitted.")
             if row["items"] == encode(items):
                 return self.view(row), None
             db.execute("""UPDATE purchases SET items=?, status='draft', quote=NULL, result=NULL, lease=NULL,
-                          sandbox_id=NULL, pid=NULL, checkout_digest=NULL, expires_at=NULL WHERE id=?""",
+                          sandbox_id=NULL, pid=NULL, checkout_digest=NULL, expires_at=NULL, native_key=NULL
+                          WHERE id=?""",
                        (encode(items), purchase_id))
             return self.view(self.row(db, purchase_id)), row["sandbox_id"]
 

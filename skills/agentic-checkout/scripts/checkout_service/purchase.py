@@ -2,10 +2,11 @@
 
 import json
 import re
+import sqlite3
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 from urllib.parse import parse_qs, urlsplit
 from uuid import UUID, uuid4
 
@@ -19,12 +20,14 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from .api import ADDRESS_FIELDS, CARD_FIELDS, close_sandbox, open_sandbox, recover_result, start_worker
 from .attempts import UNKNOWN
+from .catalog import Currency, Merchant, VariantGID
 from .contract import (
     PCI_HOST, PURCHASE_QUOTE_PATH, PURCHASE_SELECTION_PATH, RECEIPT_TIMEOUT, SANDBOX_TIMEOUT, TEST_CARDS,
     VARIANT_ID, TestStore,
     checkout_entry_host, is_hostname,
 )
 from .purchase_store import PurchaseConflict, PurchaseNotFound, Purchases
+from .shop_purchase import SHOP_ERRORS, ShopSessionUnavailable
 
 STOREFRONT_VERSION = "2026-10"
 QUOTE_WAIT = 65
@@ -62,7 +65,7 @@ Variant = Annotated[str, StringConstraints(pattern=f"^{VARIANT_ID.pattern}$")]
 Country = Annotated[str, StringConstraints(pattern=r"^[A-Z]{2}$")]
 Quantity = Annotated[int, Field(ge=1, le=100)]
 Text = Annotated[str, StringConstraints(min_length=1, max_length=256)]
-Items = Annotated[dict[Variant, Quantity], Field(min_length=1, max_length=50)]
+Items = Annotated[dict[Variant | VariantGID, Quantity], Field(min_length=1, max_length=50)]
 
 
 @dataclass(frozen=True)
@@ -83,8 +86,10 @@ class Cart(Input):
 
 class Create(Cart):
     request_id: UUID = Field(strict=False)
-    merchant: str = Field(max_length=253)
+    merchant: Merchant
     country: Country
+    channel: Literal["e2b_test", "shop_catalog"] = "e2b_test"
+    currency: Currency | None = None
 
 
 class ShippingOption(Input):
@@ -101,6 +106,7 @@ class QuoteRequest(Input):
 
 class Approval(Input):
     quote_id: UUID = Field(strict=False)
+    payment_method_id: Text | None = None
 
 
 class ProductRequest(Input):
@@ -387,9 +393,7 @@ class PurchaseFlow:
         return outcome
 
 
-def mount_purchase_routes(app, require_service, flow, previews):
-    if not flow.merchants and not previews:
-        return
+def mount_purchase_routes(app, require_service, flow, previews, shop):
     auth = [Depends(require_service)]
 
     @app.get("/purchase-merchants", dependencies=auth)
@@ -422,32 +426,74 @@ def mount_purchase_routes(app, require_service, flow, previews):
         except (httpx.HTTPError, KeyError, ValueError, TypeError):
             raise HTTPException(status_code=502, detail="Shopify product details are unavailable.") from None
 
+    def shop_items(items, channel):
+        if any(variant.startswith("gid://") != (channel == "shop_catalog") for variant in items):
+            raise HTTPException(status_code=422, detail="Use exact Shopify catalog IDs for catalog checkout.")
+
+    def shop_operation(operation, *args):
+        try:
+            return operation(*args)
+        except ShopSessionUnavailable:
+            raise HTTPException(status_code=503, detail="Shop sign-in is temporarily unavailable.") from None
+        except sqlite3.IntegrityError:
+            raise HTTPException(status_code=409, detail="This Shopify checkout is already linked to a purchase.") from None
+        except SHOP_ERRORS:
+            raise HTTPException(status_code=502, detail="Shopify checkout is temporarily unavailable.") from None
+    def shop_result(operation, *args):
+        return JSONResponse(shop_operation(operation, *args), headers={"Cache-Control": "no-store"})
+
     @app.post("/purchases", dependencies=auth)
     def create(request: Create):
-        if request.merchant not in flow.merchants:
+        shop_items(request.items, request.channel)
+        if request.channel == "shop_catalog":
+            if request.currency is None:
+                raise HTTPException(status_code=422, detail="Select a market currency for the Shopify purchase.")
+        elif request.merchant not in flow.merchants:
             raise HTTPException(status_code=422, detail="This merchant is outside the configured Shopify test scope.")
-        return flow.purchases.create(str(request.request_id), request.merchant, request.items, request.country)
+        return flow.purchases.create(
+            str(request.request_id), request.merchant, request.items, request.country, request.channel, request.currency,
+        )
 
     @app.get("/purchases/{purchase_id}", dependencies=auth)
     def get(purchase_id: UUID):
+        row = flow.purchases.current(str(purchase_id))
+        if row["channel"] == "shop_catalog":
+            return shop_result(shop.read, row)
         return flow.read(str(purchase_id))
 
     @app.put("/purchases/{purchase_id}/cart", dependencies=auth)
     def amend(purchase_id: UUID, request: Cart):
+        row = flow.purchases.current(str(purchase_id))
+        shop_items(request.items, row["channel"])
+        if row["channel"] == "shop_catalog":
+            shop_operation(shop.session, row)
         view, old_sandbox = flow.purchases.amend(str(purchase_id), request.items)
         close_previous(old_sandbox)
         return view
 
     @app.post("/purchases/{purchase_id}/quote", dependencies=auth)
     def quote(purchase_id: UUID, request: QuoteRequest):
+        row = flow.purchases.current(str(purchase_id))
+        if row["channel"] == "shop_catalog":
+            if request.shipping_options:
+                raise HTTPException(status_code=422, detail="Select delivery options on the Shopify checkout page.")
+            return shop_result(shop.prepare, row)
         return flow.prepare(str(purchase_id), request.model_dump()["shipping_options"])
 
     @app.post("/purchases/{purchase_id}/confirm", dependencies=auth)
     def confirm(purchase_id: UUID, request: Approval):
+        row = flow.purchases.current(str(purchase_id))
+        if row["channel"] == "shop_catalog":
+            return shop_result(shop.confirm, row, request)
+        if request.payment_method_id is not None:
+            raise HTTPException(status_code=422, detail="The test checkout uses its configured test card.")
         return flow.confirm(str(purchase_id), str(request.quote_id))
 
     @app.get("/purchases/{purchase_id}/events", dependencies=auth)
     def events(purchase_id: UUID, after: int = Query(default=0, ge=0, le=2**63 - 1)):
+        row = flow.purchases.current(str(purchase_id))
+        if row["channel"] == "shop_catalog":
+            shop_operation(shop.session, row)
         return {"events": flow.purchases.events(str(purchase_id), after)}
 
     @app.exception_handler(PurchaseConflict)

@@ -24,8 +24,8 @@ from starlette.concurrency import run_in_threadpool
 
 from .attempts import UNKNOWN, Attempts, checkout_digest, order_binding
 from .catalog import (
-    CatalogSearchRequest, CreateCartRequest, CreateCheckoutQuoteRequest, ReadCheckoutQuoteRequest,
-    create_cart, create_checkout_quote, get_checkout_quote, search_catalog,
+    CatalogLookupRequest, CatalogSearchRequest, CreateCartRequest, CreateCheckoutQuoteRequest, ReadCheckoutQuoteRequest,
+    create_cart, create_checkout_quote, get_checkout_quote, lookup_catalog, search_catalog,
 )
 from .contract import (
     ORDER_ID, PCI_HOST, RECEIPT_PATH, RECEIPT_TIMEOUT, SANDBOX_TIMEOUT, TEST_CARDS, VARIANT_ID, WORKER_TIMEOUT,
@@ -33,6 +33,7 @@ from .contract import (
     is_hostname, uses_test_data, validate_approval,
 )
 from .reconciliation import verify_signature
+from .shop_purchase import ShopPurchases, ShopSession
 from .template import SOURCE_MARKER, WORKER_ENV, source_digest
 
 WORKER_COMMAND = "/usr/bin/python3 -m checkout_service."
@@ -189,21 +190,19 @@ def create_app(
     test_stores: dict[str, TestStore],
     bearer_token: str,
     database: Path,
-    template: str,
+    template: str | None = None,
     preview_stores: dict[str, PreviewStore] | None = None,
     order_webhooks: dict[str, tuple[str, str]] | None = None,
     purchase_merchants: dict | None = None,
     purchase_credentials: Callable[[UUID, str, str], dict] | None = None,
     purchase_card: Callable[[UUID, str], dict] | None = None,
     purchase_events: tuple[str, str] | None = None,
+    purchase_shop_session: Callable[[UUID], ShopSession | None] | None = None,
 ) -> FastAPI:
     """Connect the API to the purchase approval, profile, vault and Shopify receipt ports."""
     from .purchase import PurchaseFlow, mount_purchase_routes, validate_merchants
     from .purchase_events import EventDelivery, apply_shopify_event
 
-    template_name, _, build_id = template.rpartition(":")
-    if not template_name or not re.fullmatch(r"[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}", build_id):
-        raise ValueError("Pin the E2B template by build UUID.")
     preview_stores = dict(preview_stores or {})
     test_stores = dict(test_stores)
     order_webhooks = dict(order_webhooks or {})
@@ -211,8 +210,12 @@ def create_app(
     validate_merchants(purchase_merchants, purchase_credentials)
     if purchase_merchants and purchase_card is None:
         raise ValueError("Configure a test card provider for purchase merchants.")
-    if len(bearer_token) < 32 or not (test_stores or preview_stores or purchase_merchants):
-        raise ValueError("Configure a service token and at least one checkout or preview store.")
+    if len(bearer_token) < 32:
+        raise ValueError("Configure a checkout service token.")
+    if test_stores or preview_stores or purchase_merchants:
+        template_name, _, build_id = (template or "").rpartition(":")
+        if not template_name or not re.fullmatch(r"[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}", build_id):
+            raise ValueError("Pin the E2B template by build UUID.")
     for host, store in list(test_stores.items()):
         checkout_host = store.checkout_host or host
         if (store.gateway not in TEST_CARDS or not all(map(is_hostname, (host, checkout_host, *store.network_hosts)))
@@ -246,6 +249,7 @@ def create_app(
             future.cancel()
 
     flow = PurchaseFlow(attempts, purchase_merchants, purchase_credentials, purchase_card, template, digest, read_provider)
+    shop_purchases = ShopPurchases(flow.purchases, purchase_shop_session, read_provider)
     delivery = EventDelivery(flow.purchases, *purchase_events) if purchase_events else None
 
     @asynccontextmanager
@@ -301,6 +305,10 @@ def create_app(
         except (HTTPError, ValueError):
             raise HTTPException(status_code=502, detail="Shopify did not return a usable cart or quote.") from None
         return JSONResponse(result, headers={"Cache-Control": "no-store"})
+
+    @app.post("/catalog/lookup", dependencies=[Depends(require_service)])
+    def catalog_lookup(request: CatalogLookupRequest) -> JSONResponse:
+        return native_result(lookup_catalog, request)
 
     @app.post("/native/carts", dependencies=[Depends(require_service)])
     def native_cart(request: CreateCartRequest) -> JSONResponse:
@@ -483,7 +491,7 @@ def create_app(
             if cleanup:
                 close_sandbox(sandbox)
 
-    mount_purchase_routes(app, require_service, flow, preview_stores)
+    mount_purchase_routes(app, require_service, flow, preview_stores, shop_purchases)
 
     @app.post("/webhooks/shopify/orders")
     async def shopify_order(request: Request):

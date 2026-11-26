@@ -12,9 +12,11 @@ description: FluxA Agentic Checkout supports a hosted Shopify test purchase from
 
 Use this skill as the release-grade operator runbook for checkout automation. It accepts arbitrary entry links, attempts the currently implemented automation routes, and produces structured results that tell the next agent or human whether the checkout is ready, partially filled, blocked by verification, or requires manual takeover.
 
-## Hosted Shopify purchase demo
+## Hosted Shopify purchases
 
-Use the private checkout service when the task is to demonstrate an agent purchase from a configured Shopify test store. See [Shopify checkout service](references/shopify-e2b-service.md#agent-purchase-demo) for configuration and API contracts. The same workflow is available in the `buy` MCP tool, the Node SDK, and the demo page.
+Use the private checkout service to discover Shopify products and start a native Shopify checkout. The buyer can pay at the merchant's checkout. When a connected Shop account has a ready checkout and offers a payment method, the agent can confirm the buyer's chosen method against the current quote. Read the same purchase for the Shopify receipt. See [Shopify checkout service](references/shopify-e2b-service.md#purchase-from-the-shop-catalog). The `buy` MCP tool, the Node SDK, and the demo page use the same workflow.
+
+For E2B acceptance, use a configured Shopify test store and the test checkout flow below.
 
 1. Search a product or resolve its storefront URL. Use `listPurchaseMerchants` to check whether the returned merchant accepts test checkout.
 2. Create or edit a single-merchant cart. Retain the purchase ID for the entire workflow.

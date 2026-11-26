@@ -37,6 +37,12 @@ class CatalogSearchRequest(ShopRequest):
     cursor: str | None = Field(default=None, min_length=1, max_length=2048)
 
 
+class CatalogLookupRequest(ShopRequest):
+    url: str = Field(max_length=2048)
+    country: Country
+    currency: Currency
+
+
 class CartItemRequest(ShopRequest):
     variant_id: VariantGID
     quantity: int = Field(ge=1, le=100)
@@ -133,7 +139,7 @@ class CheckoutQuote(CartSummary):
         return self.status not in {"ready_for_complete", "complete_in_progress", "completed"}
 
 
-def shop_call(tool: str, arguments: dict) -> dict:
+def shop_call(tool: str, arguments: dict, *, access_token: str | None = None) -> dict:
     params = {
         "name": tool,
         "arguments": arguments,
@@ -149,6 +155,8 @@ def shop_call(tool: str, arguments: dict) -> dict:
         "Mcp-Method": "tools/call",
         "Mcp-Name": tool,
     }
+    if access_token:
+        headers["Authorization"] = f"Bearer {access_token}"
     with httpx.stream("POST", SHOP_MCP_URL, headers=headers, timeout=8.0,
                       json={"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": params}) as response:
         response.raise_for_status()
@@ -175,6 +183,18 @@ def search_catalog(search: CatalogSearchRequest) -> dict:
         "context": {"address_country": search.country, "currency": search.currency},
         "pagination": pagination,
     }})
+    return catalog_result(document)
+
+
+def lookup_catalog(lookup: CatalogLookupRequest) -> dict:
+    document = shop_call("lookup_catalog", {"catalog": {
+        "ids": [require_https(lookup.url)],
+        "context": {"address_country": lookup.country, "currency": lookup.currency},
+    }})
+    return catalog_result(document)
+
+
+def catalog_result(document: dict) -> dict:
     if not isinstance(document.get("products"), list):
         raise ValueError("Shopify did not return a catalog result.")
     return {key: document[key] for key in ("products", "messages", "pagination") if key in document}

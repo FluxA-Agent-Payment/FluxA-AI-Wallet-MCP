@@ -1,8 +1,20 @@
 # Shopify checkout service
 
-## Agent purchase demo
+## Purchase from the Shop catalog
 
-Run the demo at `/shopping-demo/` on the private service. After connecting, rediscover an existing purchase by opening its demo URL with `?purchase=<purchase-UUID>`. An agent can use the same workflow through the Node SDK, HTTP, or the MCP `buy` tool. The first step can be a keyword search through Shop MCP or resolution of a configured Shopify store's product URL. Discovery can return stores that have no test-payment integration. Use `GET /purchase-merchants` to determine which configured stores can accept a purchase.
+Use `POST /catalog/search` for keyword discovery or `POST /catalog/lookup` with `{url,country,currency}` for a storefront link. Both return Shop catalog offers. Select an available variant and preserve its exact `id` and `seller.domain`. The variant ID can include attribution parameters.
+
+Create a purchase with `POST /purchases` using `{request_id,channel:"shop_catalog",merchant,items,country,currency}`. Send `items` as a map from exact variant GIDs to quantities. A purchase covers one merchant. The same request ID and terms can be retried. Change items while the cart is a draft. Request `POST /purchases/{id}/quote` with `{}` to open the merchant checkout. Reopening that purchase uses its existing Shopify checkout.
+
+Show Shopify's totals, disclosures and policy links. The final currency may differ from the request. A quote with `amount_provisional:true` can change on the merchant's page. If the result requires `merchant_checkout`, give the buyer the original `continue_url` so they can finish with the merchant's supported methods. Share this URL only with that buyer. `GET /purchases/{id}` checks the original checkout and records an order only when Shopify returns `completed` and a valid order ID. The SDK and MCP expose the same operations. [Shop catalog](https://shop.dev/docs/tools) · [Shop checkout](https://shop.dev/docs/checkout)
+
+An application that has a production Shopify OAuth client can wire `create_app(purchase_shop_session=...)`. Supply a `ShopSession` containing the signed-in shopper's stable subject and the Shop OAuth access token. Link the purchase UUID to the authenticated shopper in the calling application before opening checkout. Open the checkout with that session from the start. The service is a trusted internal API and its service token belongs on the application server. Keep the Shop token and payment instruments server-side.
+
+When Shopify returns a ready checkout and an identifiable Shop Pay payment method, the service includes `quote.payment_methods`. Present the exact current terms and let the buyer select a method. Confirm with `{quote_id,payment_method_id}`. The service rechecks the terms, claims the approval atomically, and calls `complete_checkout` once. For lost or ambiguous payment responses, read the existing purchase. Shopify can still require merchant checkout for verification or payment. This integration expects Shopify-offered Shop Pay instruments. [Shop authentication](https://shop.dev/docs/authentication) · [Shop payment completion](https://shop.dev/docs/checkout#complete-a-checkout)
+
+## E2B test purchase demo
+
+Run the demo at `/shopping-demo/` on the private service. It offers Shop catalog checkout alongside configured E2B test stores. After connecting, rediscover an existing purchase by opening its demo URL with `?purchase=<purchase-UUID>`. An agent can use the same workflow through the Node SDK, HTTP, or the MCP `buy` tool. The first step can be a keyword search through Shop MCP or resolution of a configured Shopify store's product URL. Discovery can return stores that have no test-payment integration. Use `GET /purchase-merchants` to determine which configured stores can accept a purchase.
 
 | Step | HTTP | SDK |
 | --- | --- | --- |

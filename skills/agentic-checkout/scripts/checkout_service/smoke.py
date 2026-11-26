@@ -47,7 +47,7 @@ def app():
         "preview_stores": previews,
         "bearer_token": os.environ["CHECKOUT_SERVICE_TOKEN"],
         "database": Path(os.environ["CHECKOUT_ATTEMPTS_DB"]),
-        "template": os.environ["CHECKOUT_E2B_TEMPLATE"],
+        "template": os.environ.get("CHECKOUT_E2B_TEMPLATE"),
     }
     if "CHECKOUT_TEST_URL" not in os.environ:
         return create_app(
