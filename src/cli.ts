@@ -53,6 +53,8 @@ import {
   cancelRefund,
   issueVC,
   getAgentSelfStatus,
+  listWalletTransactions,
+  type TransactionScope,
   listLinkedCards,
   listLinkedCardMandates,
   getEligibleMandates,
@@ -120,6 +122,12 @@ interface CommandResult {
   raw?: string;
 }
 
+const HISTORY_OPTIONS = `  --status <status>    all (default), completed, pending, or failed
+  --from <timestamp>   Inclusive ISO-8601 start with timezone
+  --to <timestamp>     Exclusive ISO-8601 end with timezone
+  --limit <n>          Page size, 1–100 (default 20)
+  --cursor <cursor>    pagination.nextCursor from the same query and filters`;
+
 function printUsage() {
   console.log(`
 FluxA Wallet CLI - Standalone command-line tool for FluxA Wallet operations
@@ -138,7 +146,7 @@ COMMANDS:
   prepaid-card create         Issue a funded card
   prepaid-card details        Reveal full card details
   prepaid-card balance        Refresh and query card balance
-  prepaid-card transactions   List card transaction history
+  prepaid-card transactions   List prepaid activity across cards, or details for --id
   prepaid-card 3ds latest     Show the latest 3DS challenge from the last 24 hours
   prepaid-card 3ds latest_1h  Show 3DS challenges from the last hour
   prepaid-card holder create  Create the account profile and start KYC
@@ -176,6 +184,9 @@ COMMANDS:
   wallet-address            Show the linked user's wallet address
   balance                   Show the linked wallet's balances (USDC / XRP / credits)
   mandates                  List the agent's mandates with limit / spent / remaining
+  transactions              List transactions across all supported agent sources
+  mandate transactions      List one mandate's transactions and budget (--id)
+  linked-card transactions  List this agent's linked-card payment attempts
   recent-transactions       List recent transactions (USDC / XRP / credits spends)
   version                   Print the CLI version (also --version, -v)
 
@@ -227,8 +238,11 @@ OPTIONS FOR 'prepaid-card details':
 OPTIONS FOR 'prepaid-card balance':
   --id <card_id>            Card ID (required)
 
-OPTIONS FOR 'prepaid-card transactions':
-  --id <card_id>            Card ID (required)
+OPTIONS FOR 'transactions', 'linked-card transactions', 'prepaid-card transactions' (across cards),
+and 'mandate transactions' (requires --id <mandate_id>):
+${HISTORY_OPTIONS}
+
+OPTIONS FOR 'prepaid-card transactions --id <card_id>':
   --type <type>             purchase | refund | verification | reversal | fee | deposit | withdrawal
   --page <n>                Page number (alias: --page-num)
   --limit <n>               Page size, max 50 (alias: --page-size)
@@ -486,7 +500,7 @@ EXAMPLES:
 function parseArgs(args: string[]): { command: string; options: Record<string, string>; positionals: string[]; helpRequested: boolean } {
   // Deprecated alias for scripts that still use the original command name.
   let command = args[0] === 'card' ? 'prepaid-card' : args[0] || 'help';
-  const options: Record<string, string> = {};
+  const options: Record<string, string> = Object.create(null);
   const positionals: string[] = [];
   let helpRequested = false;
   let optionStartIndex = 1;
@@ -508,13 +522,13 @@ function parseArgs(args: string[]): { command: string; options: Record<string, s
         optionStartIndex = 2;
       }
     }
-  } else if (command === 'linked-card') {
+  } else if (command === 'mandate' || command === 'linked-card') {
     const subcommand = args[1];
     if (subcommand && !subcommand.startsWith('-')) {
-      command = `linked-card ${subcommand}`;
+      command = `${command} ${subcommand}`;
       optionStartIndex = 2;
       const action = args[2];
-      if (subcommand === 'single-use-card' && action && !action.startsWith('-')) {
+      if (command === 'linked-card single-use-card' && action && !action.startsWith('-')) {
         command += ` ${action}`;
         optionStartIndex = 3;
       }
@@ -554,7 +568,8 @@ function parseArgs(args: string[]): { command: string; options: Record<string, s
         options[key] = value;
         i++;
       } else {
-        options[key] = command === 'linked-card single-use-card create' ? '' : 'true';
+        const requiresValue = command === 'linked-card single-use-card create' || command === 'transactions' || command.endsWith(' transactions');
+        options[key] = requiresValue ? '' : 'true';
       }
     } else {
       positionals.push(arg);
@@ -714,7 +729,8 @@ Options:
 
 Example:
   fluxa-wallet prepaid-card list
-  fluxa-wallet prepaid-card list --global`,
+  fluxa-wallet prepaid-card list --global
+  fluxa-wallet prepaid-card transactions --id card_xxx`,
 
   'prepaid-card types': `Usage: fluxa-wallet prepaid-card types
 
@@ -765,11 +781,31 @@ Options:
 Example:
   fluxa-wallet prepaid-card balance --id card_xxx`,
 
-  'prepaid-card transactions': `Usage: fluxa-wallet prepaid-card transactions --id <card_id> [options]
+  transactions: `Usage: fluxa-wallet transactions [options]
 
-List card transaction history from the card service.
+List this agent's transactions across all supported sources. Check sources for
+unavailable or partial history. Pass pagination.nextCursor to read the next page.
 
-Options:
+${HISTORY_OPTIONS}`,
+  mandate: 'Usage: fluxa-wallet mandate transactions --id <mandate_id> [options]',
+  'mandate transactions': `Usage: fluxa-wallet mandate transactions --id <mandate_id> [options]
+
+Show the mandate budget and a page of its transaction or virtual-card activity.
+
+${HISTORY_OPTIONS}`,
+  'linked-card transactions': `Usage: fluxa-wallet linked-card transactions [options]
+
+List this agent's Visa payment attempts across linked cards. The authorized
+display status means Visa authorized the attempt. For a source card, use
+"linked-card mandates --card <card_id>", then "mandate transactions --id <mandate_id>".
+
+${HISTORY_OPTIONS}`,
+  'prepaid-card transactions': `Usage: fluxa-wallet prepaid-card transactions [--id <card_id>] [options]
+
+Across prepaid cards, return items, pagination, and sources.
+${HISTORY_OPTIONS}
+
+For one card, return transactions, pageNum, pageSize, and total:
   --id <card_id>           Card ID (required)
   --type <type>            purchase | refund | verification | reversal | fee | deposit | withdrawal
   --page <n>               Page number (alias: --page-num)
@@ -989,7 +1025,8 @@ Options:
   --cursor <cursor>   Continue from a previous page's nextCursor
 
 Example:
-  fluxa-wallet linked-card list`,
+  fluxa-wallet linked-card list
+  fluxa-wallet linked-card transactions --status failed`,
 
   'linked-card mandates': `Usage: fluxa-wallet linked-card mandates [--card <card_id>] [--host <host> --amount <cents>]
 
@@ -3514,6 +3551,54 @@ async function cmdMandates(): Promise<CommandResult> {
   }
 }
 
+const CARD_HISTORY_FLAGS = [
+  'id', 'type', 'page', 'page-num', 'pageNum', 'limit', 'page-size', 'pageSize',
+  'start-time', 'startTime', 'end-time', 'endTime',
+];
+
+async function cmdTransactions(
+  command: string, options: Record<string, string>, positionals: string[]
+): Promise<CommandResult> {
+  if (positionals.length) return { success: false, error: `Unexpected argument. See "fluxa-wallet ${command} --help".` };
+  if (command === 'linked-card transactions' && ('id' in options || 'card' in options)) {
+    return { success: false, error: 'For one linked card, use "linked-card mandates --card <card_id>", then "mandate transactions --id <mandate_id>" for mandate activity.' };
+  }
+
+  const singleCard = command === 'prepaid-card transactions' && 'id' in options;
+  const flags = singleCard ? CARD_HISTORY_FLAGS : ['status', 'from', 'to', 'limit', 'cursor'];
+  const mandate = command === 'mandate transactions';
+  for (const [key, value] of Object.entries(options)) {
+    if (!flags.includes(key) && !(mandate && key === 'id')) {
+      return { success: false, error: `Unsupported option --${key} for this query. See "fluxa-wallet ${command} --help".` };
+    }
+    if (!value.trim()) return { success: false, error: `--${key} requires a value` };
+  }
+  if (singleCard) return cmdCardTransactions(options);
+  if (mandate && !options.id) return { success: false, error: 'Missing required parameter: --id' };
+
+  const { limit, status, from, to, cursor } = options;
+  if (limit !== undefined && (!/^\d+$/.test(limit) || Number(limit) < 1 || Number(limit) > 100)) {
+    return { success: false, error: '--limit must be an integer in [1, 100]' };
+  }
+  if (status !== undefined && !['all', 'completed', 'pending', 'failed'].includes(status)) {
+    return { success: false, error: '--status must be all, completed, pending, or failed' };
+  }
+
+  let scope: TransactionScope = 'all';
+  if (mandate) scope = { mandateId: options.id };
+  if (command === 'prepaid-card transactions') scope = 'prepaid';
+  if (command === 'linked-card transactions') scope = 'visa';
+  const auth = await ensureValidJWT();
+  if (!auth) return { success: false, error: 'Wallet is not connected. Run "connect" first.' };
+  try {
+    const page = await listWalletTransactions(auth.jwt, scope, { status, from, to, limit, cursor });
+    await recordAudit({ event: 'transaction_history', command });
+    return rawJson(page);
+  } catch (err) {
+    return commandError(err, 'Transaction history lookup failed');
+  }
+}
+
 async function cmdRecentTransactions(options: Record<string, string>): Promise<CommandResult> {
   const auth = await ensureValidJWT();
   if (!auth) {
@@ -3641,8 +3726,11 @@ async function main() {
     case 'prepaid-card balance':
       result = await cmdCardBalance(options);
       break;
+    case 'transactions':
+    case 'mandate transactions':
+    case 'linked-card transactions':
     case 'prepaid-card transactions':
-      result = await cmdCardTransactions(options);
+      result = await cmdTransactions(command, options, positionals);
       break;
     case 'prepaid-card 3ds latest':
       result = await cmdCard3dsLatest(options);
@@ -3701,8 +3789,11 @@ async function main() {
     case 'linked-card single-use-card':
       result = { success: false, error: COMMAND_USAGE['linked-card single-use-card'] };
       break;
+    case 'mandate':
+      result = { success: false, error: COMMAND_USAGE.mandate };
+      break;
     case 'linked-card':
-      result = { success: false, error: 'Usage: fluxa-wallet linked-card <list | mandates | single-use-card create> [options]' };
+      result = { success: false, error: 'Usage: fluxa-wallet linked-card <list | mandates | transactions | single-use-card create> [options]' };
       break;
     case 'headless-checkout':
       result = await cmdHeadlessCheckout(options);

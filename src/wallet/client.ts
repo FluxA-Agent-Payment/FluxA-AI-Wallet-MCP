@@ -1744,6 +1744,36 @@ async function walletJsonRequest<T>(
   return { status: response.status, body: body as T };
 }
 
+export type TransactionScope = 'all' | 'visa' | 'prepaid' | { mandateId: string };
+
+interface TransactionPage {
+  status: 'ok';
+  items: Record<string, unknown>[];
+  pagination: { limit: number; hasMore: boolean; nextCursor: string | null };
+  sources?: Record<string, { status: string; coverage?: string }>;
+  mandate?: Record<string, unknown>;
+}
+
+export async function listWalletTransactions(
+  jwt: string,
+  scope: TransactionScope,
+  filters: { status?: string; from?: string; to?: string; cursor?: string; limit?: string }
+): Promise<TransactionPage> {
+  const params = new URLSearchParams();
+  let path = '/api/agent/self/transactions';
+  if (typeof scope === 'string') {
+    params.set('source', scope);
+  } else {
+    path = `/api/mandates/agent/${encodeURIComponent(scope.mandateId)}/transactions`;
+  }
+  for (const [key, value] of Object.entries(filters)) {
+    if (value !== undefined) params.set(key, value);
+  }
+  const query = params.toString();
+  const { body } = await walletJsonRequest<TransactionPage>(query ? `${path}?${query}` : path, jwt);
+  return body;
+}
+
 export interface LinkedCard {
   id: string;
   status: string;

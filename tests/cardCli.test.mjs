@@ -219,6 +219,71 @@ test('bundled CLI uses v2 contracts and keeps existing commands compatible', asy
     }
   });
 
+  await t.test('agent history selects the scope and preserves coverage, cursors and budget', async () => {
+    const cursor = 'next_scope-1';
+    const pagination = { limit: 10, hasMore: true, nextCursor: cursor };
+    const from = '2026-11-01T00:00:00+08:00';
+    const to = '2026-12-01T00:00:00+08:00';
+    const scopes = [
+      { args: ['transactions'], source: 'all', sources: { local: { status: 'ok' }, visa: { status: 'unavailable' } } },
+      { args: ['linked-card', 'transactions'], source: 'visa', sources: { visa: { status: 'ok' } } },
+      { args: ['prepaid-card', 'transactions'], source: 'prepaid', sources: { prepaid: { status: 'ok', coverage: 'partial' } } },
+      { args: ['mandate', 'transactions', '--id', 'mand_1'], mandate: { mandateId: 'mand_1', pendingSpentAmount: '500', remainingAmount: '2500' } },
+    ];
+    for (const { args, source, sources, mandate } of scopes) {
+      const body = { status: 'ok', items: [], pagination, ...(mandate ? { mandate } : { sources }) };
+      handler = call => {
+        const url = new URL(call.path, 'http://localhost');
+        assert.equal(call.method, 'GET');
+        assert.equal(call.headers.authorization, 'Bearer ' + jwt);
+        assert.equal(url.pathname, mandate ? '/api/mandates/agent/mand_1/transactions' : '/api/agent/self/transactions');
+        assert.deepEqual(Object.fromEntries(url.searchParams), {
+          ...(source ? { source } : {}), status: 'pending', from, to, limit: '10', cursor,
+        });
+        return { body };
+      };
+      const result = await run(...args, '--status', 'pending', '--from', from, '--to', to, '--limit', '10', '--cursor', cursor);
+      assert.equal(result.code, 0, JSON.stringify(result.data));
+      assert.deepEqual(result.data, body);
+      assert.equal(calls.length, 1);
+    }
+  });
+
+  await t.test('history rejects mixed modes and incomplete filters before making requests', async () => {
+    for (const [args, message] of [
+      [['linked-card', 'transactions', '--id', 'card_1'], /linked-card mandates --card/],
+      [['mandate', 'transactions'], /--id/],
+      [['prepaid-card', 'transactions', '--id'], /--id requires a value/],
+      [['prepaid-card', 'transactions', '--type', 'refund'], /--type/],
+      [['prepaid-card', 'transactions', '--id', 'card_1', '--cursor', 'next'], /--cursor/],
+      [['transactions', '--status', 'typo'], /--status/],
+      [['transactions', '--from'], /--from/],
+      [['transactions', '--limit', '3.5'], /--limit/],
+      [['transactions', 'card_1'], /Unexpected argument/],
+    ]) {
+      const result = await run(...args);
+      assert.equal(result.code, 1);
+      assert.match(result.data.error, message);
+      assert.equal(calls.length, 0);
+    }
+  });
+
+  await t.test('history preserves wallet errors and legacy recent-transactions output', async () => {
+    handler = () => ({ status: 503, body: { status: 'error', code: 'visa_history_unavailable', message: 'Visa history unavailable' } });
+    const failed = await run('linked-card', 'transactions');
+    assert.equal(failed.code, 1);
+    assert.equal(failed.data.code, 'visa_history_unavailable');
+
+    const items = [{ mandateId: 'mand_1', amount: '100' }];
+    handler = call => {
+      assert.equal(call.path, '/api/agent/self/status?txLimit=4');
+      return { body: { recentTransactions: { items, limit: 4, hasMore: true } } };
+    };
+    const recent = await run('recent-transactions', '--limit', '4');
+    assert.equal(recent.code, 0);
+    assert.deepEqual(recent.data, items);
+  });
+
   await t.test('existing read/detail/withdraw commands call v2 paths', async () => {
     const cases = [
       [['card', 'details', '--id', 'card_1'], 'POST', '/api/v2/cards/card_1/details', { success: true, details: { pan: 'test-pan' } }],
