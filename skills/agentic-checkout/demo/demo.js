@@ -68,7 +68,7 @@ async function request(path, method = 'GET', body, access = token) {
   try {
     response = await fetch(path, {
       method, headers, body: body === undefined ? undefined : JSON.stringify(body),
-      cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(path.endsWith('/quote') ? 90000 : 45000),
+      cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(path.endsWith('/quote') ? 150000 : 65000),
     });
   } catch {
     throw new Error('The checkout service did not respond. Try again or refresh the purchase status.');
@@ -96,6 +96,27 @@ function updateConnection() {
 function openConnection() {
   message('connect-error');
   $('connect-dialog').showModal();
+}
+
+function rememberPurchase() {
+  const url = new URL(location.href);
+  if (purchase) url.searchParams.set('purchase', purchase.id);
+  else url.searchParams.delete('purchase');
+  history.replaceState(null, '', url);
+}
+
+async function resumePurchase() {
+  const id = new URL(location.href).searchParams.get('purchase');
+  if (purchase || !id || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(id)) return;
+  purchase = await request(`/purchases/${id}`);
+  $('country').value = purchase.country;
+  $('country').dispatchEvent(new Event('change'));
+  for (const [variant, quantity] of Object.entries(purchase.items)) {
+    const fixture = fixtures.find((item) => item.id === variant && item.merchant === purchase.merchant);
+    cart.set(variant, { id: variant, merchant: purchase.merchant, country: purchase.country,
+      title: fixture?.title ?? `Variant ${variant}`, quantity });
+  }
+  await readEvents();
 }
 
 function fixturesFromMerchants() {
@@ -528,6 +549,11 @@ $('connect-form').addEventListener('submit', async (event) => {
     fixtures = fixturesFromMerchants();
     $('connect-dialog').close();
     updateConnection();
+    try {
+      await resumePurchase();
+    } catch (error) {
+      message('purchase-error', error.message);
+    }
     render();
     scheduleRefresh();
     $('query').focus();
@@ -618,6 +644,7 @@ $('quote-button').addEventListener('click', () => updatePurchase('Preparing quot
     if (pendingCreate?.signature !== signature) pendingCreate = { signature, id: crypto.randomUUID() };
     purchase = await request('/purchases', 'POST', { request_id: pendingCreate.id, merchant, items: cartItems, country });
     pendingCreate = undefined;
+    rememberPurchase();
   } else if (!sameItems()) {
     purchase = await request(purchasePath('/cart'), 'PUT', { items: cartItems });
   }
@@ -648,6 +675,7 @@ $('approve-submit').addEventListener('click', () => {
 $('refresh-button').addEventListener('click', refresh);
 $('new-cart').addEventListener('click', () => {
   purchase = undefined;
+  rememberPurchase();
   pendingCreate = undefined;
   lastEvent = 0;
   cart.clear();

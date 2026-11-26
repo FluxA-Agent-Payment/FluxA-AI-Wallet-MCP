@@ -2,7 +2,7 @@
 
 ## Agent purchase demo
 
-Run the demo at `/shopping-demo/` on the private service. An agent can use the same workflow through the Node SDK, HTTP, or the MCP `buy` tool. The first step can be a keyword search through Shop MCP or resolution of a configured Shopify store's product URL. Discovery can return stores that have no test-payment integration. Use `GET /purchase-merchants` to determine which configured stores can accept a purchase.
+Run the demo at `/shopping-demo/` on the private service. After connecting, rediscover an existing purchase by opening its demo URL with `?purchase=<purchase-UUID>`. An agent can use the same workflow through the Node SDK, HTTP, or the MCP `buy` tool. The first step can be a keyword search through Shop MCP or resolution of a configured Shopify store's product URL. Discovery can return stores that have no test-payment integration. Use `GET /purchase-merchants` to determine which configured stores can accept a purchase.
 
 | Step | HTTP | SDK |
 | --- | --- | --- |
