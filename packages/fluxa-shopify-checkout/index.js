@@ -7,6 +7,12 @@ export class CheckoutApiError extends Error {
 }
 
 const MAX_TIMEOUT_MS = 2_147_483_647;
+const UUID = /^[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}$/i;
+const PURCHASE_STATUSES = new Set([
+  "draft", "preparing", "quoted", "submitting", "submitted", "failed",
+  "requires_action", "reconciliation_required", "expired",
+]);
+const PURCHASE_MERCHANT_STATUSES = new Set(["test_checkout", "preview_only", "catalog_only"]);
 const ATTEMPT_FAILURES = new Set([
   "test_data_required", "approval_expired", "manual_verification", "unsupported_checkout",
   "identity_incomplete", "total_mismatch", "payment_fields_incomplete", "checkout_unavailable",
@@ -16,6 +22,35 @@ const ATTEMPT_FAILURES = new Set([
 
 function isCurrency(value) {
   return typeof value === "string" && /^[A-Z]{3}$/.test(value);
+}
+
+function isUuid(value) {
+  return typeof value === "string" && UUID.test(value);
+}
+
+function isRecord(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function isPurchaseQuote(quote) {
+  return isUuid(quote?.id) && isCurrency(quote.currency)
+    && Number.isSafeInteger(quote.minor_units) && quote.minor_units >= 0
+    && Array.isArray(quote.totals) && isRecord(quote.shipping_options) && Number.isFinite(quote.expires_at);
+}
+
+function isPurchase(purchase) {
+  return isUuid(purchase?.id) && typeof purchase.merchant === "string" && typeof purchase.country === "string"
+    && isRecord(purchase.items) && PURCHASE_STATUSES.has(purchase.status)
+    && (purchase.quote === undefined ? purchase.status !== "quoted" : isPurchaseQuote(purchase.quote))
+    && (purchase.result === undefined
+      ? purchase.status !== "submitted"
+      : typeof purchase.result?.status === "string"
+        && (purchase.status !== "submitted" || isAttemptResult(purchase.result, 200)));
+}
+
+function purchasePath(purchaseId) {
+  if (!isUuid(purchaseId)) throw new TypeError("Expected a purchase UUID.");
+  return `purchases/${purchaseId.toLowerCase()}`;
 }
 
 function isNativeSummary(result, status, merchant, reference) {
@@ -77,6 +112,12 @@ export class ShopifyCheckoutClient {
   #token;
   #timeoutMs;
 
+  static fromEnv({ timeoutMs } = {}) {
+    const { CHECKOUT_SERVICE_URL: baseUrl, CHECKOUT_SERVICE_TOKEN: token } = process.env;
+    if (!baseUrl || !token) throw new TypeError("Set CHECKOUT_SERVICE_URL and CHECKOUT_SERVICE_TOKEN.");
+    return new ShopifyCheckoutClient({ baseUrl, token, timeoutMs });
+  }
+
   constructor({ baseUrl, token, timeoutMs = 180_000 }) {
     const endpoint = new URL(baseUrl);
     const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(endpoint.hostname);
@@ -105,6 +146,42 @@ export class ShopifyCheckoutClient {
   async searchCatalog({ query, country, currency, limit, cursor }) {
     return this.#request("catalog/search", "POST", { query, country, currency, limit, cursor },
       (result, status) => status === 200 && Array.isArray(result?.products));
+  }
+
+  async listPurchaseMerchants() {
+    return this.#request("purchase-merchants", "GET", undefined,
+      result => Array.isArray(result?.merchants) && result.merchants.every(merchant =>
+        typeof merchant?.merchant === "string" && PURCHASE_MERCHANT_STATUSES.has(merchant.status)));
+  }
+
+  async createPurchase({ requestId, merchant, items, country }) {
+    return this.#request("purchases", "POST", { request_id: requestId, merchant, items, country },
+      result => isPurchase(result) && result.merchant === merchant);
+  }
+
+  async getPurchase(purchaseId) {
+    return this.#purchaseRequest(purchaseId, "", "GET");
+  }
+
+  async updatePurchaseCart(purchaseId, { items }) {
+    return this.#purchaseRequest(purchaseId, "/cart", "PUT", { items });
+  }
+
+  async quotePurchase(purchaseId, { shippingOptions } = {}) {
+    return this.#purchaseRequest(purchaseId, "/quote", "POST", { shipping_options: shippingOptions });
+  }
+
+  async confirmPurchase(purchaseId, { quoteId }) {
+    if (!isUuid(quoteId)) throw new TypeError("Expected a quote UUID.");
+    return this.#purchaseRequest(purchaseId, "/confirm", "POST", { quote_id: quoteId });
+  }
+
+  async listPurchaseEvents(purchaseId, { after = 0 } = {}) {
+    if (!Number.isSafeInteger(after) || after < 0) throw new TypeError("Expected a nonnegative event cursor.");
+    return this.#request(`${purchasePath(purchaseId)}/events?after=${after}`, "GET", undefined,
+      result => Array.isArray(result?.events) && result.events.every(event =>
+        Number.isSafeInteger(event?.id) && event.purchase_id === purchaseId.toLowerCase() && typeof event.type === "string"
+        && isRecord(event.data) && Number.isFinite(event.created_at)));
   }
 
   async createCart({ merchant, items, country, currency, idempotencyKey }) {
@@ -137,10 +214,15 @@ export class ShopifyCheckoutClient {
   }
 
   #attemptPath(approvalId) {
-    if (typeof approvalId !== "string" || !/^[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}$/i.test(approvalId)) {
+    if (!isUuid(approvalId)) {
       throw new TypeError("Expected a purchase approval UUID.");
     }
     return `checkouts/${encodeURIComponent(approvalId)}`;
+  }
+
+  #purchaseRequest(purchaseId, suffix, method, payload) {
+    return this.#request(purchasePath(purchaseId) + suffix, method, payload,
+      result => isPurchase(result) && result.id.toLowerCase() === purchaseId.toLowerCase());
   }
 
   async #request(path, method, payload, validate = isAttemptResult) {

@@ -4,8 +4,21 @@
   "private": true,
   "type": "module",
   "exports": {
-    "types": "./index.d.ts",
-    "default": "./index.js"
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    },
+    "./mcp": {
+      "types": "./mcp.d.ts",
+      "default": "./mcp.js"
+    }
+  },
+  "bin": {
+    "shopify-checkout-mcp": "./mcp-server.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.21.0",
+    "zod": "3.25.76"
   },
   "engines": {
     "node": ">=18"
