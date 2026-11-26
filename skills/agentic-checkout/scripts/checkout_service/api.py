@@ -38,7 +38,7 @@ from .template import SOURCE_MARKER, WORKER_ENV, source_digest
 
 WORKER_COMMAND = "/usr/bin/python3 -m checkout_service."
 RESULTS = frozenset({
-    "test_data_required", "approval_expired", "manual_verification", "unsupported_checkout",
+    "test_data_required", "live_card_required", "approval_expired", "manual_verification", "unsupported_checkout",
     "identity_incomplete", "total_mismatch", "payment_fields_incomplete", "checkout_unavailable",
     "checkout_not_ready", "cart_mismatch", "payment_method_unavailable", "payment_failed", UNKNOWN,
 })
@@ -198,6 +198,7 @@ def create_app(
     purchase_card: Callable[[UUID, str], dict] | None = None,
     purchase_events: tuple[str, str] | None = None,
     purchase_shop_session: Callable[[UUID], ShopSession | None] | None = None,
+    purchase_card_provider=None,
 ) -> FastAPI:
     """Connect the API to the purchase approval, profile, vault and Shopify receipt ports."""
     from .purchase import PurchaseFlow, mount_purchase_routes, validate_merchants
@@ -212,7 +213,7 @@ def create_app(
         raise ValueError("Configure a test card provider for purchase merchants.")
     if len(bearer_token) < 32:
         raise ValueError("Configure a checkout service token.")
-    if test_stores or preview_stores or purchase_merchants:
+    if test_stores or preview_stores or purchase_merchants or purchase_card_provider is not None:
         template_name, _, build_id = (template or "").rpartition(":")
         if not template_name or not re.fullmatch(r"[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}", build_id):
             raise ValueError("Pin the E2B template by build UUID.")
@@ -241,14 +242,17 @@ def create_app(
     digest = source_digest()
     providers = ThreadPoolExecutor(max_workers=8, thread_name_prefix="checkout-provider")
 
-    def read_provider(callback, approval_id):
-        future = providers.submit(callback, approval_id)
+    def read_provider(callback, argument):
+        future = providers.submit(callback, argument)
         try:
             return future.result(timeout=PROVIDER_TIMEOUT)
         finally:
             future.cancel()
 
-    flow = PurchaseFlow(attempts, purchase_merchants, purchase_credentials, purchase_card, template, digest, read_provider)
+    flow = PurchaseFlow(
+        attempts, purchase_merchants, purchase_credentials, purchase_card, template, digest, read_provider,
+        card_provider=purchase_card_provider,
+    )
     shop_purchases = ShopPurchases(flow.purchases, purchase_shop_session, read_provider)
     delivery = EventDelivery(flow.purchases, *purchase_events) if purchase_events else None
 

@@ -11,6 +11,14 @@ def encode(value):
     return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
 
 
+def storefront_items(items):
+    """Convert catalog offers to the variant numbers used by Shopify's storefront and receipts."""
+    variants = {identity.split("?", 1)[0].rsplit("/", 1)[-1]: quantity for identity, quantity in items.items()}
+    if len(variants) != len(items):
+        raise ValueError("Use one offer per Shopify variant.")
+    return variants
+
+
 class PurchaseConflict(Exception):
     """The purchase no longer permits the requested transition."""
 
@@ -60,7 +68,7 @@ class Purchases:
             for name, contract in {
                 "channel": "TEXT NOT NULL DEFAULT 'e2b_test'", "currency": "TEXT",
                 "native_ref": "TEXT", "native_url": "TEXT", "native_key": "TEXT",
-                "native_subject": "TEXT", "native_terms": "TEXT",
+                "native_subject": "TEXT", "native_terms": "TEXT", "card_scope": "TEXT",
             }.items():
                 if name not in columns:
                     db.execute(f"ALTER TABLE purchases ADD COLUMN {name} {contract}")
@@ -70,10 +78,12 @@ class Purchases:
     def view(row):
         result = {key: row[key] for key in ("id", "merchant", "country", "status")}
         result["items"] = json.loads(row["items"])
-        if row["channel"] == "shop_catalog":
-            result.update(channel=row["channel"], currency=row["currency"])
-            if row["native_url"] and row["status"] in ("quoted", "requires_action"):
-                result["continue_url"] = row["native_url"]
+        if row["channel"] != "e2b_test":
+            result["channel"] = row["channel"]
+            if row["currency"] is not None:
+                result["currency"] = row["currency"]
+        if row["native_url"] and row["status"] in ("quoted", "requires_action"):
+            result["continue_url"] = row["native_url"]
         for key in ("quote", "result", "tracking"):
             if row[key] is not None:
                 result[key] = json.loads(row[key])
@@ -90,7 +100,7 @@ class Purchases:
 
     def create(self, purchase_id, merchant, items, country, channel="e2b_test", currency=None):
         intent = [merchant, items, country]
-        if channel == "shop_catalog":
+        if channel != "e2b_test":
             intent.extend((channel, currency))
         request = encode(intent)
         with self.connection() as db:
@@ -125,7 +135,7 @@ class Purchases:
             if row["items"] == encode(items):
                 return self.view(row), None
             db.execute("""UPDATE purchases SET items=?, status='draft', quote=NULL, result=NULL, lease=NULL,
-                          sandbox_id=NULL, pid=NULL, checkout_digest=NULL, expires_at=NULL, native_key=NULL
+                          sandbox_id=NULL, pid=NULL, checkout_digest=NULL, expires_at=NULL, native_key=NULL, card_scope=NULL
                           WHERE id=?""",
                        (encode(items), purchase_id))
             return self.view(self.row(db, purchase_id)), row["sandbox_id"]
@@ -160,17 +170,19 @@ class Purchases:
                            (lease, purchase_id))
             else:
                 db.execute("""UPDATE purchases SET status='preparing', lease=?, expires_at=?, quote=NULL, result=NULL,
-                              sandbox_id=NULL, pid=NULL, checkout_digest=NULL WHERE id=?""", (lease, expires_at, purchase_id))
+                              sandbox_id=NULL, pid=NULL, checkout_digest=NULL, card_scope=NULL WHERE id=?""",
+                           (lease, expires_at, purchase_id))
             return row, lease
 
     def finish_prepare(self, purchase_id, lease, status, *, quote=None, result=None, sandbox_id=None, pid=None,
-                       digest=None, expires_at=None):
+                       digest=None, expires_at=None, card_scope=None):
         with self.connection() as db:
             changed = db.execute("""UPDATE purchases SET status=?, quote=?, result=?, sandbox_id=?, pid=?,
-                                checkout_digest=?, expires_at=COALESCE(?,expires_at), lease=NULL
+                                checkout_digest=?, expires_at=COALESCE(?,expires_at), card_scope=?, lease=NULL
                                 WHERE id=? AND lease=? AND status='preparing'""",
                                  (status, encode(quote) if quote else None, encode(result) if result else None,
-                                  sandbox_id, pid, digest, quote["expires_at"] if quote else expires_at, purchase_id, lease)).rowcount
+                                  sandbox_id, pid, digest, quote["expires_at"] if quote else expires_at,
+                                  encode(card_scope) if card_scope else None, purchase_id, lease)).rowcount
             return self.view(self.row(db, purchase_id)), bool(changed)
 
     def claim(self, purchase_id, quote_id, checkout_host, receipt_deadline):
@@ -185,7 +197,8 @@ class Purchases:
             if row["status"] != "quoted" or row["expires_at"] <= time.time():
                 raise PurchaseConflict("The current quote has expired or is unavailable.")
             lease = uuid4().hex
-            binding = order_binding(checkout_host, json.loads(row["items"]), quote["minor_units"], quote["currency"])
+            binding = order_binding(checkout_host, storefront_items(json.loads(row["items"])),
+                                    quote["minor_units"], quote["currency"])
             self.attempts.claim_prepared(db, purchase_id, lease, row["checkout_digest"], row["sandbox_id"],
                                          binding, min(receipt_deadline, row["expires_at"] + 25))
             db.execute("UPDATE purchases SET status='submitting', approved_at=? WHERE id=?", (time.time(), purchase_id))

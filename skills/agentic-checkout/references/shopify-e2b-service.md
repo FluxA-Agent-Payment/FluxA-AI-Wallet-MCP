@@ -1,5 +1,22 @@
 # Shopify checkout service
 
+## Agent checkout with a browser card
+
+Use `POST /catalog/search` or `POST /catalog/lookup` to select a Shopify offer. Pass the offer's exact variant ID and seller domain to `POST /purchases` with `channel:"e2b_card"`, the requested country, and a caller-generated purchase UUID. The Demo selects this channel for public offers when `GET /purchase-merchants` advertises `card_checkout:true`. The test checkout stays available for configured test stores.
+
+The service creates a Storefront cart on the merchant's Shopify domain. It verifies item identity, quantity, and the checkout origin before starting a restricted E2B Chromium session. The session prepares the native quotation and optional shipping selection. Show the buyer the final currency, amount, items, merchant, and delivery choice. Confirm the same purchase with `{quote_id}` after authorization. The service retrieves a browser card for the approved terms, enters it through Shopify's hosted card fields, verifies the same checkout again, and submits once. Read `GET /purchases/{id}` for the verified Shopify order receipt. An unresolved payment keeps its purchase ID so it can be reconciled without retrying the charge. [Shopify Storefront cartCreate](https://shopify.dev/docs/api/storefront/latest/mutations/cartCreate) · [Shopify Checkout WebMCP](https://shopify.dev/docs/agents/carts-and-checkout/checkout-webmcp)
+
+### Buyer profile and Card Vault connection
+
+For the packaged service, set `CHECKOUT_CARD_PROVIDER_ORIGIN` to the trusted HTTPS provider origin and `CHECKOUT_CARD_PROVIDER_TOKEN` to its service bearer credential. Configure the E2B template and environment as for test checkout. A service embedder can pass `create_app(purchase_card_provider=provider)`. The application using the private checkout API binds purchase IDs to authenticated buyers. The provider confirms that binding and any limit or merchant restrictions in the user's approval before returning card data.
+
+| Provider endpoint | Contract |
+| --- | --- |
+| `POST /v1/checkout/profiles` | Request `{purchase_id,merchant,country}`. Respond with `{binding,profile}`. Echo the request in `binding`. Include a stable opaque `buyer_id`, email, and applicable delivery and billing fields in `profile`. |
+| `POST /v1/checkout/card-claims` | Request the exact `purchase_id`, `quote_id`, `buyer_id`, merchant, checkout host, country, variant IDs and quantities, amount in minor units, currency, expiry and shipping options. The idempotency key is the quote UUID. Respond with `{binding,decision:"denied"}` or `{binding,decision:"approved",credential_type:"browser_card",card}`. Echo the exact request in `binding`. A browser card supplies `card_number`, `exp`, `cvc` and `name`. |
+
+Keep the token and card data server-side. The provider must return a credential that Shopify's browser card fields can accept. A DAVV or another network cryptogram requires the processor integration that supports it. In browser checkout, merchant authentication or payment verification can require the buyer. Offer catalog checkout when the browser card provider is unavailable. [E2B network access](https://docs.e2b.dev/network/internet-access)
+
 ## Purchase from the Shop catalog
 
 Use `POST /catalog/search` for keyword discovery or `POST /catalog/lookup` with `{url,country,currency}` for a storefront link. Both return Shop catalog offers. Select an available variant and preserve its exact `id` and `seller.domain`. The variant ID can include attribution parameters.

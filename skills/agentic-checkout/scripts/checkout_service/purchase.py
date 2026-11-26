@@ -24,9 +24,9 @@ from .catalog import Currency, Merchant, VariantGID
 from .contract import (
     PCI_HOST, PURCHASE_QUOTE_PATH, PURCHASE_SELECTION_PATH, RECEIPT_TIMEOUT, SANDBOX_TIMEOUT, TEST_CARDS,
     VARIANT_ID, TestStore,
-    checkout_entry_host, is_hostname,
+    checkout_entry_host, is_hostname, normalize_live_payment,
 )
-from .purchase_store import PurchaseConflict, PurchaseNotFound, Purchases
+from .purchase_store import PurchaseConflict, PurchaseNotFound, Purchases, storefront_items
 from .shop_purchase import SHOP_ERRORS, ShopSessionUnavailable
 
 STOREFRONT_VERSION = "2026-10"
@@ -34,6 +34,8 @@ QUOTE_WAIT = 65
 RECEIPT_WAIT = 32
 MIN_APPROVAL_TIME = 12
 STOREFRONT_TIMEOUT = 12
+CARD_NETWORK_HOSTS = ("cdn.shopify.com", "checkout.shopify.com", "shop.app")
+SHOP_DOMAIN = "query CheckoutDomain { shop { primaryDomain { host } } }"
 QUOTE_FAILURES = {
     "approval_expired", "cart_mismatch", "checkout_not_ready", "checkout_unavailable",
     "identity_incomplete", "manual_verification", "payment_method_unavailable",
@@ -88,7 +90,7 @@ class Create(Cart):
     request_id: UUID = Field(strict=False)
     merchant: Merchant
     country: Country
-    channel: Literal["e2b_test", "shop_catalog"] = "e2b_test"
+    channel: Literal["e2b_test", "shop_catalog", "e2b_card"] = "e2b_test"
     currency: Currency | None = None
 
 
@@ -147,16 +149,17 @@ def validate_merchants(merchants, credentials):
             raise ValueError("Configure exact Shopify test hosts, a supported test gateway and a synthetic buyer.")
 
 
-def guest_profile(contact):
+def guest_profile(contact, *, live=False):
     email = contact["email"]
-    if not isinstance(email, str) or not email.lower().endswith("@example.com"):
-        raise ValueError("Configure a synthetic checkout buyer.")
+    if (not isinstance(email, str) or not re.fullmatch(r"[^\s@]+@[^\s@]+", email)
+            or (not live and not email.lower().endswith("@example.com"))):
+        raise ValueError("The checkout buyer does not have a valid email.")
     return {
         "email": email,
         "delivery": {key: value for key, value in contact.get("delivery", {}).items() if key in ADDRESS_FIELDS},
         "billing": {key: value for key, value in contact.get("billing", {}).items()
                     if key in ADDRESS_FIELDS or key == "same_as_delivery"},
-        "storefront_password": contact.get("storefront_password"),
+        "storefront_password": None if live else contact.get("storefront_password"),
     }
 
 
@@ -174,7 +177,7 @@ def storefront(host, merchant, query, variables):
     return payload["data"]
 
 
-def checkout_url(host, merchant, country, items):
+def checkout_url(host, merchant, country, items, *, public=False):
     data = storefront(host, merchant, CART_CREATE, {"input": {
         "buyerIdentity": {"countryCode": country},
         "lines": [{"merchandiseId": f"gid://shopify/ProductVariant/{variant}", "quantity": quantity}
@@ -188,8 +191,12 @@ def checkout_url(host, merchant, country, items):
     actual = {line["merchandise"]["id"].removeprefix("gid://shopify/ProductVariant/"): line["quantity"]
               for line in lines}
     url = cart["checkoutUrl"]
+    entry = checkout_entry_host(url)
+    expected = merchant.store.checkout_host or host
+    if public and entry != host:
+        expected = storefront(host, merchant, SHOP_DOMAIN, {})["shop"]["primaryDomain"]["host"]
     if (actual != items or len(lines) != len(items) or cart["lines"]["pageInfo"]["hasNextPage"]
-            or checkout_entry_host(url) not in (host, merchant.store.checkout_host or host)):
+            or entry not in (host, expected)):
         raise ValueError("Shopify returned a different checkout or cart.")
     return url
 
@@ -215,26 +222,33 @@ def read_quote(sandbox, receipt_path, deadline):
 
 
 class PurchaseFlow:
-    def __init__(self, attempts, merchants, credentials, card, template, digest, read_provider):
+    def __init__(self, attempts, merchants, credentials, card, template, digest, read_provider, card_provider=None):
         self.purchases = Purchases(attempts)
         self.attempts = attempts
         self.merchants = merchants
         self.credentials = credentials
         self.card = card
+        self.card_provider = card_provider
         self.template = template
         self.digest = digest
         self.read_provider = read_provider
 
-    def prepare(self, purchase_id, shipping):
+    def prepare(self, initial, shipping):
+        purchase_id = initial["id"]
+        live = initial["channel"] == "e2b_card"
+        if live and self.card_provider is None:
+            raise HTTPException(status_code=503, detail="Browser card checkout is unavailable.")
         # E2B's lease starts at creation. Using an earlier start leaves room for final receipt.
         expires_at = time.time() + SANDBOX_TIMEOUT
         row, lease = self.purchases.begin_prepare(purchase_id, shipping, expires_at)
         if lease is None:
             return self.purchases.view(row)
-        merchant = self.merchants[row["merchant"]]
+        merchant_id = row["merchant"]
+        merchant = PurchaseMerchant(TestStore("shopify_payments", CARD_NETWORK_HOSTS)) if live else self.merchants[merchant_id]
         store = merchant.store
-        host = store.checkout_host or row["merchant"]
-        items = json.loads(row["items"])
+        host = store.checkout_host or merchant_id
+        items = storefront_items(json.loads(row["items"]))
+        card_scope = json.loads(row["card_scope"]) if shipping and row["card_scope"] else None
         sandbox = worker = None
         retained = False
         reason = "checkout_unavailable"
@@ -253,10 +267,15 @@ class PurchaseFlow:
             else:
                 close_previous(row["sandbox_id"])
                 try:
+                    credentials = self.card_provider.profile if live else self.credentials
                     contact = self.read_provider(
-                        lambda identifier: self.credentials(identifier, row["merchant"], row["country"]), UUID(purchase_id),
-                    ) if self.credentials else merchant.profile
-                    profile = guest_profile(contact)
+                        lambda identifier: credentials(identifier, merchant_id, row["country"]), UUID(purchase_id),
+                    ) if credentials else merchant.profile
+                    profile = guest_profile(contact, live=live)
+                    if live:
+                        buyer_id = contact.get("buyer_id")
+                        if not isinstance(buyer_id, str) or not re.fullmatch(r"[^\s@]{1,256}", buyer_id):
+                            raise ValueError("The buyer profile is missing its account ID.")
                 except Exception:
                     return self.purchases.finish_prepare(purchase_id, lease, "requires_action",
                         result={"status": "identity_incomplete", "reason": "credentials_unavailable"})[0]
@@ -264,15 +283,19 @@ class PurchaseFlow:
                 if delivery_country and delivery_country != row["country"]:
                     return self.purchases.finish_prepare(purchase_id, lease, "requires_action",
                         result={"status": "identity_incomplete", "reason": "delivery_country_mismatch"})[0]
-                url = checkout_url(row["merchant"], merchant, row["country"], items)
+                url = checkout_url(merchant_id, merchant, row["country"], items, public=live)
+                if live:
+                    host = checkout_entry_host(url)
+                    card_scope = {"buyer_id": buyer_id, "checkout_host": host}
                 reason = "browser_unavailable"
-                sandbox = open_sandbox(self.template, self.digest, (row["merchant"], host, PCI_HOST, *store.network_hosts),
+                sandbox = open_sandbox(self.template, self.digest, (merchant_id, host, PCI_HOST, *store.network_hosts),
                                        lease, expires_at=expires_at)
                 worker = start_worker(sandbox, "purchase_worker", max(1, int(expires_at - time.time())))
                 pid = worker.pid
                 worker.send_stdin(json.dumps({
                     "checkout_url": url, "checkout_host": host, "items": items,
                     "profile": profile, "expires_at": expires_at,
+                    **({"card_mode": "live_card"} if live else {}),
                 }, allow_nan=False) + "\n", request_timeout=8)
                 approval_deadline = expires_at - RECEIPT_TIMEOUT
                 path = PURCHASE_QUOTE_PATH
@@ -288,7 +311,7 @@ class PurchaseFlow:
                 quote["id"] = str(uuid4())
                 result, retained = self.purchases.finish_prepare(
                     purchase_id, lease, "quoted", quote=quote, sandbox_id=sandbox.sandbox_id,
-                    pid=pid, digest=digest,
+                    pid=pid, digest=digest, card_scope=card_scope,
                 )
                 return result
             status = observation.get("status")
@@ -310,7 +333,7 @@ class PurchaseFlow:
                         and failure["delivery_options"] and all(failure["delivery_options"].values())):
                     result, retained = self.purchases.finish_prepare(
                         purchase_id, lease, "requires_action", result=failure,
-                        sandbox_id=sandbox.sandbox_id, pid=pid, expires_at=selection_expiry,
+                        sandbox_id=sandbox.sandbox_id, pid=pid, expires_at=selection_expiry, card_scope=card_scope,
                     )
                     return result
         except (httpx.HTTPError, TimeoutError, KeyError, TypeError, ValueError):
@@ -352,27 +375,50 @@ class PurchaseFlow:
                 self.attempts.finish(purchase_id, attempt["lease"], {"status": UNKNOWN})
         return self.purchases.synchronize(purchase_id)
 
-    def confirm(self, purchase_id, quote_id):
-        merchant_id = self.purchases.current(purchase_id)["merchant"]
-        merchant = self.merchants[merchant_id]
-        store = merchant.store
-        row, lease = self.purchases.claim(
-            purchase_id, quote_id, store.checkout_host or merchant_id, time.time() + RECEIPT_WAIT + 10,
-        )
+    def confirm(self, current, quote_id):
+        purchase_id = current["id"]
+        merchant_id = current["merchant"]
+        live = current["channel"] == "e2b_card"
+        scope = json.loads(current["card_scope"]) if current["card_scope"] else {}
+        if live and not current["approved_at"] and self.card_provider is None:
+            raise HTTPException(status_code=503, detail="Browser card checkout is unavailable.")
+        if live:
+            host, gateway = scope.get("checkout_host"), "shopify_payments"
+            if not host:
+                raise PurchaseConflict("Prepare the current browser checkout before approval.")
+        else:
+            store = self.merchants[merchant_id].store
+            host, gateway = store.checkout_host or merchant_id, store.gateway
+        row, lease = self.purchases.claim(purchase_id, quote_id, host, time.time() + RECEIPT_WAIT + 10)
         if lease is None:
             return self.read(purchase_id)
         try:
-            payment = self.read_provider(lambda approval: self.card(approval, merchant_id), UUID(purchase_id))
-            payment = {key: value for key, value in payment.items() if key in CARD_FIELDS}
-            if payment.get("card_number") not in TEST_CARDS[store.gateway]:
-                raise ValueError("Only synthetic credentials are allowed.")
-            payload = json.dumps({"gateway": store.gateway, "payment": payment}, allow_nan=False) + "\n"
+            if live:
+                quote = json.loads(row["quote"])
+                claim = {
+                    **scope, "purchase_id": purchase_id, "quote_id": quote_id,
+                    "merchant": merchant_id, "country": row["country"], "items": json.loads(row["items"]),
+                    "total_minor_units": quote["minor_units"], "currency": quote["currency"],
+                    "expires_at": quote["expires_at"], "shipping_options": quote["shipping_options"],
+                }
+                payment = self.read_provider(self.card_provider.card, claim)
+                if payment is None:
+                    raise HTTPException(status_code=403, detail="The card provider has not authorized this quote.")
+                payment = normalize_live_payment(payment)
+            else:
+                payment = self.read_provider(lambda approval: self.card(approval, merchant_id), UUID(purchase_id))
+                payment = {key: value for key, value in payment.items() if key in CARD_FIELDS}
+                if payment.get("card_number") not in TEST_CARDS[gateway]:
+                    raise ValueError("Only synthetic credentials are allowed.")
+            payload = json.dumps({"gateway": gateway, "payment": payment}, allow_nan=False) + "\n"
             if len(payload) > 8192 or time.time() >= row["expires_at"]:
-                raise ValueError("The prepared checkout has expired or the test credentials are invalid.")
+                raise ValueError("The prepared checkout or its credentials are unavailable.")
             sandbox = Sandbox.connect(row["sandbox_id"], request_timeout=3)
-        except Exception:
+        except Exception as error:
             self.purchases.release_claim(purchase_id, lease)
-            raise HTTPException(status_code=503, detail="The test credentials or prepared checkout are unavailable.") from None
+            if isinstance(error, HTTPException):
+                raise
+            raise HTTPException(status_code=503, detail="Card credentials or the prepared checkout are unavailable.") from None
 
         deadline = time.monotonic() + RECEIPT_WAIT
         try:
@@ -398,7 +444,7 @@ def mount_purchase_routes(app, require_service, flow, previews, shop):
 
     @app.get("/purchase-merchants", dependencies=auth)
     def merchants():
-        return {"merchants": [
+        return {"card_checkout": flow.card_provider is not None, "merchants": [
             *({"merchant": host, "status": "test_checkout", "products": merchant.products}
               for host, merchant in sorted(flow.merchants.items())),
             *({"merchant": host, "status": "preview_only"} for host in sorted(previews.keys() - flow.merchants.keys())),
@@ -427,8 +473,14 @@ def mount_purchase_routes(app, require_service, flow, previews, shop):
             raise HTTPException(status_code=502, detail="Shopify product details are unavailable.") from None
 
     def shop_items(items, channel):
-        if any(variant.startswith("gid://") != (channel == "shop_catalog") for variant in items):
-            raise HTTPException(status_code=422, detail="Use exact Shopify catalog IDs for catalog checkout.")
+        catalog = channel != "e2b_test"
+        if any(variant.startswith("gid://") != catalog for variant in items):
+            raise HTTPException(status_code=422, detail="Use the Shopify variant IDs required by the checkout channel.")
+        if channel == "e2b_card":
+            try:
+                storefront_items(items)
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from None
 
     def shop_operation(operation, *args):
         try:
@@ -448,6 +500,9 @@ def mount_purchase_routes(app, require_service, flow, previews, shop):
         if request.channel == "shop_catalog":
             if request.currency is None:
                 raise HTTPException(status_code=422, detail="Select a market currency for the Shopify purchase.")
+        elif request.channel == "e2b_card":
+            if flow.card_provider is None:
+                raise HTTPException(status_code=503, detail="Browser card checkout is unavailable.")
         elif request.merchant not in flow.merchants:
             raise HTTPException(status_code=422, detail="This merchant is outside the configured Shopify test scope.")
         return flow.purchases.create(
@@ -478,7 +533,7 @@ def mount_purchase_routes(app, require_service, flow, previews, shop):
             if request.shipping_options:
                 raise HTTPException(status_code=422, detail="Select delivery options on the Shopify checkout page.")
             return shop_result(shop.prepare, row)
-        return flow.prepare(str(purchase_id), request.model_dump()["shipping_options"])
+        return flow.prepare(row, request.model_dump()["shipping_options"])
 
     @app.post("/purchases/{purchase_id}/confirm", dependencies=auth)
     def confirm(purchase_id: UUID, request: Approval):
@@ -486,8 +541,8 @@ def mount_purchase_routes(app, require_service, flow, previews, shop):
         if row["channel"] == "shop_catalog":
             return shop_result(shop.confirm, row, request)
         if request.payment_method_id is not None:
-            raise HTTPException(status_code=422, detail="The test checkout uses its configured test card.")
-        return flow.confirm(str(purchase_id), str(request.quote_id))
+            raise HTTPException(status_code=422, detail="Browser checkout obtains card details from the service.")
+        return flow.confirm(row, str(request.quote_id))
 
     @app.get("/purchases/{purchase_id}/events", dependencies=auth)
     def events(purchase_id: UUID, after: int = Query(default=0, ge=0, le=2**63 - 1)):

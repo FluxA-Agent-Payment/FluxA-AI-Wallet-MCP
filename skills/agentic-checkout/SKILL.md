@@ -14,7 +14,9 @@ Use this skill as the release-grade operator runbook for checkout automation. It
 
 ## Hosted Shopify purchases
 
-Use the private checkout service to discover Shopify products and start a native Shopify checkout. The buyer can pay at the merchant's checkout. When a connected Shop account has a ready checkout and offers a payment method, the agent can confirm the buyer's chosen method against the current quote. Read the same purchase for the Shopify receipt. See [Shopify checkout service](references/shopify-e2b-service.md#purchase-from-the-shop-catalog). The `buy` MCP tool, the Node SDK, and the demo page use the same workflow.
+Use the private checkout service to discover Shopify products. When browser card checkout is enabled, use the `e2b_card` channel to complete an authorized purchase in a restricted E2B browser. Verify the final quote before confirmation and read the same purchase for the merchant receipt. See [browser card setup](references/shopify-e2b-service.md#agent-checkout-with-a-browser-card).
+
+In the Shop catalog channel, start a native Shopify checkout. The buyer can pay at the merchant's checkout. When a connected Shop account has a ready checkout and offers a payment method, the agent can confirm the buyer's chosen method against the current quote. Read the same purchase for the Shopify receipt. See [Shopify checkout service](references/shopify-e2b-service.md#purchase-from-the-shop-catalog). The `buy` MCP tool, the Node SDK, and the demo page use the same workflow.
 
 For E2B acceptance, use a configured Shopify test store and the test checkout flow below.
 
