@@ -15,6 +15,29 @@ CARD_FIELDS = {
     "number": "card_number", "expiry": "card_exp",
     "verification_value": "card_cvc", "name": "card_name",
 }
+TEST_GATEWAY = re.compile(
+    r"\b(?:test payment gateway|bogus gateway|(?:payment gateway|store) is in test mode|accepting test orders only)\b",
+    re.I,
+)
+LIVE_PCI_FIELD = """(input, {origin, checkout, field, entry, expected}) => {
+    const view = input.ownerDocument.defaultView;
+    const location = view?.location;
+    if (!input.isConnected || view?.origin !== origin || location.origin !== origin
+            || location.ancestorOrigins.length !== 1 || location.ancestorOrigins[0] !== checkout)
+        return false;
+    if (expected === null) return true;
+    if (entry !== null) {
+        // Confine the edit and input events to this verified document and pinned control.
+        input.focus();
+        if (!input.isConnected) return false;
+        Object.getOwnPropertyDescriptor(view.HTMLInputElement.prototype, 'value').set.call(input, entry);
+        input.dispatchEvent(new view.InputEvent('input', {bubbles: true, inputType: 'insertText', data: entry}));
+        input.dispatchEvent(new view.Event('change', {bubbles: true}));
+        input.blur();
+    }
+    return (field === 'name' ? input.value.trim().replace(/\\s+/g, ' ').toLowerCase()
+                             : input.value.replace(/[^0-9]/g, '')) === expected;
+}"""
 PAYMENT_ACTIONS = {
     "en": ("Pay now", "Review order"),
     "de": ("Jetzt bezahlen", "Bestellung überprüfen"),
@@ -112,15 +135,36 @@ async def blank_card_form(form: Locator) -> bool:
     return True
 
 
-async def card_matches(form: Locator, data: dict, *, fill: bool) -> bool:
+async def shows_test_gateway(page: Page) -> bool:
+    indicator = page.get_by_text(TEST_GATEWAY).or_(page.get_by_role("img", name=TEST_GATEWAY))
+    return bool(await indicator.filter(visible=True).count())
+
+
+async def card_matches(form: Locator, data: dict, *, fill: bool, checkout_origin: str | None = None) -> bool:
+    live_controls = {}
+    if checkout_origin:
+        binding = {"origin": f"https://{PCI_HOST}", "checkout": checkout_origin}
+        for field in CARD_FIELDS:
+            control = await card_control(form, field, wait=fill)
+            if not control or not await control.evaluate(LIVE_PCI_FIELD, {**binding, "expected": None}):
+                return False
+            live_controls[field] = control
+
     for field, name in CARD_FIELDS.items():
-        control = await card_control(form, field, wait=fill)
+        control = live_controls.get(field) if checkout_origin else await card_control(form, field, wait=fill)
         if not control:
             return False
         normalize = normalize_text if field == "name" else digits
         expected = normalize(data[name])
         if not expected:
             return False
+        if checkout_origin:
+            entry = f"{expected[:2]}/{expected[2:]}" if field == "expiry" else expected
+            if not await control.evaluate(LIVE_PCI_FIELD, {
+                **binding, "field": field, "entry": entry if fill else None, "expected": expected.lower(),
+            }):
+                return False
+            continue
         if fill:
             entry = expected
             if field == "expiry":

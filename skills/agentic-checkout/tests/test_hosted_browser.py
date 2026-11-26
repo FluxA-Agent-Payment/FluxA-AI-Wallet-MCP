@@ -29,6 +29,8 @@ QUOTE = {
 }
 ORDER_ID = "gid://shopify/Order/1042"
 PAYMENT_ORIGIN = "https://checkout.pci.shopifyinc.com"
+UNTRUSTED_CARD_ORIGIN = "https://checkout.pci.shopifyinc.com.fixture.invalid"
+LIVE_CARD_FIXTURE = {"card_number": "0009 8765 4321 2345", "exp": "12/2034", "cvc": "1234", "name": "Fixture Buyer"}
 PAYMENT_FIELDS = {
     "number": ("Card number", "cc-number", "1"),
     "expiry": ("Expiration date (MM / YY)", "cc-exp", "12/34"),
@@ -86,11 +88,21 @@ BLOCKED_REDIRECTS = {
     "redirect_challenge": (200, "Verify you are human"),
 }
 DELIVERY_CHOICE_CASES = {"purchase_delivery_required", "purchase_delivery_selected", "purchase_delivery_changed"}
-PURCHASE_CASES = {"purchase_approved", "purchase_repriced", "purchase_review_steps", *DELIVERY_CHOICE_CASES}
+LIVE_PURCHASE_CASES = {
+    "live_review_steps": {"status": "submitted", "order_id": ORDER_ID},
+    "live_repriced": {"status": "total_mismatch"},
+    "live_checkout_replaced": {"status": "checkout_unavailable"},
+    "live_pci_redirect": {"status": "payment_fields_incomplete"},
+    "live_test_gateway": {"status": "payment_method_unavailable"},
+    "live_test_card": {"status": "live_card_required"},
+    "live_test_credentials": {"status": "live_card_required"},
+}
+PURCHASE_REVIEW_CASES = {"purchase_review_steps", "live_review_steps"}
+PURCHASE_CASES = {"purchase_approved", "purchase_repriced", *PURCHASE_REVIEW_CASES, *DELIVERY_CHOICE_CASES, *LIVE_PURCHASE_CASES}
 
 
 def checkout_document(scenario):
-    checkout_flow = "review_steps" if scenario == "purchase_review_steps" else scenario
+    checkout_flow = "review_steps" if scenario in PURCHASE_REVIEW_CASES else scenario
     frames = "".join(
         f'<iframe title="{escape(title)}" name="card-fields-{field}-fixture" '
         f'src="{PAYMENT_ORIGIN}/{field}"></iframe>'
@@ -344,6 +356,17 @@ def review_document(scenario):
 
 
 class HostedBrowserTest(unittest.IsolatedAsyncioTestCase):
+    async def test_live_card_requires_current_approval_and_trusted_pci_form(self):
+        """Observe card edits and final POSTs in Chromium to guard the live credential boundary."""
+        async with async_playwright() as playwright:
+            browser = await playwright.chromium.launch(args=["--enable-features=WebMCP"])
+            try:
+                for scenario, expected_result in LIVE_PURCHASE_CASES.items():
+                    with self.subTest(scenario=scenario):
+                        await self.run_scenario(browser, scenario, expected_result)
+            finally:
+                await browser.close()
+
     async def test_purchase_quote_waits_for_approval_on_the_same_page(self):
         """The real card form must stay untouched until approval and reject a subsequent merchant price change."""
         cases = {
@@ -437,7 +460,7 @@ class HostedBrowserTest(unittest.IsolatedAsyncioTestCase):
 
         def record_card_input(source, value):
             frame_url = source["frame"].url
-            if frame_url.startswith(f"{PAYMENT_ORIGIN}/"):
+            if frame_url.startswith((f"{PAYMENT_ORIGIN}/", f"{UNTRUSTED_CARD_ORIGIN}/")):
                 card_inputs[urlsplit(frame_url).path[1:]] = value
 
         async def respond(route):
@@ -451,7 +474,7 @@ class HostedBrowserTest(unittest.IsolatedAsyncioTestCase):
                 else:
                     await route.fulfill(
                         content_type="text/html",
-                        body=review_document("review_steps" if scenario == "purchase_review_steps" else scenario),
+                        body=review_document("review_steps" if scenario in PURCHASE_REVIEW_CASES else scenario),
                     )
             elif request.method == "POST" and request.url == f"{CHECKOUT_URL}/complete":
                 submitted.append(dict(parse_qsl(request.post_data or "")))
@@ -468,7 +491,7 @@ class HostedBrowserTest(unittest.IsolatedAsyncioTestCase):
                     <script>setTimeout(() => location.replace('{CHECKOUT_URL}/thank-you'), 1500);</script>
                 """)
             elif request.url == CART_LINK and scenario in PURCHASE_CASES:
-                destination = f"{CHECKOUT_URL}/information" if scenario == "purchase_review_steps" else CHECKOUT_URL
+                destination = f"{CHECKOUT_URL}/information" if scenario in PURCHASE_REVIEW_CASES else CHECKOUT_URL
                 await route.fulfill(
                     content_type="text/html",
                     body=checkout_document(scenario).replace(
@@ -495,7 +518,8 @@ class HostedBrowserTest(unittest.IsolatedAsyncioTestCase):
                 """)
             elif request.url == f"{CHECKOUT_URL}?declined=1":
                 await route.fulfill(content_type="text/html", body='<p role="alert">Your card was declined</p>')
-            elif request.url.startswith(f"{PAYMENT_ORIGIN}/") and urlsplit(request.url).path[1:] in PAYMENT_FIELDS:
+            elif (request.url.startswith((f"{PAYMENT_ORIGIN}/", f"{UNTRUSTED_CARD_ORIGIN}/"))
+                  and urlsplit(request.url).path[1:] in PAYMENT_FIELDS):
                 field = urlsplit(request.url).path[1:]
                 title, autocomplete, _ = PAYMENT_FIELDS[field]
                 notify_parent = (
@@ -535,8 +559,11 @@ class HostedBrowserTest(unittest.IsolatedAsyncioTestCase):
                     "checkout_url": CART_LINK, "checkout_host": urlsplit(SHOP_ORIGIN).netloc,
                     "items": {VARIANT_ID: 1}, "profile": profile, "expires_at": time.time() + 160,
                 }
-                if scenario == "purchase_review_steps":
+                if scenario in PURCHASE_REVIEW_CASES:
                     payload["shipping_options"] = {"shipment_1": {"selected_option_id": "standard"}}
+                live = scenario in LIVE_PURCHASE_CASES
+                if live:
+                    payload["card_mode"] = "live_card"
 
                 async def read_next():
                     self.assertEqual(len(quotes), 1)
@@ -564,8 +591,20 @@ class HostedBrowserTest(unittest.IsolatedAsyncioTestCase):
                     })
                     if scenario == "purchase_delivery_selected":
                         self.assertTrue(await page.evaluate("window.deliveryChoicePage === true"))
-                    if scenario == "purchase_repriced":
+                    if scenario in {"purchase_repriced", "live_repriced"}:
                         await page.evaluate("state.totals[0].amount = 1235")
+                    if scenario == "live_checkout_replaced":
+                        await page.evaluate("state.id = 'gid://shopify/Checkout/replacement'")
+                    if scenario == "live_pci_redirect":
+                        frame = page.frame(name="card-fields-verification_value-fixture")
+                        await frame.goto(f"{UNTRUSTED_CARD_ORIGIN}/verification_value")
+                    if scenario == "live_test_gateway":
+                        await page.evaluate("document.body.insertAdjacentHTML('beforeend', '<p>Test payment gateway</p>')")
+                    if live and scenario != "live_test_credentials":
+                        card = LIVE_CARD_FIXTURE
+                        if scenario == "live_test_card":
+                            card = {**card, "card_number": "5555 5555 5555 4444"}
+                        return {"gateway": "shopify_payments", "payment": card}
                     return {"gateway": "shopify_test_gateway", "payment": PROFILE["payment"]}
 
                 result = await run_purchase(page, payload, quotes.append, read_next, publish_selection=selections.append)
@@ -580,13 +619,16 @@ class HostedBrowserTest(unittest.IsolatedAsyncioTestCase):
                         ]},
                     }])
                 if expected_result and expected_result["status"] == "submitted":
-                    if scenario == "purchase_review_steps":
+                    if scenario in PURCHASE_REVIEW_CASES:
                         self.assertEqual(merchant_posts, [f"{CHECKOUT_URL}/review", f"{CHECKOUT_URL}/complete"])
                         self.assertEqual(submitted, [{"reviewedOrder": "fixture", "paymentMethod": "card"}])
                     else:
                         self.assertEqual(merchant_posts, [f"{CHECKOUT_URL}/complete"])
                         self.assertEqual(submitted, [EXPECTED_FORM])
-                    self.assertEqual(card_at_submit, [{field: expected for field, (_, _, expected) in PAYMENT_FIELDS.items()}])
+                    expected_card = ({"number": "0009876543212345", "name": "Fixture Buyer", "expiry": "12/34",
+                                      "verification_value": "1234"} if live else
+                                     {field: expected for field, (_, _, expected) in PAYMENT_FIELDS.items()})
+                    self.assertEqual(card_at_submit, [expected_card])
                 else:
                     self.assertEqual(merchant_posts, [])
                     self.assertEqual(card_inputs, {})

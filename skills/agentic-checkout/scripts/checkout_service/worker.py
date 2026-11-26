@@ -24,7 +24,7 @@ from .observation import (
     Quote, checkout_step, current_route, navigate_shopify_checkout, read_quote, read_shopify_checkout, read_total,
     total_rows, totals_binding, update_shopify_checkout,
 )
-from .one_page import FORM, card_matches, form_matches, opt_out, payment_action, select_card
+from .one_page import FORM, card_matches, form_matches, opt_out, payment_action, select_card, shows_test_gateway
 
 MANUAL = re.compile(r"verify your identity|authenticate your payment|verification code|3[- ]?D Secure", re.I)
 DECLINED = re.compile(r"card (?:was |has been )?declined|payment was declined", re.I)
@@ -80,6 +80,7 @@ class PreparedCheckout:
     guest: Guest
     route: tuple[str, str, str | None]
     totals: tuple[tuple[str, int], ...] | None = None
+    live_card: bool = False
 
 
 def check_snapshot(
@@ -247,7 +248,7 @@ async def prepare_checkout(page: Page, grant: CheckoutGrant, profile: dict, gate
 async def fill_payment(
     page: Page, grant: CheckoutGrant, identity: tuple[str, str], guest: Guest, checkout_id: str,
     form: Locator, data: dict, payment_route: tuple[str, str, str | None] | None,
-    *, step=None, quoted: PreparedCheckout | None = None,
+    *, step=None, quoted: PreparedCheckout | None = None, live_card: bool = False,
 ):
     approved = Quote(grant.items, grant.currency, grant.total_minor_units)
     first_kind = quoted.kind if quoted else None
@@ -305,7 +306,9 @@ async def fill_payment(
         except (AttributeError, TypeError, ValueError):
             return "checkout_not_ready", None
         try:
-            if not await card_matches(form, data, fill=fill):
+            if live_card and await shows_test_gateway(page):
+                return "payment_method_unavailable", None
+            if not await card_matches(form, data, fill=fill, checkout_origin=f"https://{identity[0]}" if live_card else None):
                 return "payment_fields_incomplete", None
         except Error:
             return "payment_fields_incomplete", None
@@ -319,7 +322,7 @@ async def fill_payment(
     if time.time() >= grant.expires_at:
         return "approval_expired", None
     return ("review_ready" if kind == "review" else "ready",
-            PreparedCheckout(button, kind, checkout_id, guest, payment_route, totals))
+            PreparedCheckout(button, kind, checkout_id, guest, payment_route, totals, live_card))
 
 
 def left_payment(url: str, route: tuple[str, str, str | None]) -> bool:
@@ -364,6 +367,8 @@ async def check_payment_snapshot(
     step = checkout_step(state)
     if current_route(page) != route or (step and step[0] != route[2]):
         raise CheckoutStopped("checkout_not_ready")
+    if prepared.live_card and await shows_test_gateway(page):
+        raise CheckoutStopped("payment_method_unavailable")
     if review:
         check_review(state)
     elif (state["status"] != "ready_for_complete"

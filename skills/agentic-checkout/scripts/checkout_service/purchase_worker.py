@@ -1,4 +1,4 @@
-"""Quote and submit one approved Shopify test purchase in the same browser."""
+"""Quote and submit one approved Shopify purchase in the same browser."""
 
 import asyncio
 import json
@@ -16,14 +16,14 @@ from shopify.security import digits, looks_like_security_verification
 
 from .buyer import Guest, approved_groups, delivery_options, select_shipping, shipping_method
 from .contract import (
-    PURCHASE_QUOTE_PATH, PURCHASE_SELECTION_PATH, RECEIPT_PATH, RECEIPT_TIMEOUT, SANDBOX_TIMEOUT,
-    CheckoutGrant, checkout_identity,
+    LIVE_CARD_MODE, PURCHASE_QUOTE_PATH, PURCHASE_SELECTION_PATH, RECEIPT_PATH, RECEIPT_TIMEOUT, SANDBOX_TIMEOUT,
+    CheckoutGrant, checkout_identity, normalize_live_payment,
     uses_test_data, validate_approval, validate_selections,
 )
 from .observation import (
     checkout_step, current_route, navigate_shopify_checkout, read_shopify_checkout, total_rows, totals_binding,
 )
-from .one_page import FORM, blank_card_form, form_matches, opt_out, payment_action, select_card
+from .one_page import FORM, blank_card_form, form_matches, opt_out, payment_action, select_card, shows_test_gateway
 from .preview import resolve_checkout
 from .worker import (
     MANUAL, CheckoutStopped, PreparedCheckout, approved_details, check_snapshot, fill_payment, submit_prepared,
@@ -132,6 +132,8 @@ async def prepare_quote(
     form = page.locator(FORM).filter(visible=True)
     try:
         await form.wait_for()
+        if payload.get("card_mode") == LIVE_CARD_MODE and await shows_test_gateway(page):
+            raise CheckoutStopped("payment_method_unavailable")
         if not await select_card(form) or not await blank_card_form(form):
             raise CheckoutStopped("payment_method_unavailable")
     except Error as exc:
@@ -197,8 +199,11 @@ async def run_purchase(
 
     try:
         hard_deadline = payload["expires_at"]
-        if type(hard_deadline) not in (int, float) or not math.isfinite(hard_deadline):
-            raise ValueError("Invalid checkout deadline.")
+        card_mode = payload.get("card_mode", "test_card")
+        if (type(hard_deadline) not in (int, float) or not math.isfinite(hard_deadline)
+                or card_mode not in ("test_card", LIVE_CARD_MODE)):
+            raise ValueError("Invalid purchase launch.")
+        live_card = card_mode == LIVE_CARD_MODE
         expires_at = min(hard_deadline, time.time() + SANDBOX_TIMEOUT) - RECEIPT_TIMEOUT - 5
         if expires_at <= time.time():
             raise CheckoutStopped("approval_expired")
@@ -218,21 +223,29 @@ async def run_purchase(
         return None
 
     publish_result(result)
+    invalid_card = "live_card_required" if live_card else "test_data_required"
     try:
         async with asyncio.timeout(expires_at - time.time()):
             approval = await read_next()
         if approval is None or time.time() >= expires_at:
             return {"status": "approval_expired"}
-        payment = {key: approval["payment"][key] for key in ("card_number", "exp", "cvc", "name")}
-        data = build_sensitive_data(normalize_profile({**payload["profile"], "payment": payment}, require_postal=False))
-        if (not uses_test_data(approval["gateway"], quoted.guest.email, data["card_number"])
-                or len(digits(data["card_exp"])) != 4 or len(digits(data["card_cvc"])) not in (3, 4)
-                or not data["card_name"]):
-            return {"status": "test_data_required"}
+        if live_card:
+            if approval.keys() != {"gateway", "payment"} or approval["gateway"] != "shopify_payments":
+                return {"status": invalid_card}
+            payment = normalize_live_payment(approval["payment"])
+            data = {"card_number": payment["card_number"], "card_exp": payment["exp"],
+                    "card_cvc": payment["cvc"], "card_name": payment["name"]}
+        else:
+            payment = {key: approval["payment"][key] for key in ("card_number", "exp", "cvc", "name")}
+            data = build_sensitive_data(normalize_profile({**payload["profile"], "payment": payment}, require_postal=False))
+            if (not uses_test_data(approval["gateway"], quoted.guest.email, data["card_number"])
+                    or len(digits(data["card_exp"])) != 4 or len(digits(data["card_cvc"])) not in (3, 4)
+                    or not data["card_name"]):
+                return {"status": invalid_card}
     except TimeoutError:
         return {"status": "approval_expired"}
     except (AttributeError, KeyError, TypeError, ValueError):
-        return {"status": "test_data_required"}
+        return {"status": invalid_card}
 
     identity = checkout_identity(grant.checkout_url)
     form = page.locator(FORM).filter(visible=True)
@@ -242,7 +255,8 @@ async def run_purchase(
             if looks_like_security_verification(text) or MANUAL.search(text):
                 return {"status": "manual_verification"}
             status, prepared = await fill_payment(
-                page, grant, identity, quoted.guest, quoted.checkout_id, form, data, quoted.route, quoted=quoted,
+                page, grant, identity, quoted.guest, quoted.checkout_id, form, data, quoted.route,
+                quoted=quoted, live_card=live_card,
             )
     except TimeoutError:
         return {"status": "approval_expired"}

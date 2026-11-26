@@ -5,9 +5,18 @@ from dataclasses import dataclass, field
 from urllib.parse import urlsplit
 
 PCI_HOST = "checkout.pci.shopifyinc.com"
+LIVE_CARD_MODE = "live_card"
 TEST_CARDS = {
     "shopify_test_gateway": frozenset({"1", "2", "3"}),
     "shopify_payments": frozenset({"4242424242424242", "4000000000000002"}),
+}
+# https://help.shopify.com/en/manual/payments/shopify-payments/testing-shopify-payments
+SHOPIFY_TEST_NUMBERS = TEST_CARDS["shopify_payments"] | {
+    "5555555555554444", "378282246310005", "6011111111111117", "30569309025904",
+    "3566002020360505", "6555900000604105", "6200000000000005", "4000002500001001",
+    "5555552500001001", "4000050360000001", "5555050360000080", "4000000000009995",
+    "4000000000009987", "4000000000009979", "4000000000000069", "4000000000000127",
+    "4000000000000119", "4242424242424241", "4000000000000259",
 }
 ORDER_ID = re.compile(r"gid://shopify/Order/[1-9][0-9]*")
 VARIANT_ID = re.compile(r"[1-9][0-9]{0,19}")
@@ -116,3 +125,16 @@ def validate_selections(items: dict, shipping_options: dict) -> None:
 
 def uses_test_data(gateway: str, email: str, card_number: str) -> bool:
     return email.lower().endswith("@example.com") and card_number in TEST_CARDS[gateway]
+
+
+def normalize_live_payment(payment: dict) -> dict[str, str]:
+    if (not isinstance(payment, dict) or payment.keys() != {"card_number", "exp", "cvc", "name"}
+            or any(not isinstance(value, str) or len(value) > 100 for value in payment.values())):
+        raise ValueError("Invalid browser card.")
+    pan = payment["card_number"].replace(" ", "").replace("-", "")
+    exp = re.fullmatch(r"(0[1-9]|1[0-2])(?:\s*/\s*(?:20)?)?([0-9]{2})", payment["exp"].strip())
+    cvc, name = payment["cvc"], payment["name"].strip()
+    if (not re.fullmatch(r"[0-9]{12,19}", pan) or pan in SHOPIFY_TEST_NUMBERS or not exp
+            or not re.fullmatch(r"[0-9]{3,4}", cvc) or not name or not name.isprintable()):
+        raise ValueError("Invalid browser card.")
+    return {"card_number": pan, "exp": f"{exp[1]}/{exp[2]}", "cvc": cvc, "name": name}
