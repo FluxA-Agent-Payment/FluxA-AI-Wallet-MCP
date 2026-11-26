@@ -85,10 +85,8 @@ BLOCKED_REDIRECTS = {
     "redirect_throttled": (429, "Please try again later"),
     "redirect_challenge": (200, "Verify you are human"),
 }
-PURCHASE_CASES = {
-    "purchase_approved", "purchase_repriced", "purchase_delivery_required", "purchase_delivery_selected",
-    "purchase_review_steps",
-}
+DELIVERY_CHOICE_CASES = {"purchase_delivery_required", "purchase_delivery_selected", "purchase_delivery_changed"}
+PURCHASE_CASES = {"purchase_approved", "purchase_repriced", "purchase_review_steps", *DELIVERY_CHOICE_CASES}
 
 
 def checkout_document(scenario):
@@ -179,7 +177,7 @@ def checkout_document(scenario):
           {id: "express", title: "Express", totals: [{type: "total", amount: 734}]},
         ];
         delete state.fulfillment.methods[0].groups[0].selected_option_id;
-    """ if scenario in {"purchase_delivery_required", "purchase_delivery_selected"} else ""
+    """ if scenario in DELIVERY_CHOICE_CASES else ""
     preserve_rates = """
         const currentRates = state.fulfillment.methods[0].groups;
         if (!checkout.fulfillment.methods[0].groups && currentRates)
@@ -353,6 +351,7 @@ class HostedBrowserTest(unittest.IsolatedAsyncioTestCase):
             "purchase_repriced": {"status": "total_mismatch"},
             "purchase_delivery_required": None,
             "purchase_delivery_selected": {"status": "submitted", "order_id": ORDER_ID},
+            "purchase_delivery_changed": None,
             "purchase_review_steps": {"status": "submitted", "order_id": ORDER_ID},
         }
         async with async_playwright() as playwright:
@@ -529,35 +528,54 @@ class HostedBrowserTest(unittest.IsolatedAsyncioTestCase):
             await context.route("**/*", respond)
             if scenario in PURCHASE_CASES:
                 quotes = []
+                selections = []
                 profile = {key: value for key, value in PROFILE.items() if key != "payment"}
                 profile["email"] = PROFILE["payment"]["email"]
                 payload = {
                     "checkout_url": CART_LINK, "checkout_host": urlsplit(SHOP_ORIGIN).netloc,
                     "items": {VARIANT_ID: 1}, "profile": profile, "expires_at": time.time() + 160,
                 }
-                if scenario in {"purchase_delivery_selected", "purchase_review_steps"}:
+                if scenario == "purchase_review_steps":
                     payload["shipping_options"] = {"shipment_1": {"selected_option_id": "standard"}}
 
-                async def approve():
+                async def read_next():
                     self.assertEqual(len(quotes), 1)
-                    self.assertEqual(quotes[0]["status"], "quoted")
-                    self.assertEqual(quotes[0]["quote"]["minor_units"], 1234)
-                    self.assertEqual(quotes[0]["quote"]["shipping_options"], {
-                        "shipment_1": {"selected_option_id": "standard"},
-                    })
                     self.assertEqual(card_inputs, {})
                     self.assertEqual(merchant_posts, [])
+                    if quotes[0]["status"] == "requires_action" and not selections:
+                        self.assertLess(time.time(), quotes[0]["selection_expires_at"])
+                        self.assertEqual(quotes[0]["reason"], "shipping_option_required")
+                        self.assertEqual(quotes[0]["delivery_options"], {"shipment_1": [
+                            {"id": "standard", "title": "Standard", "amount": 234},
+                            {"id": "express", "title": "Express", "amount": 734},
+                        ]})
+                        if scenario == "purchase_delivery_required":
+                            return None
+                        await page.evaluate("window.deliveryChoicePage = true")
+                        if scenario == "purchase_delivery_changed":
+                            await page.evaluate("state.fulfillment.methods[0].groups[0].options.shift()")
+                        return {"shipping_options": {"shipment_1": {"selected_option_id": "standard"}}}
+
+                    observed = selections[0] if selections else quotes[0]
+                    self.assertEqual(observed["status"], "quoted")
+                    self.assertEqual(observed["quote"]["minor_units"], 1234)
+                    self.assertEqual(observed["quote"]["shipping_options"], {
+                        "shipment_1": {"selected_option_id": "standard"},
+                    })
+                    if scenario == "purchase_delivery_selected":
+                        self.assertTrue(await page.evaluate("window.deliveryChoicePage === true"))
                     if scenario == "purchase_repriced":
                         await page.evaluate("state.totals[0].amount = 1235")
                     return {"gateway": "shopify_test_gateway", "payment": PROFILE["payment"]}
 
-                result = await run_purchase(page, payload, quotes.append, approve)
+                result = await run_purchase(page, payload, quotes.append, read_next, publish_selection=selections.append)
                 self.assertEqual(result, expected_result)
                 if scenario == "purchase_delivery_required":
-                    self.assertEqual(quotes, [{
+                    self.assertEqual(selections, [{"status": "approval_expired"}])
+                if scenario == "purchase_delivery_changed":
+                    self.assertEqual(selections, [{
                         "status": "requires_action", "reason": "shipping_option_required",
                         "delivery_options": {"shipment_1": [
-                            {"id": "standard", "title": "Standard", "amount": 234},
                             {"id": "express", "title": "Express", "amount": 734},
                         ]},
                     }])

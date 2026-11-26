@@ -105,6 +105,9 @@ def delivery_options(method: dict) -> dict:
             choices.append(result)
         if len({choice["id"] for choice in choices}) != len(choices):
             raise ValueError("Expected distinct Shopify delivery option IDs.")
+        selected = group.get("selected_option_id")
+        if group.get("options") is None and isinstance(selected, str) and selected:
+            choices = [{"id": selected}]
         options[group_id] = choices
     return options
 
@@ -126,7 +129,7 @@ def select_shipping(method: dict, requested: dict | None, options: dict) -> dict
         selected[group_id] = {"selected_option_id": choice}
         if choice == group.get("selected_option_id") and group.get("selected_option_details"):
             selected[group_id]["selected_option_details"] = group["selected_option_details"]
-    return selected
+    return selected if approved_groups(method, selected) is not None else None
 
 
 @dataclass(frozen=True, repr=False)

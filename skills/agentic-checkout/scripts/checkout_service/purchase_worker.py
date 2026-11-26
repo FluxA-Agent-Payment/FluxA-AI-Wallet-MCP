@@ -16,7 +16,8 @@ from shopify.security import digits, looks_like_security_verification
 
 from .buyer import Guest, approved_groups, delivery_options, select_shipping, shipping_method
 from .contract import (
-    PURCHASE_QUOTE_PATH, RECEIPT_PATH, RECEIPT_TIMEOUT, SANDBOX_TIMEOUT, CheckoutGrant, checkout_identity,
+    PURCHASE_QUOTE_PATH, PURCHASE_SELECTION_PATH, RECEIPT_PATH, RECEIPT_TIMEOUT, SANDBOX_TIMEOUT,
+    CheckoutGrant, checkout_identity,
     uses_test_data, validate_approval, validate_selections,
 )
 from .observation import (
@@ -36,7 +37,9 @@ class ShippingChoiceRequired(CheckoutStopped):
         self.options = options
 
 
-async def prepare_quote(page: Page, payload: dict, expires_at: float) -> tuple[dict, CheckoutGrant, PreparedCheckout]:
+async def prepare_quote(
+    page: Page, payload: dict, expires_at: float, request_shipping: Callable[[dict], Awaitable[dict]],
+) -> tuple[dict, CheckoutGrant, PreparedCheckout]:
     profile, items = payload["profile"], payload["items"]
     requested = payload.get("shipping_options")
     validate_selections(items, {} if requested is None else requested)
@@ -101,7 +104,18 @@ async def prepare_quote(page: Page, payload: dict, expires_at: float) -> tuple[d
     options = delivery_options(method)
     shipping = select_shipping(method, requested, options)
     if shipping is None:
-        raise ShippingChoiceRequired(options)
+        shipping_route, shipping_step = current_route(page), checkout_step(state)
+        requested = await request_shipping(options)
+        validate_selections(items, requested)
+        state, _ = await snapshot()
+        method = shipping_method(state)
+        if (current_route(page) != shipping_route or checkout_step(state) != shipping_step
+                or not guest.contact_matches(state, method)):
+            raise CheckoutStopped("checkout_not_ready")
+        options = delivery_options(method)
+        shipping = select_shipping(method, requested, options)
+        if shipping is None:
+            raise ShippingChoiceRequired(options)
     validate_selections(items, shipping)
     groups = approved_groups(method, shipping)
     if groups is None:
@@ -162,8 +176,25 @@ async def prepare_quote(page: Page, payload: dict, expires_at: float) -> tuple[d
 
 
 async def run_purchase(
-    page: Page, payload: dict, publish_quote: Callable[[dict], None], read_approval: Callable[[], Awaitable[dict | None]],
+    page: Page, payload: dict, publish_quote: Callable[[dict], None], read_next: Callable[[], Awaitable[dict | None]],
+    *, publish_selection: Callable[[dict], None],
 ) -> dict | None:
+    publish_result = publish_quote
+
+    async def request_shipping(options: dict) -> dict:
+        nonlocal publish_result
+        publish_quote({
+            "status": "requires_action", "reason": "shipping_option_required", "delivery_options": options,
+            "selection_expires_at": expires_at,
+        })
+        publish_result = publish_selection
+        selection = await read_next()
+        if selection is None:
+            raise CheckoutStopped("approval_expired")
+        if not isinstance(selection, dict) or selection.keys() != {"shipping_options"}:
+            raise ShippingChoiceRequired(options)
+        return selection["shipping_options"]
+
     try:
         hard_deadline = payload["expires_at"]
         if type(hard_deadline) not in (int, float) or not math.isfinite(hard_deadline):
@@ -172,24 +203,24 @@ async def run_purchase(
         if expires_at <= time.time():
             raise CheckoutStopped("approval_expired")
         async with asyncio.timeout(expires_at - time.time()):
-            result, grant, quoted = await prepare_quote(page, payload, expires_at)
+            result, grant, quoted = await prepare_quote(page, payload, expires_at, request_shipping)
     except ShippingChoiceRequired as exc:
-        publish_quote({"status": "requires_action", "reason": str(exc), "delivery_options": exc.options})
+        publish_result({"status": "requires_action", "reason": str(exc), "delivery_options": exc.options})
         return None
     except CheckoutStopped as exc:
-        publish_quote({"status": str(exc)})
+        publish_result({"status": str(exc)})
         return None
     except TimeoutError:
-        publish_quote({"status": "approval_expired"})
+        publish_result({"status": "approval_expired"})
         return None
     except (AttributeError, Error, KeyError, TypeError, ValueError):
-        publish_quote({"status": "checkout_unavailable"})
+        publish_result({"status": "checkout_unavailable"})
         return None
 
-    publish_quote(result)
+    publish_result(result)
     try:
         async with asyncio.timeout(expires_at - time.time()):
-            approval = await read_approval()
+            approval = await read_next()
         if approval is None or time.time() >= expires_at:
             return {"status": "approval_expired"}
         payment = {key: approval["payment"][key] for key in ("card_number", "exp", "cvc", "name")}
@@ -238,6 +269,7 @@ async def main() -> None:
                 page.set_default_timeout(5_000)
                 receipt = await run_purchase(
                     page, payload, lambda result: write_result(PURCHASE_QUOTE_PATH, result), lambda: read_message(reader),
+                    publish_selection=lambda result: write_result(PURCHASE_SELECTION_PATH, result),
                 )
                 if receipt is not None:
                     write_result(RECEIPT_PATH, receipt)
@@ -254,8 +286,11 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except Exception:
-        if Path(PURCHASE_QUOTE_PATH).is_file():
-            if not Path(RECEIPT_PATH).is_file():
-                write_result(RECEIPT_PATH, {"status": "reconciliation_required"})
-        else:
+        quote = Path(PURCHASE_QUOTE_PATH)
+        if not quote.is_file():
             write_result(PURCHASE_QUOTE_PATH, {"status": "checkout_unavailable"})
+        elif (json.loads(quote.read_bytes())["status"] == "requires_action"
+              and not Path(PURCHASE_SELECTION_PATH).is_file()):
+            write_result(PURCHASE_SELECTION_PATH, {"status": "checkout_unavailable"})
+        elif not Path(RECEIPT_PATH).is_file():
+            write_result(RECEIPT_PATH, {"status": "reconciliation_required"})

@@ -18,6 +18,7 @@ ATTEMPT_TIMEOUT = 165
 RECEIPT_TIMEOUT = 25
 RECEIPT_PATH = "/tmp/fluxa-checkout-result.json"
 PURCHASE_QUOTE_PATH = "/tmp/fluxa-purchase-quote.json"
+PURCHASE_SELECTION_PATH = "/tmp/fluxa-purchase-selection.json"
 RESOLVED_STORAGE = "/tmp/fluxa-checkout-session.json"
 
 
