@@ -25,6 +25,11 @@ const requestSchema = z.discriminatedUnion("action", [
     cursor: z.string().min(1).max(2048).optional(),
   }).strict().describe("Search products and variants."),
   z.object({
+    action: z.literal("resolve"),
+    url: z.string().url().max(2048).regex(/^https:\/\//).describe("Product URL from a configured Shopify test store."),
+    country,
+  }).strict().describe("Find purchasable variants and prices for a storefront product link."),
+  z.object({
     action: z.literal("list_merchants"),
   }).strict().describe("List merchants and their checkout capabilities."),
   z.object({
@@ -66,6 +71,8 @@ function execute(client, request) {
   switch (request.action) {
     case "search_catalog":
       return client.searchCatalog(request);
+    case "resolve":
+      return client.resolvePurchaseProduct(request);
     case "list_merchants":
       return client.listPurchaseMerchants();
     case "create_purchase":
@@ -86,7 +93,8 @@ function execute(client, request) {
 export function registerBuyTool(server, client) {
   server.registerTool("buy", {
     title: "Shopify purchase",
-    description: "Search Shopify products and manage a test purchase. Use list_merchants to find a merchant "
+    description: "Search Shopify products, resolve storefront product links, and manage a test purchase. "
+      + "Use list_merchants to find a merchant "
       + "with test_checkout capability. Before confirm_test_purchase, show the buyer the exact current "
       + "quote, including merchant, items, delivery options, total and currency. Call confirm_test_purchase "
       + "only when the buyer explicitly approves that quote. If confirmation is interrupted, use get_purchase "

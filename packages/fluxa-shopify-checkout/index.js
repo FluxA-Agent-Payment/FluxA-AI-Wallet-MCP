@@ -148,6 +148,15 @@ export class ShopifyCheckoutClient {
       (result, status) => status === 200 && Array.isArray(result?.products));
   }
 
+  async resolvePurchaseProduct({ url, country }) {
+    return this.#request("purchase-products/resolve", "POST", { url, country },
+      result => typeof result?.merchant === "string" && typeof result.title === "string"
+        && Array.isArray(result.variants) && result.variants.every(variant =>
+          typeof variant?.variant_id === "string" && typeof variant.title === "string"
+          && typeof variant.available === "boolean" && typeof variant.selected === "boolean"
+          && typeof variant.price?.amount === "string" && isCurrency(variant.price.currencyCode)));
+  }
+
   async listPurchaseMerchants() {
     return this.#request("purchase-merchants", "GET", undefined,
       result => Array.isArray(result?.merchants) && result.merchants.every(merchant =>

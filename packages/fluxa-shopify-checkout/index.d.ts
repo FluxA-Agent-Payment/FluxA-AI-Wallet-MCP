@@ -132,10 +132,23 @@ export type PurchaseMerchant = {
   products?: Array<{ variant_id: string; title: string; country: string; currency: string }>;
 };
 
+export type PurchaseProduct = {
+  merchant: string;
+  title: string;
+  variants: Array<{
+    variant_id: string;
+    title: string;
+    available: boolean;
+    price: { amount: string; currencyCode: string };
+    selected: boolean;
+  }>;
+};
+
 export class ShopifyCheckoutClient {
   static fromEnv(options?: { timeoutMs?: number }): ShopifyCheckoutClient;
   constructor(options: { baseUrl: string; token: string; timeoutMs?: number });
   searchCatalog(input: { query: string; country: string; currency: string; limit?: number; cursor?: string }): Promise<CatalogSearchResult>;
+  resolvePurchaseProduct(input: { url: string; country: string }): Promise<PurchaseProduct>;
   listPurchaseMerchants(): Promise<{ merchants: PurchaseMerchant[] }>;
   createPurchase(input: { requestId: string; merchant: string; items: PurchaseItems; country: string }): Promise<Purchase>;
   getPurchase(purchaseId: string): Promise<Purchase>;
