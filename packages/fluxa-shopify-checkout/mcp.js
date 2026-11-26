@@ -3,38 +3,64 @@ import { CheckoutApiError } from "./index.js";
 
 const purchaseId = z.string().uuid();
 const country = z.string().regex(/^[A-Z]{2}$/).describe("Two-letter country code.");
-const merchant = z.string().regex(/^[a-z0-9-]+(?:\.[a-z0-9-]+)+$/)
-  .describe("Exact host from list_merchants.");
-const items = z.record(z.string().regex(/^[1-9][0-9]{0,19}$/), z.number().int().min(1).max(100))
+const currency = z.string().regex(/^[A-Z]{3}$/).describe("Three-letter currency code.");
+const merchant = z.string().regex(/^[a-z0-9-]+(?:\.[a-z0-9-]+)+$/);
+const productUrl = z.string().url().max(2048).regex(/^https:\/\//);
+const quantity = z.number().int().min(1).max(100);
+const testItems = z.record(z.string().regex(/^[1-9][0-9]{0,19}$/), quantity)
   .describe("Map of numeric Shopify variant IDs to quantities.");
+const catalogItems = z.record(z.string().max(512)
+  .regex(/^gid:\/\/shopify\/ProductVariant\/[1-9][0-9]{0,19}(?:\?[^\s#]+)?$/), quantity)
+  .describe("Map of exact Shopify variant GIDs from the catalog to quantities.");
 const shippingOptions = z.record(z.string().min(1), z.object({
   selected_option_id: z.string().min(1),
 }).strict()).describe("Map of delivery group IDs to selected options from the purchase.");
+const createFields = {
+  action: z.literal("create_purchase"),
+  request_id: z.string().uuid().describe("Generate once for a new purchase and reuse on retry."),
+  country,
+};
+const confirmFields = {
+  purchase_id: purchaseId,
+  quote_id: z.string().uuid(),
+  buyer_approved: z.literal(true).describe("The buyer explicitly approved the exact quote shown."),
+};
 
-const requestSchema = z.discriminatedUnion("action", [
+const requestSchema = z.union([
   z.object({
     action: z.literal("search_catalog"),
     query: z.string().max(256).regex(/\S/),
     country,
-    currency: z.string().regex(/^[A-Z]{3}$/),
+    currency,
     limit: z.number().int().min(1).max(50).optional(),
     cursor: z.string().min(1).max(2048).optional(),
   }).strict().describe("Search products and variants."),
   z.object({
+    action: z.literal("lookup_catalog"),
+    url: productUrl,
+    country,
+    currency,
+  }).strict().describe("Find Shopify catalog variants for a product URL."),
+  z.object({
     action: z.literal("resolve"),
-    url: z.string().url().max(2048).regex(/^https:\/\//).describe("Product URL from a configured Shopify test store."),
+    url: productUrl.describe("Product URL from a configured Shopify test store."),
     country,
   }).strict().describe("Find purchasable variants and prices for a storefront product link."),
   z.object({
     action: z.literal("list_merchants"),
   }).strict().describe("List merchants and their checkout capabilities."),
   z.object({
-    action: z.literal("create_purchase"),
-    request_id: z.string().uuid().describe("Generate once for a new purchase and reuse on retry."),
-    merchant,
-    items,
-    country,
+    ...createFields,
+    merchant: merchant.describe("Exact host from list_merchants."),
+    items: testItems,
   }).strict().describe("Start a purchase for a configured test merchant."),
+  z.object({
+    ...createFields,
+    channel: z.literal("shop_catalog"),
+    merchant: merchant.describe("Exact seller.domain of the selected catalog variants."),
+    items: catalogItems,
+    currency,
+  }).strict().describe("Start a purchase for variants selected from the Shopify catalog."),
   z.object({
     action: z.literal("get_purchase"),
     purchase_id: purchaseId,
@@ -42,7 +68,7 @@ const requestSchema = z.discriminatedUnion("action", [
   z.object({
     action: z.literal("update_cart"),
     purchase_id: purchaseId,
-    items,
+    items: z.union([testItems, catalogItems]),
   }).strict().describe("Replace all items in the purchase cart."),
   z.object({
     action: z.literal("quote_purchase"),
@@ -51,10 +77,13 @@ const requestSchema = z.discriminatedUnion("action", [
   }).strict().describe("Prepare a quote. Use the available delivery options if selection is required."),
   z.object({
     action: z.literal("confirm_test_purchase"),
-    purchase_id: purchaseId,
-    quote_id: z.string().uuid(),
-    buyer_approved: z.literal(true).describe("The buyer explicitly approved the exact quote shown."),
+    ...confirmFields,
   }).strict().describe("Submit a test purchase against its approved quote."),
+  z.object({
+    action: z.literal("confirm_purchase"),
+    ...confirmFields,
+    payment_method_id: z.string().min(1).optional().describe("Payment method the buyer selected from the current quote."),
+  }).strict().describe("Submit a catalog purchase against its approved final quote."),
   z.object({
     action: z.literal("list_events"),
     purchase_id: purchaseId,
@@ -67,6 +96,8 @@ function execute(client, request) {
   switch (request.action) {
     case "search_catalog":
       return client.searchCatalog(request);
+    case "lookup_catalog":
+      return client.lookupCatalog(request);
     case "resolve":
       return client.resolvePurchaseProduct(request);
     case "list_merchants":
@@ -80,7 +111,10 @@ function execute(client, request) {
     case "quote_purchase":
       return client.quotePurchase(request.purchase_id, { shippingOptions: request.shipping_options });
     case "confirm_test_purchase":
-      return client.confirmPurchase(request.purchase_id, { quoteId: request.quote_id });
+    case "confirm_purchase":
+      return client.confirmPurchase(request.purchase_id, {
+        quoteId: request.quote_id, paymentMethodId: request.payment_method_id,
+      });
     case "list_events":
       return client.listPurchaseEvents(request.purchase_id, request);
   }
@@ -89,12 +123,12 @@ function execute(client, request) {
 export function registerBuyTool(server, client) {
   server.registerTool("buy", {
     title: "Shopify purchase",
-    description: "Search Shopify products, resolve storefront product links, and manage a test purchase. "
-      + "Use list_merchants to find a merchant "
-      + "with test_checkout capability. Before confirm_test_purchase, show the buyer the exact current "
-      + "quote, including merchant, items, delivery options, total and currency. Call confirm_test_purchase "
-      + "only when the buyer explicitly approves that quote. If confirmation is interrupted, use get_purchase "
-      + "with the same purchase ID to recover its status.",
+    description: "Find Shopify products by search or URL and manage purchases. For a catalog purchase, use "
+      + "the exact variant IDs and seller.domain from the catalog. Use list_merchants for configured test stores. "
+      + "If required, share the merchant checkout link with the buyer and use get_purchase to check for the receipt. "
+      + "Before confirming, show the exact final quote, including merchant, items, delivery, total, currency, and "
+      + "any selected payment method. Confirm only after the buyer explicitly approves that quote. Use get_purchase "
+      + "with the same purchase ID after an interrupted confirmation.",
     inputSchema: { request: requestSchema },
   }, async ({ request }) => {
     try {

@@ -74,6 +74,7 @@ export type NativeCheckoutQuote = NativeCartSummary & {
   continue_url?: string;
 };
 
+/** Map of Shopify variant IDs to quantities. Catalog purchases use full variant GIDs. */
 export type PurchaseItems = Record<string, number>;
 
 export type PurchaseShippingOptions = Record<string, {
@@ -95,6 +96,8 @@ export type PurchaseQuote = {
   shipping_options: PurchaseShippingOptions;
   expires_at: number;
   delivery_options?: PurchaseDeliveryOptions;
+  amount_provisional?: boolean;
+  payment_methods?: Array<{ id: string; label: string }>;
 };
 
 export type PurchaseStatus = "draft" | "preparing" | "quoted" | "submitting" | "submitted"
@@ -105,8 +108,11 @@ export type Purchase = {
   merchant: string;
   items: PurchaseItems;
   country: string;
+  channel?: "shop_catalog";
+  currency?: string;
   status: PurchaseStatus;
   quote?: PurchaseQuote;
+  continue_url?: string;
   result?: {
     status: string;
     order_id?: string;
@@ -147,14 +153,17 @@ export class ShopifyCheckoutClient {
   static fromEnv(options?: { timeoutMs?: number }): ShopifyCheckoutClient;
   constructor(options: { baseUrl: string; token: string; timeoutMs?: number });
   searchCatalog(input: { query: string; country: string; currency: string; limit?: number; cursor?: string }): Promise<CatalogSearchResult>;
+  lookupCatalog(input: { url: string; country: string; currency: string }): Promise<CatalogSearchResult>;
   resolvePurchaseProduct(input: { url: string; country: string }): Promise<PurchaseProduct>;
   listPurchaseMerchants(): Promise<{ merchants: PurchaseMerchant[] }>;
-  createPurchase(input: { requestId: string; merchant: string; items: PurchaseItems; country: string }): Promise<Purchase>;
+  createPurchase(input: {
+    requestId: string; merchant: string; items: PurchaseItems; country: string;
+  } & ({ channel?: never; currency?: never } | { channel: "shop_catalog"; currency: string })): Promise<Purchase>;
   getPurchase(purchaseId: string): Promise<Purchase>;
   updatePurchaseCart(purchaseId: string, input: { items: PurchaseItems }): Promise<Purchase>;
   quotePurchase(purchaseId: string, input?: { shippingOptions?: PurchaseShippingOptions }): Promise<Purchase>;
-  /** Submit the current quote for a test purchase after the buyer approves that quote. */
-  confirmPurchase(purchaseId: string, input: { quoteId: string }): Promise<Purchase>;
+  /** Confirm the current quote after the buyer explicitly approves it and any selected payment method. */
+  confirmPurchase(purchaseId: string, input: { quoteId: string; paymentMethodId?: string }): Promise<Purchase>;
   listPurchaseEvents(purchaseId: string, input?: { after?: number }): Promise<{ events: PurchaseEvent[] }>;
   createCart(input: { merchant: string; items: { variantId: string; quantity: number }[]; country: string; currency: string; idempotencyKey: string }): Promise<NativeCart>;
   createCheckoutQuote(input: { merchant: string; cartRef: string; idempotencyKey: string }): Promise<NativeCheckoutQuote>;

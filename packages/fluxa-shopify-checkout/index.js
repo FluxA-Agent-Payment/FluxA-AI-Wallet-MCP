@@ -32,15 +32,24 @@ function isRecord(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+function isCatalogResult(result, status) {
+  return status === 200 && Array.isArray(result?.products);
+}
+
 function isPurchaseQuote(quote) {
   return isUuid(quote?.id) && isCurrency(quote.currency)
     && Number.isSafeInteger(quote.minor_units) && quote.minor_units >= 0
-    && Array.isArray(quote.totals) && isRecord(quote.shipping_options) && Number.isFinite(quote.expires_at);
+    && Array.isArray(quote.totals) && isRecord(quote.shipping_options) && Number.isFinite(quote.expires_at)
+    && (quote.amount_provisional === undefined || typeof quote.amount_provisional === "boolean")
+    && (quote.payment_methods === undefined || (Array.isArray(quote.payment_methods)
+      && quote.payment_methods.every(method => typeof method?.id === "string" && typeof method.label === "string")));
 }
 
 function isPurchase(purchase) {
   return isUuid(purchase?.id) && typeof purchase.merchant === "string" && typeof purchase.country === "string"
     && isRecord(purchase.items) && PURCHASE_STATUSES.has(purchase.status)
+    && (purchase.channel === undefined || (purchase.channel === "shop_catalog" && isCurrency(purchase.currency)))
+    && (purchase.continue_url === undefined || typeof purchase.continue_url === "string")
     && (purchase.quote === undefined ? purchase.status !== "quoted" : isPurchaseQuote(purchase.quote))
     && (purchase.result === undefined
       ? purchase.status !== "submitted"
@@ -144,8 +153,11 @@ export class ShopifyCheckoutClient {
   }
 
   async searchCatalog({ query, country, currency, limit, cursor }) {
-    return this.#request("catalog/search", "POST", { query, country, currency, limit, cursor },
-      (result, status) => status === 200 && Array.isArray(result?.products));
+    return this.#request("catalog/search", "POST", { query, country, currency, limit, cursor }, isCatalogResult);
+  }
+
+  async lookupCatalog({ url, country, currency }) {
+    return this.#request("catalog/lookup", "POST", { url, country, currency }, isCatalogResult);
   }
 
   async resolvePurchaseProduct({ url, country }) {
@@ -163,9 +175,10 @@ export class ShopifyCheckoutClient {
         typeof merchant?.merchant === "string" && PURCHASE_MERCHANT_STATUSES.has(merchant.status)));
   }
 
-  async createPurchase({ requestId, merchant, items, country }) {
-    return this.#request("purchases", "POST", { request_id: requestId, merchant, items, country },
-      result => isPurchase(result) && result.merchant === merchant);
+  async createPurchase({ requestId, merchant, items, country, channel, currency }) {
+    return this.#request("purchases", "POST", { request_id: requestId, merchant, items, country, channel, currency },
+      result => isPurchase(result) && result.merchant === merchant
+        && (channel === undefined || (result.channel === channel && result.currency === currency)));
   }
 
   async getPurchase(purchaseId) {
@@ -180,9 +193,9 @@ export class ShopifyCheckoutClient {
     return this.#purchaseRequest(purchaseId, "/quote", "POST", { shipping_options: shippingOptions });
   }
 
-  async confirmPurchase(purchaseId, { quoteId }) {
+  async confirmPurchase(purchaseId, { quoteId, paymentMethodId }) {
     if (!isUuid(quoteId)) throw new TypeError("Expected a quote UUID.");
-    return this.#purchaseRequest(purchaseId, "/confirm", "POST", { quote_id: quoteId });
+    return this.#purchaseRequest(purchaseId, "/confirm", "POST", { quote_id: quoteId, payment_method_id: paymentMethodId });
   }
 
   async listPurchaseEvents(purchaseId, { after = 0 } = {}) {
