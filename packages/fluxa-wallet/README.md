@@ -26,6 +26,9 @@ fluxa-wallet <command> --help     # full options for any command
 | `wallet-address` | Linked user's wallet address (prints the address) |
 | `balance` | Linked wallet balances — USDC / XRP / credits |
 | `mandates` | List mandates with limit / spent / remaining |
+| `transactions` | This agent’s transaction history across USDC, XRP, credits, linked cards and prepaid cards |
+| `linked-card transactions` | This agent’s Visa payment attempts across linked cards |
+| `mandate transactions --id <mandate_id>` | Mandate budget and activity |
 | `recent-transactions` | Recent transactions — USDC / XRP / credits spends (`--limit`, 1-100) |
 | `check-wallet` | Whether the agent is linked to a user's wallet |
 | `version` | Print the CLI version (also `--version`, `-v`) |
@@ -144,7 +147,7 @@ with a signed `CARD_USD` mandate.
 | `prepaid-card list` | List cards created by this agent (`--global` for the linked account) |
 | `prepaid-card details` | Reveal PAN / CVV / expiry (`--id`) |
 | `prepaid-card balance` | Refresh & show card balance (`--id`) |
-| `prepaid-card transactions` | List card transaction history (`--id`, optional filters) |
+| `prepaid-card transactions` | List prepaid history across cards, or pass `--id` for one card’s detailed history |
 | `prepaid-card 3ds latest` | Show the latest 3DS challenge (`--id`) |
 | `prepaid-card 3ds latest_1h` | Show 3DS challenges from the last hour (`--id`) |
 | `prepaid-card holder create` | Create a complete account profile and start KYC (`--profile @profile.json` or individual fields) |
@@ -240,6 +243,30 @@ fluxa-wallet payout --to 0x... --amount 1000000 --id payout_001
 fluxa-wallet paymentlink-create --amount 5000000 --desc "AI Report"
 ```
 
+## Query transaction history
+
+```bash
+fluxa-wallet transactions --limit 20
+fluxa-wallet linked-card transactions --status failed
+fluxa-wallet prepaid-card transactions --from 2026-11-01T00:00:00Z
+fluxa-wallet mandate transactions --id mand_xxx
+fluxa-wallet prepaid-card transactions --id card_xxx --type refund --page 2
+```
+
+Agent and mandate feeds accept `--status` (all, completed, pending, failed),
+`--from` (inclusive), `--to` (exclusive), `--limit` (default 20, max 100), and
+`--cursor`. Use ISO-8601 timestamps with a timezone. Each command prints the
+page directly as JSON. Reuse `pagination.nextCursor` with the same command, ID
+and filters to continue, including when a filtered page has zero items.
+Agent feeds include `sources`: an unavailable source or partial prepaid coverage
+means the history is incomplete. Mandate pages include the budget under `mandate`.
+
+For linked cards, `displayStatus: authorized` describes the authorization stage.
+Use `linked-card mandates --card <card_id>` to find a source card’s mandates,
+then read each mandate’s activity. A single prepaid card uses the card service’s
+existing page-number options (`--page`, `--limit` up to 50) and returns
+`transactions`, `pageNum`, `pageSize`, and `total`.
+
 ## Output Format
 
 Most commands print a JSON envelope:
@@ -297,8 +324,8 @@ npm whoami --registry https://registry.npmjs.org
 # If not logged in:
 npm login --registry https://registry.npmjs.org
 npm publish --access public --registry https://registry.npmjs.org
-npm view @fluxa-pay/fluxa-wallet@0.6.1 version --registry https://registry.npmjs.org
-npm install -g @fluxa-pay/fluxa-wallet@0.6.1 --registry https://registry.npmjs.org
+npm view @fluxa-pay/fluxa-wallet@0.6.2 version --registry https://registry.npmjs.org
+npm install -g @fluxa-pay/fluxa-wallet@0.6.2 --registry https://registry.npmjs.org
 fluxa-wallet --version
 fluxa-wallet prepaid-card create --help
 ```

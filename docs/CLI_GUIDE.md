@@ -24,6 +24,9 @@ Run `fluxa-wallet <command> --help` for the full option list of any command.
 | `wallet-address` | Linked user's wallet address (prints the address) |
 | `balance` | Linked wallet balances — USDC / XRP / credits |
 | `mandates` | List mandates with limit / spent / remaining |
+| `transactions` | This agent’s transaction history across USDC, XRP, credits, linked cards and prepaid cards |
+| `linked-card transactions` | This agent’s Visa payment attempts across linked cards |
+| `mandate transactions --id <mandate_id>` | Mandate budget and activity |
 | `recent-transactions` | Recent transactions — USDC / XRP / credits spends (`--limit`, 1-100) |
 | `check-wallet` | Whether the agent is linked to a user's wallet |
 | `version` | Print the CLI version (also `--version`, `-v`) |
@@ -69,6 +72,30 @@ Run `fluxa-wallet <command> --help` for the full option list of any command.
 | `prepaid-card recharge` / `withdraw` / `withdrawals` / `withdrawal` | Add funds and withdraw card balance |
 | `agent-vc` | Issue a short-lived agent VC for a third party (`--audience`, `--challenge`) |
 | `help` | Show usage information |
+
+## Query transaction history
+
+```bash
+fluxa-wallet transactions --limit 20
+fluxa-wallet linked-card transactions --status failed
+fluxa-wallet prepaid-card transactions --from 2026-11-01T00:00:00Z
+fluxa-wallet mandate transactions --id mand_xxx
+fluxa-wallet prepaid-card transactions --id card_xxx --type refund --page 2
+```
+
+Agent and mandate feeds accept `--status` (all, completed, pending, failed),
+`--from` (inclusive), `--to` (exclusive), `--limit` (default 20, max 100), and
+`--cursor`. Use ISO-8601 timestamps with a timezone. Each command prints the
+page directly as JSON. Reuse `pagination.nextCursor` with the same command, ID
+and filters to continue, including when a filtered page has zero items.
+Agent feeds include `sources`: an unavailable source or partial prepaid coverage
+means the history is incomplete. Mandate pages include the budget under `mandate`.
+
+For linked cards, `displayStatus: authorized` describes the authorization stage.
+Use `linked-card mandates --card <card_id>` to find a source card’s mandates,
+then read each mandate’s activity. A single prepaid card uses the card service’s
+existing page-number options (`--page`, `--limit` up to 50) and returns
+`transactions`, `pageNum`, `pageSize`, and `total`.
 
 ## Output Format
 
