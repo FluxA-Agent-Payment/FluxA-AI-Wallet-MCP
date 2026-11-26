@@ -18,6 +18,16 @@ function isCurrency(value) {
   return typeof value === "string" && /^[A-Z]{3}$/.test(value);
 }
 
+function isNativeSummary(result, status, merchant, reference) {
+  return status === 200 && result?.merchant === merchant && typeof result[reference] === "string"
+    && isCurrency(result.currency) && Array.isArray(result.items) && Array.isArray(result.totals);
+}
+
+function isNativeQuote(result, status, merchant) {
+  return isNativeSummary(result, status, merchant, "checkout_ref") && typeof result.status === "string"
+    && typeof result.amount_provisional === "boolean";
+}
+
 function isPreviewResult(result, request) {
   const status = result?.status;
   if (status === "browser_unavailable" || status === "worker_unavailable" || status === "preview_failed") {
@@ -87,7 +97,35 @@ export class ShopifyCheckoutClient {
   }
 
   async preview({ merchant, variantId, quantity = 1, country }) {
-    return this.#request("checkout-previews", "POST", { merchant, variant_id: variantId, quantity, country });
+    const payload = { merchant, variant_id: variantId, quantity, country };
+    return this.#request("checkout-previews", "POST", payload,
+      (result, status) => status === 200 && isPreviewResult(result, payload));
+  }
+
+  async searchCatalog({ query, country, currency, limit, cursor }) {
+    return this.#request("catalog/search", "POST", { query, country, currency, limit, cursor },
+      (result, status) => status === 200 && Array.isArray(result?.products));
+  }
+
+  async createCart({ merchant, items, country, currency, idempotencyKey }) {
+    const payload = {
+      merchant, country, currency, idempotency_key: idempotencyKey,
+      items: items.map(({ variantId, quantity }) => ({ variant_id: variantId, quantity })),
+    };
+    return this.#request("native/carts", "POST", payload,
+      (result, status) => isNativeSummary(result, status, merchant, "cart_ref"));
+  }
+
+  async createCheckoutQuote({ merchant, cartRef, idempotencyKey }) {
+    const payload = { merchant, cart_ref: cartRef, idempotency_key: idempotencyKey };
+    return this.#request("native/checkout-quotes", "POST", payload,
+      (result, status) => isNativeQuote(result, status, merchant));
+  }
+
+  async getCheckoutQuote({ merchant, checkoutRef }) {
+    const payload = { merchant, checkout_ref: checkoutRef };
+    return this.#request("native/checkout-quotes/read", "POST", payload,
+      (result, status) => isNativeQuote(result, status, merchant) && result.checkout_ref === checkoutRef);
   }
 
   async getAttempt(approvalId) {
@@ -105,7 +143,7 @@ export class ShopifyCheckoutClient {
     return `checkouts/${encodeURIComponent(approvalId)}`;
   }
 
-  async #request(path, method, payload) {
+  async #request(path, method, payload, validate = isAttemptResult) {
     const headers = { authorization: `Bearer ${this.#token}`, accept: "application/json" };
     if (payload) headers["content-type"] = "application/json";
     const signal = AbortSignal.timeout(this.#timeoutMs);
@@ -125,10 +163,7 @@ export class ShopifyCheckoutClient {
       const message = typeof result?.detail === "string" ? result.detail : "Checkout service request failed.";
       throw new CheckoutApiError(response.status, message);
     }
-    const valid = payload
-      ? response.status === 200 && isPreviewResult(result, payload)
-      : isAttemptResult(result, response.status);
-    if (!valid) {
+    if (!validate(result, response.status)) {
       throw new CheckoutApiError(response.status, "Checkout service returned an invalid response.");
     }
     return result;

@@ -1,0 +1,18 @@
+[Unit]
+Description=Cloudflare Tunnel for FluxA Shopify checkout
+Wants=network-online.target
+After=network-online.target
+ConditionPathExists=/etc/fluxa-shopify-checkout/cloudflare-token
+
+[Service]
+DynamicUser=yes
+LoadCredential=tunnel-token:/etc/fluxa-shopify-checkout/cloudflare-token
+ExecStart=/usr/local/bin/cloudflared tunnel --no-autoupdate --metrics 127.0.0.1:17881 run --token-file %d/tunnel-token
+Restart=on-failure
+RestartSec=5s
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+
+[Install]
+WantedBy=multi-user.target

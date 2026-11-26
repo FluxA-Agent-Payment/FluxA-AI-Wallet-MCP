@@ -17,11 +17,15 @@ from e2b import Sandbox
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from httpx import ReadTimeout
+from httpx import HTTPError, ReadTimeout, TimeoutException
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from starlette.concurrency import run_in_threadpool
 
 from .attempts import UNKNOWN, Attempts, checkout_digest, order_binding
+from .catalog import (
+    CatalogSearchRequest, CreateCartRequest, CreateCheckoutQuoteRequest, ReadCheckoutQuoteRequest,
+    create_cart, create_checkout_quote, get_checkout_quote, search_catalog,
+)
 from .contract import (
     ORDER_ID, PCI_HOST, RECEIPT_PATH, RECEIPT_TIMEOUT, SANDBOX_TIMEOUT, TEST_CARDS, VARIANT_ID, WORKER_TIMEOUT,
     CheckoutGrant, PreviewStore, TestStore, checkout_entry_host, checkout_identity,
@@ -254,6 +258,36 @@ def create_app(
     @app.exception_handler(sqlite3.OperationalError)
     async def database_unavailable(_request, _error):
         return JSONResponse({"detail": "Checkout receipt storage is temporarily unavailable."}, status_code=503)
+
+    @app.post("/catalog/search", dependencies=[Depends(require_service)])
+    def catalog_search(request: CatalogSearchRequest) -> dict:
+        try:
+            return search_catalog(request)
+        except TimeoutException:
+            raise HTTPException(status_code=504, detail="Shopify catalog search timed out.") from None
+        except (HTTPError, ValueError):
+            raise HTTPException(status_code=502, detail="Shopify catalog search is unavailable.") from None
+
+    def native_result(operation, request) -> JSONResponse:
+        try:
+            result = operation(request)
+        except TimeoutException:
+            raise HTTPException(status_code=504, detail="Shopify cart or quote request timed out.") from None
+        except (HTTPError, ValueError):
+            raise HTTPException(status_code=502, detail="Shopify did not return a usable cart or quote.") from None
+        return JSONResponse(result, headers={"Cache-Control": "no-store"})
+
+    @app.post("/native/carts", dependencies=[Depends(require_service)])
+    def native_cart(request: CreateCartRequest) -> JSONResponse:
+        return native_result(create_cart, request)
+
+    @app.post("/native/checkout-quotes", dependencies=[Depends(require_service)])
+    def native_checkout_quote(request: CreateCheckoutQuoteRequest) -> JSONResponse:
+        return native_result(create_checkout_quote, request)
+
+    @app.post("/native/checkout-quotes/read", dependencies=[Depends(require_service)])
+    def native_checkout_quote_read(request: ReadCheckoutQuoteRequest) -> JSONResponse:
+        return native_result(get_checkout_quote, request)
 
     @app.post("/checkout-previews", dependencies=[Depends(require_service)])
     def preview(request: PreviewRequest) -> dict:

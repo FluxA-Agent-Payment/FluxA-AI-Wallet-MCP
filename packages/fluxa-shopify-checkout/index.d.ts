@@ -37,8 +37,49 @@ export type AttemptResult =
       order_id?: never;
     };
 
+export type CatalogSearchResult = {
+  products: Array<{
+    id: string;
+    title: string;
+    variants: Array<{
+      id: string;
+      url?: string;
+      price?: { amount: number; currency: string };
+      availability?: { available: boolean };
+      seller?: { name: string; url?: string; domain?: string };
+    }>;
+  }>;
+  messages?: Array<{ type: string; code: string; content: string }>;
+  pagination?: { has_next_page: boolean; cursor?: string };
+};
+
+export type NativeCartSummary = {
+  merchant: string;
+  currency: string;
+  items: { variant_id: string; title: string; quantity: number }[];
+  totals: { type: string; amount: number; display_text?: string }[];
+  messages: { type: string; content: string; code?: string; severity?: string; path?: string }[];
+  links: { type: string; url: string; title?: string }[];
+  expires_at?: string;
+};
+
+export type NativeCart = NativeCartSummary & {
+  cart_ref: string;
+};
+
+export type NativeCheckoutQuote = NativeCartSummary & {
+  checkout_ref: string;
+  status: "incomplete" | "requires_escalation" | "ready_for_complete" | "complete_in_progress" | "completed" | "canceled";
+  amount_provisional: boolean;
+  continue_url?: string;
+};
+
 export class ShopifyCheckoutClient {
   constructor(options: { baseUrl: string; token: string; timeoutMs?: number });
+  searchCatalog(input: { query: string; country: string; currency: string; limit?: number; cursor?: string }): Promise<CatalogSearchResult>;
+  createCart(input: { merchant: string; items: { variantId: string; quantity: number }[]; country: string; currency: string; idempotencyKey: string }): Promise<NativeCart>;
+  createCheckoutQuote(input: { merchant: string; cartRef: string; idempotencyKey: string }): Promise<NativeCheckoutQuote>;
+  getCheckoutQuote(input: { merchant: string; checkoutRef: string }): Promise<NativeCheckoutQuote>;
   preview(input: { merchant: string; variantId: string; quantity?: number; country?: string }): Promise<PreviewResult>;
   getAttempt(approvalId: string): Promise<AttemptResult>;
   submitApprovedTest(approvalId: string): Promise<AttemptResult>;

@@ -1,6 +1,6 @@
 # Shopify checkout service
 
-The internal API can open an anonymous Shopify checkout preview, or accept an approved checkout URL and submit one test payment in a fresh E2B Chromium session. For submission, the caller owns building the cart, presenting the items and total to the buyer, and obtaining approval.
+The internal API supports product discovery and anonymous cart and quote creation through Shop MCP. It also supports checkout previews and approved test payments in fresh E2B Chromium sessions. For test submission, the caller owns building the cart, presenting the items and total to the buyer, and obtaining approval.
 
 The service prepares guest checkout with native Shopify card fields on configured test stores, including custom checkout domains. It supports a separate billing address and Shopify's one-page and three-page layouts. The purchase approval covers the ordinary order review within the same checkout. Merchant sign-in, express wallets, third-party payment forms, and interactive verification are outside the automated flow. The service uses synthetic identities and documented gateway test cards.
 
@@ -34,9 +34,25 @@ If E2B's sandbox creation response times out, the service retries creation once 
 
 For recovery after the sandbox expires, subscribe the test store's Shopify app to `orders/create` using API version `2026-10`. Send HTTPS deliveries to `POST /webhooks/shopify/orders` and configure `create_app(order_webhooks={shop_domain: (checkout_host, app_client_secret)})`. The service verifies the raw-body HMAC and binds the test order by checkout token, configured host, items, currency and original presentment total. Duplicate deliveries leave the stored receipt intact. If Shopify cannot supply a matching event and the sandbox is gone, the attempt remains `reconciliation_required`. [Shopify webhook verification](https://shopify.dev/docs/apps/build/webhooks/verify-deliveries) · [Orders webhook payload](https://shopify.dev/docs/api/webhooks/latest)
 
-## Preview with the SDK
+## Discover products and create a quote with the SDK
 
 The Node.js and TypeScript SDK lives in `packages/fluxa-shopify-checkout`. It uses the checkout service bearer token. Keep the client in server-side code.
+
+Call `searchCatalog({ query, country, currency, limit, cursor })` or `POST /catalog/search` to discover Shopify products. Supply uppercase country and currency codes. Use the returned cursor unchanged for the next page with the same query and market. Search sends the query and market to Shopify and requires no buyer credentials. Availability and price can change. [Shop MCP search](https://shop.dev/docs/search)
+
+| SDK method | Private API | Input |
+| --- | --- | --- |
+| `createCart` | `POST /native/carts` | The exact `seller.domain`, the selected variants and quantities, buyer country and currency codes, and an idempotency UUID. Use `merchant`, `items: [{ variantId, quantity }]`, `country`, `currency`, and `idempotencyKey` in the SDK. |
+| `createCheckoutQuote` | `POST /native/checkout-quotes` | The same merchant, the `cart_ref` returned by cart creation, and a second idempotency UUID. Use `merchant`, `cartRef`, and `idempotencyKey` in the SDK. |
+| `getCheckoutQuote` | `POST /native/checkout-quotes/read` | The same merchant and the `checkout_ref` returned by quote creation. Use `merchant` and `checkoutRef` in the SDK. |
+
+Use each variant ID exactly as returned by Shopify, including attribution parameters. A cart and its checkout belong to one merchant. HTTP request bodies use `variant_id`, `idempotency_key`, `cart_ref`, and `checkout_ref` for the corresponding SDK fields. Create a cart or checkout when the shopper requests one. Use a stable UUID per create operation and reuse it only with the identical request. A transport failure can leave the result unknown. The service makes one upstream call per request. [Shop MCP tool reference](https://shop.dev/docs/tools) · [Shop MCP retries](https://shop.dev/docs/errors)
+
+Use the returned items and Shopify’s labeled totals in their original order. Amounts are in minor units of the returned `currency`. Show Shopify’s warnings and policy links. Quotes report Shopify’s checkout `status` and `amount_provisional`. An incomplete checkout or one requiring buyer input can still show a total that excludes delivery or tax. Use the latest `continue_url` for buyer review and completion. Shopify may return a new URL for the same checkout. [Shop MCP carts and checkout](https://shop.dev/docs/checkout)
+
+Keep the service token, `cart_ref` and `checkout_ref` in trusted server code. Keep the references and `continue_url` out of logs and analytics. Share the unchanged `continue_url` only with the shopper it belongs to. The native quote routes use the hosted Shop MCP contract pinned to `2026-07-28`. The E2B test submission API uses a separately approved test-store checkout. [Shop MCP quickstart](https://shop.dev/docs/quickstart)
+
+## Preview with the SDK
 
 ```js
 import { ShopifyCheckoutClient } from "./packages/fluxa-shopify-checkout/index.js";
