@@ -1,6 +1,35 @@
 # Shopify checkout service
 
-The internal API supports product discovery and anonymous cart and quote creation through Shop MCP. It also supports checkout previews and approved test payments in fresh E2B Chromium sessions. For test submission, the caller owns building the cart, presenting the items and total to the buyer, and obtaining approval.
+## Agent purchase demo
+
+Run the demo at `/shopping-demo/` on the private service. An agent can use the same workflow through the Node SDK, HTTP, or the MCP `buy` tool. The first step can be a keyword search through Shop MCP or resolution of a configured Shopify store's product URL. Discovery can return stores that have no test-payment integration. Use `GET /purchase-merchants` to determine which configured stores can accept a purchase.
+
+| Step | HTTP | SDK |
+| --- | --- | --- |
+| Find a product | `POST /catalog/search` or `POST /purchase-products/resolve` with `{url,country}` | `searchCatalog`, `resolvePurchaseProduct` |
+| Check merchant eligibility | `GET /purchase-merchants` | `listPurchaseMerchants` |
+| Create or edit a cart | `POST /purchases` with `{request_id,merchant,items,country}`; `PUT /purchases/{id}/cart` with `{items}` | `createPurchase`, `updatePurchaseCart` |
+| Request a payable quote | `POST /purchases/{id}/quote` with `{}` or current `shipping_options` | `quotePurchase` |
+| Submit the approved quote | `POST /purchases/{id}/confirm` with `{quote_id}` | `confirmPurchase` |
+| Read the order and events | `GET /purchases/{id}`, `GET /purchases/{id}/events?after=0` | `getPurchase`, `listPurchaseEvents` |
+
+The UUID used as `request_id` is the purchase ID. Reuse it with the same create request after a timeout. Variant IDs in `items` are native Shopify numeric IDs and quantities are integers. A cart belongs to one Shopify checkout. If incomplete delivery selection prevents a final quote, use the returned group IDs and send `shipping_options` as a map of each group ID to `{selected_option_id}`. The selection applies to the checkout that issued those IDs. Show the final items, delivery selection, currency, and native total to the buyer or evaluate them against their prior authorization before confirmation. The confirmation includes the exact quote ID and the E2B session remains bound to the checkout through submission. Shopify's ordinary review control runs within that approval.
+
+Read the same purchase on `preparing`, `submitting`, or `reconciliation_required`. For an expired or edited quote, request a current one before sending confirmation. For a submission with unknown outcome, keep the same purchase and await a matching receipt. `submitted` includes a Shopify order ID. Subsequent verified merchant events can report `order_status` and tracking. Only the internal service token may call the write APIs. Keep it in trusted application code.
+
+Configure `CHECKOUT_PURCHASE_STORES` as JSON keyed by the store's permanent `myshopify.com` domain. Each entry supplies the `gateway`, synthetic `profile`, and fixture `card`. Optional fields are `products` (display fixtures with `variant_id`, `title`, `country`, and `currency`), `checkout_host`, `network_hosts`, and `storefront_token`. Include a shipping address in `profile.delivery` for physical checkouts and use the same country as the request. Use `profile.billing` to supply independent billing details. `create_app(purchase_card=...)` is the card provider interface for this workflow. The service asks the provider for a card only after approving a current quote. It accepts only the gateway's test-card numbers and a synthetic identity.
+
+For signed merchant events, configure `CHECKOUT_ORDER_WEBHOOKS` as JSON keyed by permanent shop domain with `checkout_host` and app client `secret` in each entry. Point the test shop's subscribed order and fulfillment topics to `/webhooks/shopify/orders`. For callbacks to your own app, set `CHECKOUT_PURCHASE_EVENT_URL` and `CHECKOUT_PURCHASE_EVENT_SECRET`. Each callback carries the durable event ID in `X-FluxA-Event-ID` and the hex HMAC-SHA256 of the exact request body in `X-FluxA-Signature`. Acknowledge with 2xx and deduplicate by event ID. Consumers can also poll with the last seen ID. Delivery retries until acknowledgement. [Shopify Storefront Cart API](https://shopify.dev/docs/api/storefront/2026-10/mutations/cartCreate) · [Shopify Checkout WebMCP](https://shopify.dev/docs/agents/carts-and-checkout/checkout-webmcp) · [Shopify webhook verification](https://shopify.dev/docs/apps/build/webhooks/verify-deliveries)
+
+Start the MCP server with `node packages/fluxa-shopify-checkout/mcp-server.js` using `CHECKOUT_SERVICE_URL` and `CHECKOUT_SERVICE_TOKEN`. The terminal demo uses these variables and shows the final amount before requesting approval.
+
+```bash
+node packages/fluxa-shopify-checkout/examples/purchase-test.mjs --approved-test STORE VARIANT COUNTRY [QUANTITY]
+```
+
+## Direct approved-checkout integration
+
+The direct integration supports product discovery and anonymous cart and quote creation through Shop MCP. It also supports checkout previews and approved test payments in fresh E2B Chromium sessions. For test submission, the caller owns building the cart, presenting the items and total to the buyer, and obtaining approval.
 
 The service prepares guest checkout with native Shopify card fields on configured test stores, including custom checkout domains. It supports a separate billing address and Shopify's one-page and three-page layouts. The purchase approval covers the ordinary order review within the same checkout. Merchant sign-in, express wallets, third-party payment forms, and interactive verification are outside the automated flow. The service uses synthetic identities and documented gateway test cards.
 

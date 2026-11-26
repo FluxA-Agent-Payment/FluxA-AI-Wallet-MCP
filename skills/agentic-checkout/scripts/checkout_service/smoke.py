@@ -7,6 +7,7 @@ from uuid import UUID
 
 from .api import create_app
 from .contract import CheckoutGrant, PreviewStore, TestStore, checkout_entry_host
+from .purchase import PurchaseMerchant
 
 
 def app():
@@ -14,7 +15,30 @@ def app():
         host: PreviewStore(settings["permalink_endpoint"], tuple(settings.get("network_hosts", [])))
         for host, settings in json.loads(os.environ.get("CHECKOUT_PREVIEW_STORES", "{}")).items()
     }
+    configured = json.loads(os.environ.get("CHECKOUT_PURCHASE_STORES", "{}"))
+    purchase_merchants = {
+        host: PurchaseMerchant(
+            TestStore(settings["gateway"], tuple(settings.get("network_hosts", ())), settings.get("checkout_host")),
+            settings["profile"], tuple(settings.get("products", ())), settings.get("storefront_token"),
+        )
+        for host, settings in configured.items()
+    }
+    order_webhooks = {
+        shop: (settings["checkout_host"], settings["secret"])
+        for shop, settings in json.loads(os.environ.get("CHECKOUT_ORDER_WEBHOOKS", "{}")).items()
+    }
+    event_url, event_secret = os.environ.get("CHECKOUT_PURCHASE_EVENT_URL"), os.environ.get("CHECKOUT_PURCHASE_EVENT_SECRET")
+    if bool(event_url) != bool(event_secret):
+        raise ValueError("Configure both the purchase callback URL and signing secret.")
+
+    def purchase_card(_, host):
+        return configured[host]["card"]
+
     service = {
+        "purchase_merchants": purchase_merchants,
+        "purchase_card": purchase_card,
+        "purchase_events": (event_url, event_secret) if event_url else None,
+        "order_webhooks": order_webhooks,
         "preview_stores": previews,
         "bearer_token": os.environ["CHECKOUT_SERVICE_TOKEN"],
         "database": Path(os.environ["CHECKOUT_ATTEMPTS_DB"]),
@@ -44,6 +68,8 @@ def app():
     webhook_secret = os.environ.get("CHECKOUT_TEST_WEBHOOK_SECRET")
     if bool(webhook_shop) != bool(webhook_secret):
         raise ValueError("Configure both the Shopify webhook shop and app client secret.")
+    if webhook_shop:
+        order_webhooks[webhook_shop] = checkout_host, webhook_secret
     profile = {
         "email": "checkout@example.com",
         "delivery": json.loads(os.environ["CHECKOUT_TEST_DELIVERY"]),
@@ -67,6 +93,5 @@ def app():
         credentials=lambda _: profile,
         card=lambda _: test_card,
         test_stores={host: store},
-        order_webhooks={webhook_shop: (checkout_host, webhook_secret)} if webhook_shop else None,
         **service,
     )

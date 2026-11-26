@@ -12,6 +12,7 @@ RUN python -m pip install --no-cache-dir -r requirements-service.txt \
 
 COPY scripts/shopify/ scripts/shopify/
 COPY scripts/checkout_service/ scripts/checkout_service/
+COPY demo/ demo/
 
 USER 10001:10001
 EXPOSE 8080

@@ -1,18 +1,30 @@
 ---
 name: fluxa agentic checkout
-description: FluxA Agentic Checkout is a general-purpose checkout automation and human handoff runbook. Use it when an AI agent needs to open a product or checkout link, attempt deterministic Playwright checkout on currently supported surfaces, autofill contact, delivery, card, and billing fields, and stop in a clean handoff state when CAPTCHA, Cloudflare, OTP, 3DS, unsupported merchants, or store-specific flows require a human operator to finish the purchase.
+description: FluxA Agentic Checkout supports a hosted Shopify test purchase from discovery to receipt and a local checkout automation and human handoff workflow. Use it when an AI agent needs to open a product or checkout link, attempt deterministic Playwright checkout on currently supported surfaces, autofill contact, delivery, card, and billing fields, and stop in a clean handoff state when CAPTCHA, Cloudflare, OTP, 3DS, unsupported merchants, or store-specific flows require a human operator to finish the purchase.
 ---
 
 # FluxA Agentic Checkout
 
 
-**Skill version: 0.4.1** | **Product surface: deterministic checkout automation + explicit human handoff**
+**Skill version: 0.5.0** | **Hosted Shopify test purchases and local checkout automation**
 
 ## Overview
 
 Use this skill as the release-grade operator runbook for checkout automation. It accepts arbitrary entry links, attempts the currently implemented automation routes, and produces structured results that tell the next agent or human whether the checkout is ready, partially filled, blocked by verification, or requires manual takeover.
 
-## How to do checkout for users
+## Hosted Shopify purchase demo
+
+Use the private checkout service when the task is to demonstrate an agent purchase from a configured Shopify test store. See [Shopify checkout service](references/shopify-e2b-service.md#agent-purchase-demo) for configuration and API contracts. The same workflow is available in the `buy` MCP tool, the Node SDK, and the demo page.
+
+1. Search a product or resolve its storefront URL. Use `listPurchaseMerchants` to check whether the returned merchant accepts test checkout.
+2. Create or edit a single-merchant cart. Retain the purchase ID for the entire workflow.
+3. Request a native quote. Select any required delivery options on the same purchase.
+4. Present the quoted terms or match them against the buyer's prior authorization. Confirm the exact quote ID. The service handles the merchant's ordinary order review under that approval.
+5. Read the Shopify order ID and purchase events. If the response is interrupted or the result is uncertain, poll the same purchase ID. An approved purchase must not be resubmitted with a new ID to recover a missing receipt.
+
+The hosted demo uses a synthetic profile and a configured gateway test card. Use the card provider interface to supply credentials from trusted server code. Merchant authentication or verification can require a separate approved flow.
+
+## Local checkout workflow
 
 ### Step 1: Check whether the URL supports automated checkout
 

@@ -1,5 +1,6 @@
 """Internal HTTP API and E2B dispatch for authorized Shopify test purchases."""
 
+import asyncio
 import hmac
 import json
 import re
@@ -31,7 +32,7 @@ from .contract import (
     CheckoutGrant, PreviewStore, TestStore, checkout_entry_host, checkout_identity,
     is_hostname, uses_test_data, validate_approval,
 )
-from .reconciliation import read_order_receipt, verify_signature
+from .reconciliation import verify_signature
 from .template import SOURCE_MARKER, WORKER_ENV, source_digest
 
 WORKER_COMMAND = "/usr/bin/python3 -m checkout_service."
@@ -191,15 +192,25 @@ def create_app(
     template: str,
     preview_stores: dict[str, PreviewStore] | None = None,
     order_webhooks: dict[str, tuple[str, str]] | None = None,
+    purchase_merchants: dict | None = None,
+    purchase_card: Callable[[UUID, str], dict] | None = None,
+    purchase_events: tuple[str, str] | None = None,
 ) -> FastAPI:
     """Connect the API to the purchase approval, profile, vault and Shopify receipt ports."""
+    from .purchase import PurchaseFlow, mount_purchase_routes, validate_merchants
+    from .purchase_events import EventDelivery, apply_shopify_event
+
     template_name, _, build_id = template.rpartition(":")
     if not template_name or not re.fullmatch(r"[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}", build_id):
         raise ValueError("Pin the E2B template by build UUID.")
     preview_stores = dict(preview_stores or {})
     test_stores = dict(test_stores)
     order_webhooks = dict(order_webhooks or {})
-    if len(bearer_token) < 32 or not (test_stores or preview_stores):
+    purchase_merchants = dict(purchase_merchants or {})
+    validate_merchants(purchase_merchants)
+    if purchase_merchants and purchase_card is None:
+        raise ValueError("Configure a test card provider for purchase merchants.")
+    if len(bearer_token) < 32 or not (test_stores or preview_stores or purchase_merchants):
         raise ValueError("Configure a service token and at least one checkout or preview store.")
     for host, store in list(test_stores.items()):
         checkout_host = store.checkout_host or host
@@ -216,17 +227,15 @@ def create_app(
         ):
             raise ValueError("Provide the store's advertised HTTPS checkout permalink endpoint.")
     for shop, (checkout_host, secret) in order_webhooks.items():
-        if not is_hostname(shop) or not shop.endswith(".myshopify.com") or checkout_host not in test_stores or not secret:
+        merchant = purchase_merchants.get(shop)
+        merchant_host = (merchant.store.checkout_host or shop) if merchant else None
+        if (not is_hostname(shop) or not shop.endswith(".myshopify.com") or not secret
+                or (checkout_host not in test_stores and checkout_host != merchant_host)):
             raise ValueError("Configure a Shopify webhook shop, test checkout host and app client secret.")
 
     attempts = Attempts(database)
     digest = source_digest()
     providers = ThreadPoolExecutor(max_workers=8, thread_name_prefix="checkout-provider")
-
-    @asynccontextmanager
-    async def lifespan(_):
-        yield
-        providers.shutdown(wait=False, cancel_futures=True)
 
     def read_provider(callback, approval_id):
         future = providers.submit(callback, approval_id)
@@ -234,6 +243,21 @@ def create_app(
             return future.result(timeout=PROVIDER_TIMEOUT)
         finally:
             future.cancel()
+
+    flow = PurchaseFlow(attempts, purchase_merchants, purchase_card, template, digest, read_provider)
+    delivery = EventDelivery(flow.purchases, *purchase_events) if purchase_events else None
+
+    @asynccontextmanager
+    async def lifespan(_):
+        stop = asyncio.Event()
+        task = asyncio.create_task(delivery.run(stop)) if delivery else None
+        try:
+            yield
+        finally:
+            stop.set()
+            if task:
+                await task
+            providers.shutdown(wait=False, cancel_futures=True)
 
     def load_profile(approval_id):
         contact = credentials(approval_id)
@@ -458,10 +482,13 @@ def create_app(
             if cleanup:
                 close_sandbox(sandbox)
 
+    mount_purchase_routes(app, require_service, flow, preview_stores)
+
     @app.post("/webhooks/shopify/orders")
     async def shopify_order(request: Request):
         shop = request.headers.get("x-shopify-shop-domain")
-        if shop not in order_webhooks or request.headers.get("x-shopify-topic") != "orders/create":
+        topic = request.headers.get("x-shopify-topic")
+        if shop not in order_webhooks or topic not in {"orders/create", "orders/paid", "fulfillments/create", "fulfillments/update"}:
             raise HTTPException(status_code=404)
         host, secret = order_webhooks[shop]
         body = bytearray()
@@ -472,10 +499,7 @@ def create_app(
         raw = bytes(body)
         if not verify_signature(raw, request.headers.get("x-shopify-hmac-sha256", ""), secret):
             raise HTTPException(status_code=401)
-        receipt = read_order_receipt(raw)
-        if receipt:
-            binding = order_binding(host, receipt.items, receipt.total_minor_units, receipt.currency)
-            await run_in_threadpool(attempts.record_order, checkout_digest(receipt.checkout_token), binding, receipt.order_id)
+        await run_in_threadpool(apply_shopify_event, flow.purchases, attempts, shop, host, topic, raw)
         return Response(status_code=204)
 
     return app

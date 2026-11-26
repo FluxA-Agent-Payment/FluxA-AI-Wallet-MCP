@@ -79,6 +79,11 @@ class Attempts:
                  time.time(), expires_at, time.time()),
             ).rowcount == 1
 
+    @staticmethod
+    def claim_prepared(db, approval, lease, digest, sandbox_id, binding, expires_at):
+        db.execute("""INSERT INTO attempts(approval_id, checkout_digest, expires_at, lease, sandbox_id, binding)
+                      VALUES(?, ?, ?, ?, ?, ?)""", (approval, digest, expires_at, lease, sandbox_id, binding))
+
     def finish(self, approval: str, lease: str, result: dict):
         with self.connection() as db:
             db.execute(
@@ -90,9 +95,11 @@ class Attempts:
 
     def record_order(self, digest: str, binding: str, order_id: str):
         with self.connection() as db:
-            db.execute(
+            row = db.execute(
                 """UPDATE attempts SET result = ?
                 WHERE checkout_digest = ? AND binding = ? AND sandbox_id IS NOT NULL
-                    AND (result IS NULL OR json_extract(result, '$.status') != 'submitted')""",
+                    AND (result IS NULL OR json_extract(result, '$.status') != 'submitted')
+                RETURNING approval_id""",
                 (json.dumps({"status": "submitted", "order_id": order_id}), digest, binding),
-            )
+            ).fetchone()
+            return row["approval_id"] if row else None
